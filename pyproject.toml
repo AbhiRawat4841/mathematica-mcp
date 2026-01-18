@@ -1,0 +1,55 @@
+[project]
+name = "mathematica-mcp"
+version = "0.1.0"
+description = "Full GUI control of Mathematica notebooks and kernel via Model Context Protocol"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "Abhishek Singh Rawat"}
+]
+keywords = ["mathematica", "wolfram", "mcp", "llm", "ai", "notebook", "model-context-protocol"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Mathematics",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+dependencies = [
+    "mcp>=1.0.0",
+    "wolframclient>=1.4.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/AbhiRawat4841/mathematica-mcp"
+Repository = "https://github.com/AbhiRawat4841/mathematica-mcp"
+Issues = "https://github.com/AbhiRawat4841/mathematica-mcp/issues"
+
+[project.scripts]
+mathematica-mcp = "mathematica_mcp.server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mathematica_mcp"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
