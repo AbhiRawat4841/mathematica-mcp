@@ -156,6 +156,33 @@ processCommand[request_Association] := Module[
       
       "export_notebook", cmdExportNotebook[params],
       
+      (* TIER 1: Variable Introspection *)
+      "list_variables", cmdListVariables[params],
+      "get_variable", cmdGetVariable[params],
+      "set_variable", cmdSetVariable[params],
+      "clear_variables", cmdClearVariables[params],
+      "get_expression_info", cmdGetExpressionInfo[params],
+      
+      (* TIER 1: Error Recovery *)
+      "get_messages", cmdGetMessages[params],
+      
+      (* TIER 2: File Handling *)
+      "open_notebook_file", cmdOpenNotebookFile[params],
+      "run_script", cmdRunScript[params],
+      
+      (* TIER 4: Debugging *)
+      "trace_evaluation", cmdTraceEvaluation[params],
+      "time_expression", cmdTimeExpression[params],
+      "check_syntax", cmdCheckSyntax[params],
+      
+      (* TIER 5: Data I/O *)
+      "import_data", cmdImportData[params],
+      "export_data", cmdExportData[params],
+      "list_import_formats", cmdListImportFormats[params],
+      
+      (* TIER 6: Visualization *)
+      "export_graphics", cmdExportGraphics[params],
+      
       _, <|"error" -> ("Unknown command: " <> command)|>
     ],
     <|"error" -> "Command execution failed"|>
@@ -530,6 +557,491 @@ cmdExportNotebook[params_] := Module[{nb, path, format},
     "exported" -> True,
     "path" -> path,
     "format" -> format
+  |>
+];
+
+(* ============================================================================ *)
+(* TIER 1: VARIABLE INTROSPECTION                                               *)
+(* ============================================================================ *)
+
+cmdListVariables[params_] := Module[{names, includeSystem, variables},
+  includeSystem = Lookup[params, "include_system", False];
+  
+  names = If[TrueQ[includeSystem],
+    Names["Global`*"],
+    Select[Names["Global`*"], !StringStartsQ[#, "$"] &]
+  ];
+  
+  variables = Map[
+    Function[{name},
+      Module[{val, head, bytes},
+        val = Quiet[Check[ToExpression[name], $Failed]];
+        head = If[val === $Failed, "Failed", ToString[Head[val]]];
+        bytes = If[val === $Failed, 0, Quiet[Check[ByteCount[val], 0]]];
+        <|
+          "name" -> StringReplace[name, "Global`" -> ""],
+          "head" -> head,
+          "bytes" -> bytes,
+          "preview" -> If[val === $Failed, 
+            "Failed to evaluate",
+            ToString[Short[val, 3], InputForm]
+          ]
+        |>
+      ]
+    ],
+    names
+  ];
+  
+  <|
+    "success" -> True,
+    "count" -> Length[variables],
+    "variables" -> variables
+  |>
+];
+
+cmdGetVariable[params_] := Module[{name, fullName, val, result},
+  name = Lookup[params, "name", None];
+  
+  If[name === None,
+    Return[<|"error" -> "No variable name specified"|>]
+  ];
+  
+  fullName = If[StringContainsQ[name, "`"], name, "Global`" <> name];
+  
+  If[!NameQ[fullName],
+    Return[<|"error" -> ("Variable '" <> name <> "' not found")|>]
+  ];
+  
+  val = Quiet[Check[ToExpression[fullName], $Failed]];
+  
+  If[val === $Failed,
+    Return[<|"error" -> ("Failed to evaluate '" <> name <> "'")|>]
+  ];
+  
+  <|
+    "success" -> True,
+    "name" -> name,
+    "value" -> ToString[val, InputForm],
+    "head" -> ToString[Head[val]],
+    "bytes" -> ByteCount[val],
+    "dimensions" -> If[ArrayQ[val], Dimensions[val], Null],
+    "tex" -> Quiet[Check[ToString[TeXForm[val]], Null]]
+  |>
+];
+
+cmdSetVariable[params_] := Module[{name, value, fullName, result},
+  name = Lookup[params, "name", None];
+  value = Lookup[params, "value", None];
+  
+  If[name === None,
+    Return[<|"error" -> "No variable name specified"|>]
+  ];
+  If[value === None,
+    Return[<|"error" -> "No value specified"|>]
+  ];
+  
+  fullName = If[StringContainsQ[name, "`"], name, "Global`" <> name];
+  
+  result = Quiet[Check[
+    ToExpression[fullName <> " = " <> value],
+    $Failed
+  ]];
+  
+  If[result === $Failed,
+    Return[<|"error" -> "Failed to set variable"|>]
+  ];
+  
+  <|
+    "success" -> True,
+    "name" -> name,
+    "value" -> ToString[result, InputForm],
+    "head" -> ToString[Head[result]]
+  |>
+];
+
+cmdClearVariables[params_] := Module[{names, pattern, cleared},
+  names = Lookup[params, "names", None];
+  pattern = Lookup[params, "pattern", None];
+  
+  cleared = Which[
+    ListQ[names] && Length[names] > 0,
+      Map[
+        Function[{name},
+          Module[{fullName},
+            fullName = If[StringContainsQ[name, "`"], name, "Global`" <> name];
+            Quiet[ClearAll[fullName]];
+            name
+          ]
+        ],
+        names
+      ],
+    StringQ[pattern],
+      Module[{matching},
+        matching = Names[pattern];
+        Quiet[ClearAll /@ matching];
+        matching
+      ],
+    True,
+      Module[{allGlobal},
+        allGlobal = Names["Global`*"];
+        Quiet[ClearAll /@ allGlobal];
+        allGlobal
+      ]
+  ];
+  
+  <|
+    "success" -> True,
+    "cleared" -> cleared,
+    "count" -> Length[cleared]
+  |>
+];
+
+cmdGetExpressionInfo[params_] := Module[{expr, exprStr, result, head, depth, leafCount, atomQ},
+  exprStr = Lookup[params, "expression", None];
+  
+  If[exprStr === None,
+    Return[<|"error" -> "No expression specified"|>]
+  ];
+  
+  result = Quiet[Check[ToExpression[exprStr], $Failed]];
+  
+  If[result === $Failed,
+    Return[<|"error" -> "Failed to evaluate expression"|>]
+  ];
+  
+  <|
+    "success" -> True,
+    "expression" -> exprStr,
+    "head" -> ToString[Head[result]],
+    "full_form" -> ToString[FullForm[result]],
+    "depth" -> Depth[result],
+    "leaf_count" -> LeafCount[result],
+    "byte_count" -> ByteCount[result],
+    "atomic" -> AtomQ[result],
+    "numeric" -> NumericQ[result],
+    "list" -> ListQ[result],
+    "dimensions" -> If[ArrayQ[result], Dimensions[result], Null]
+  |>
+];
+
+(* ============================================================================ *)
+(* TIER 1: ERROR RECOVERY                                                       *)
+(* ============================================================================ *)
+
+$MCPMessageLog = {};
+$MCPMaxMessages = 50;
+
+(* Hook into message system to capture messages *)
+captureMessage[msg_] := Module[{},
+  AppendTo[$MCPMessageLog, <|
+    "timestamp" -> DateString["ISODateTime"],
+    "message" -> ToString[msg]
+  |>];
+  (* Keep only last N messages *)
+  If[Length[$MCPMessageLog] > $MCPMaxMessages,
+    $MCPMessageLog = Take[$MCPMessageLog, -$MCPMaxMessages]
+  ];
+];
+
+cmdGetMessages[params_] := Module[{count, messages},
+  count = Lookup[params, "count", 10];
+  
+  messages = Take[$MCPMessageLog, UpTo[count]];
+  
+  <|
+    "success" -> True,
+    "count" -> Length[messages],
+    "total_captured" -> Length[$MCPMessageLog],
+    "messages" -> Reverse[messages]
+  |>
+];
+
+(* ============================================================================ *)
+(* TIER 2: FILE HANDLING                                                        *)
+(* ============================================================================ *)
+
+cmdOpenNotebookFile[params_] := Module[{path, expandedPath, nb},
+  path = Lookup[params, "path", None];
+  
+  If[path === None,
+    Return[<|"error" -> "No path specified"|>]
+  ];
+  
+  (* Expand ~ to home directory *)
+  expandedPath = If[StringStartsQ[path, "~"],
+    StringReplace[path, StartOfString ~~ "~" -> $HomeDirectory],
+    path
+  ];
+  
+  (* Convert to absolute path if relative *)
+  If[!FileExistsQ[expandedPath],
+    Return[<|"error" -> ("File not found: " <> expandedPath)|>]
+  ];
+  
+  nb = Quiet[Check[NotebookOpen[expandedPath], $Failed]];
+  
+  If[nb === $Failed || !MatchQ[nb, _NotebookObject],
+    Return[<|"error" -> "Failed to open notebook"|>]
+  ];
+  
+  <|
+    "success" -> True,
+    "id" -> ToString[nb, InputForm],
+    "path" -> expandedPath,
+    "title" -> CurrentValue[nb, WindowTitle],
+    "cell_count" -> Length[Cells[nb]]
+  |>
+];
+
+cmdRunScript[params_] := Module[{path, expandedPath, result, startTime, timing},
+  path = Lookup[params, "path", None];
+  
+  If[path === None,
+    Return[<|"error" -> "No path specified"|>]
+  ];
+  
+  expandedPath = If[StringStartsQ[path, "~"],
+    StringReplace[path, StartOfString ~~ "~" -> $HomeDirectory],
+    path
+  ];
+  
+  If[!FileExistsQ[expandedPath],
+    Return[<|"error" -> ("File not found: " <> expandedPath)|>]
+  ];
+  
+  startTime = AbsoluteTime[];
+  result = Quiet[Check[Get[expandedPath], $Failed]];
+  timing = Round[(AbsoluteTime[] - startTime) * 1000];
+  
+  If[result === $Failed,
+    Return[<|
+      "success" -> False,
+      "error" -> "Script execution failed",
+      "path" -> expandedPath,
+      "timing_ms" -> timing
+    |>]
+  ];
+  
+  <|
+    "success" -> True,
+    "path" -> expandedPath,
+    "result" -> ToString[result, InputForm],
+    "timing_ms" -> timing
+  |>
+];
+
+(* ============================================================================ *)
+(* TIER 4: DEBUGGING                                                            *)
+(* ============================================================================ *)
+
+cmdTraceEvaluation[params_] := Module[{expr, maxDepth, trace, result},
+  expr = Lookup[params, "expression", None];
+  maxDepth = Lookup[params, "max_depth", 5];
+  
+  If[expr === None,
+    Return[<|"error" -> "No expression specified"|>]
+  ];
+  
+  trace = {};
+  
+  result = Quiet[Check[
+    Block[{$Output = {}},
+      TraceScan[
+        (AppendTo[trace, ToString[#, InputForm]]) &,
+        ToExpression[expr],
+        TraceDepth -> maxDepth
+      ]
+    ],
+    $Failed
+  ]];
+  
+  If[result === $Failed,
+    Return[<|"error" -> "Trace failed"|>]
+  ];
+  
+  <|
+    "success" -> True,
+    "expression" -> expr,
+    "result" -> ToString[result, InputForm],
+    "steps" -> Length[trace],
+    "trace" -> Take[trace, UpTo[100]]  (* Limit output size *)
+  |>
+];
+
+cmdTimeExpression[params_] := Module[{expr, result, timing, memBefore, memAfter},
+  expr = Lookup[params, "expression", None];
+  
+  If[expr === None,
+    Return[<|"error" -> "No expression specified"|>]
+  ];
+  
+  memBefore = MemoryInUse[];
+  timing = Quiet[Check[AbsoluteTiming[ToExpression[expr]], $Failed]];
+  memAfter = MemoryInUse[];
+  
+  If[timing === $Failed,
+    Return[<|"error" -> "Timing failed"|>]
+  ];
+  
+  <|
+    "success" -> True,
+    "expression" -> expr,
+    "time_seconds" -> timing[[1]],
+    "time_ms" -> Round[timing[[1]] * 1000],
+    "result" -> ToString[timing[[2]], InputForm],
+    "memory_delta_bytes" -> (memAfter - memBefore)
+  |>
+];
+
+cmdCheckSyntax[params_] := Module[{code, check},
+  code = Lookup[params, "code", None];
+  
+  If[code === None,
+    Return[<|"error" -> "No code specified"|>]
+  ];
+  
+  check = Quiet[SyntaxQ[code]];
+  
+  <|
+    "success" -> True,
+    "code" -> StringTake[code, UpTo[200]],
+    "valid" -> TrueQ[check],
+    "message" -> If[!TrueQ[check], "Syntax error in code", "Valid syntax"]
+  |>
+];
+
+(* ============================================================================ *)
+(* TIER 5: DATA I/O                                                             *)
+(* ============================================================================ *)
+
+cmdImportData[params_] := Module[{path, format, expandedPath, data, opts},
+  path = Lookup[params, "path", None];
+  format = Lookup[params, "format", Automatic];
+  
+  If[path === None,
+    Return[<|"error" -> "No path specified"|>]
+  ];
+  
+  expandedPath = If[StringStartsQ[path, "~"],
+    StringReplace[path, StartOfString ~~ "~" -> $HomeDirectory],
+    path
+  ];
+  
+  If[!FileExistsQ[expandedPath] && !StringStartsQ[expandedPath, "http"],
+    Return[<|"error" -> ("File not found: " <> expandedPath)|>]
+  ];
+  
+  data = Quiet[Check[
+    If[format === Automatic,
+      Import[expandedPath],
+      Import[expandedPath, format]
+    ],
+    $Failed
+  ]];
+  
+  If[data === $Failed,
+    Return[<|"error" -> "Import failed"|>]
+  ];
+  
+  <|
+    "success" -> True,
+    "path" -> expandedPath,
+    "format" -> If[format === Automatic, "Auto-detected", format],
+    "head" -> ToString[Head[data]],
+    "dimensions" -> If[ArrayQ[data], Dimensions[data], None],
+    "byte_count" -> ByteCount[data],
+    "preview" -> ToString[Short[data, 5], InputForm]
+  |>
+];
+
+cmdExportData[params_] := Module[{path, expression, format, expandedPath, result},
+  path = Lookup[params, "path", None];
+  expression = Lookup[params, "expression", None];
+  format = Lookup[params, "format", Automatic];
+  
+  If[path === None,
+    Return[<|"error" -> "No path specified"|>]
+  ];
+  If[expression === None,
+    Return[<|"error" -> "No expression specified"|>]
+  ];
+  
+  expandedPath = If[StringStartsQ[path, "~"],
+    StringReplace[path, StartOfString ~~ "~" -> $HomeDirectory],
+    path
+  ];
+  
+  result = Quiet[Check[
+    Module[{expr},
+      expr = ToExpression[expression];
+      If[format === Automatic,
+        Export[expandedPath, expr],
+        Export[expandedPath, expr, format]
+      ]
+    ],
+    $Failed
+  ]];
+  
+  If[result === $Failed,
+    Return[<|"error" -> "Export failed"|>]
+  ];
+  
+  <|
+    "success" -> True,
+    "path" -> expandedPath,
+    "format" -> If[format === Automatic, "Auto-detected", format],
+    "bytes" -> FileByteCount[expandedPath]
+  |>
+];
+
+cmdListImportFormats[params_] := Module[{},
+  <|
+    "success" -> True,
+    "import_formats" -> $ImportFormats,
+    "export_formats" -> $ExportFormats
+  |>
+];
+
+(* ============================================================================ *)
+(* TIER 6: VISUALIZATION                                                        *)
+(* ============================================================================ *)
+
+cmdExportGraphics[params_] := Module[{expression, path, format, size, expandedPath, result, img},
+  expression = Lookup[params, "expression", None];
+  path = Lookup[params, "path", None];
+  format = Lookup[params, "format", "PNG"];
+  size = Lookup[params, "size", 600];
+  
+  If[expression === None,
+    Return[<|"error" -> "No expression specified"|>]
+  ];
+  If[path === None,
+    Return[<|"error" -> "No path specified"|>]
+  ];
+  
+  expandedPath = If[StringStartsQ[path, "~"],
+    StringReplace[path, StartOfString ~~ "~" -> $HomeDirectory],
+    path
+  ];
+  
+  result = Quiet[Check[
+    Module[{expr},
+      expr = ToExpression[expression];
+      Export[expandedPath, expr, format, ImageSize -> size]
+    ],
+    $Failed
+  ]];
+  
+  If[result === $Failed,
+    Return[<|"error" -> "Export failed"|>]
+  ];
+  
+  <|
+    "success" -> True,
+    "path" -> expandedPath,
+    "format" -> format,
+    "size" -> size,
+    "bytes" -> FileByteCount[expandedPath]
   |>
 ];
 

@@ -1,14 +1,40 @@
 # Mathematica MCP
 
-Full GUI control of Mathematica notebooks and kernel via Model Context Protocol (MCP).
+**The most comprehensive Model Context Protocol server for Mathematica** - giving LLMs the same power over Mathematica that they have over Python.
 
-This MCP server allows LLMs (like Claude) to:
-- **Create, read, and manipulate notebooks** - Full programmatic access to Mathematica notebooks
-- **Execute Wolfram Language code** - Run computations and get results
-- **Verify mathematical derivations** - Check if derivation steps are mathematically valid
-- **Access Wolfram repositories** - Search and load functions/datasets from Wolfram repositories
-- **Take screenshots** - Capture notebook views, cells, or rendered expressions
-- **Run long computations** - Submit async jobs for computations >60 seconds
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![Mathematica 14+](https://img.shields.io/badge/Mathematica-14+-red.svg)](https://www.wolfram.com/mathematica/)
+
+---
+
+## Why This MCP?
+
+### The Problem
+
+Other Mathematica MCPs treat Mathematica as a **stateless calculator** - each command runs in isolation, variables don't persist, and there's no way to inspect session state. This is like trying to code Python without being able to see your variables or debug errors.
+
+### Our Solution
+
+This MCP gives LLMs **full session control** with persistent state, variable introspection, debugging tools, and natural language integration - making Mathematica as easy to work with as Python.
+
+---
+
+## Key Advantages vs Other Mathematica MCPs
+
+**Why we’re different (at a glance):** Persistent state, full variable introspection, natural language to code, deep debugging, rich file I/O, knowledge/units, and graphics export. Think “Mathematica with Python-like ergonomics” instead of “stateless calculator.”
+
+- Persistent session state: variables/definitions survive across calls via the addon (not stateless evals)
+- Full visibility: list/get/clear variables, inspect expressions (Head, depth, size)
+- Natural language + Wolfram Alpha: NL→code, Alpha queries, entities, units, constants
+- Real debugging: trace evaluation, timing with memory, syntax check, fuzzy function search
+- File and notebooks: open/run .nb/.wl/.wlnb, read/convert notebooks (MD/LaTeX), outlines, scripts
+- Data I/O: import/export 250+ formats (CSV/JSON/Excel/URLs), list supported formats
+- Knowledge/units: entity lookup (countries/chemicals/planets…), convert_units (thousands), get_constant
+- Graphics: export PNG/PDF/SVG/EPS, inspect graphics, compare plots, animations
+- GUI control: create/edit notebooks and cells, evaluate, screenshot/rasterize
+
+---
 
 ## Architecture
 
@@ -24,8 +50,8 @@ This MCP server allows LLMs (like Claude) to:
 ```
 
 **Two components:**
-1. **Python MCP Server** - Exposes tools to LLMs via the MCP protocol
-2. **Mathematica Addon** - Runs inside Mathematica, provides socket-based control
+1. **Python MCP Server** - Exposes 60+ tools to LLMs via MCP protocol
+2. **Mathematica Addon** - Runs inside Mathematica with persistent session state
 
 ---
 
@@ -52,7 +78,7 @@ cd ~/mcp/mathematica-mcp/addon
 wolframscript -file install.wl
 ```
 
-**Option B: Manual load in Mathematica (single session)**
+**Option B: Manual load in Mathematica**
 
 ```mathematica
 Get["~/mcp/mathematica-mcp/addon/MathematicaMCP.wl"]
@@ -68,20 +94,7 @@ StartMCPServer[]
   "mcpServers": {
     "mathematica": {
       "command": "uv",
-      "args": ["--directory", "/Users/YOUR_USERNAME/mcp/mathematica-mcp", "run", "mathematica-mcp"]
-    }
-  }
-}
-```
-
-**For Claude Desktop (`~/Library/Application Support/Claude/claude_desktop_config.json`):**
-
-```json
-{
-  "mcpServers": {
-    "mathematica": {
-      "command": "uv",
-      "args": ["--directory", "/Users/YOUR_USERNAME/mcp/mathematica-mcp", "run", "mathematica-mcp"]
+      "args": ["--directory", "/path/to/mathematica-mcp", "run", "mathematica-mcp"]
     }
   }
 }
@@ -91,287 +104,495 @@ StartMCPServer[]
 
 ## Quick Start
 
-1. **Start Mathematica** (the addon auto-starts if installed)
-2. **Verify the addon is running:**
-   ```mathematica
-   MCPServerStatus[]
-   (* Should show: <|"running" -> True, "port" -> 9881, ...|> *)
-   ```
-3. **Start your LLM client** (Claude Code, Claude Desktop, etc.)
+1. **Start Mathematica** (addon auto-starts if installed)
+2. **Verify addon is running:** `MCPServerStatus[]`
+3. **Start your LLM client**
 4. **Ask Claude to interact with Mathematica!**
 
 ---
 
-## Available Tools
+## Complete Tool Reference
 
-### Status & Connection
+### TIER 1: Session State & Variable Introspection
+
+*Like Python's `dir()`, `type()`, and `del` - but for Mathematica*
 
 | Tool | Description |
 |------|-------------|
-| `get_mathematica_status` | Check connection status and system info |
-| `get_kernel_state` | Get memory usage, loaded packages, session uptime |
-| `get_feature_status` | Show which features are enabled/disabled |
+| `list_variables` | List all user-defined variables with types and sizes |
+| `get_variable` | Get detailed info: value, Head, dimensions, TeX form |
+| `set_variable` | Set a variable in the kernel session |
+| `clear_variables` | Clear specific variables or all Global` symbols |
+| `get_expression_info` | Analyze expression structure: Head, depth, leaf count |
+| `get_messages` | Get recent Mathematica messages/warnings |
+| `restart_kernel` | Clear all state and restart fresh |
 
-### Notebook Management
+**Examples:**
+
+```python
+# Set some variables
+set_variable("x", "42")
+set_variable("matrix", "{{1,2},{3,4}}")
+
+# List all variables (like Python's dir())
+list_variables()
+# Returns:
+# {
+#   "count": 2,
+#   "variables": [
+#     {"name": "x", "head": "Integer", "bytes": 16, "preview": "42"},
+#     {"name": "matrix", "head": "List", "bytes": 232, "preview": "{{1,2},{3,4}}"}
+#   ]
+# }
+
+# Get detailed variable info (like Python's type() + repr())
+get_variable("matrix")
+# Returns:
+# {
+#   "value": "{{1, 2}, {3, 4}}",
+#   "head": "List",
+#   "dimensions": [2, 2],
+#   "tex": "\\begin{pmatrix} 1 & 2 \\\\ 3 & 4 \\end{pmatrix}"
+# }
+
+# Analyze any expression
+get_expression_info("Sin[x] + Cos[x]")
+# Returns:
+# {
+#   "head": "Plus",
+#   "depth": 3,
+#   "leaf_count": 3,
+#   "full_form": "Plus[Sin[x], Cos[x]]"
+# }
+
+# Clear specific variables
+clear_variables(names=["x", "matrix"])
+
+# Clear ALL variables (like restarting Python kernel)
+clear_variables(clear_all=True)
+```
+
+---
+
+### TIER 2: File Handling (.nb, .wl, .wlnb)
+
+*Work with Mathematica files as easily as Python scripts*
+
+| Tool | Description |
+|------|-------------|
+| `open_notebook_file` | Open a .nb file in Mathematica frontend |
+| `run_script` | Execute a .wl script file (like Python's `exec()`) |
+| `read_notebook_content` | Extract cells as structured text |
+| `convert_notebook` | Convert to Markdown, LaTeX, or plain text |
+| `get_notebook_outline` | Get table of contents (sections/subsections) |
+
+**Examples:**
+
+```python
+# Open an existing notebook
+open_notebook_file("~/Documents/analysis.nb")
+# Returns: {"id": "NotebookObject[...]", "cell_count": 25}
+
+# Run a Wolfram Language script
+run_script("~/scripts/setup.wl")
+# Returns: {"result": "Setup complete", "timing_ms": 150}
+# Any definitions in the script persist in the session!
+
+# Read notebook without opening in GUI
+read_notebook_content("~/Documents/analysis.nb", include_outputs=False)
+# Returns structured list of all Input/Text cells
+
+# Convert notebook to Markdown for documentation
+convert_notebook("~/Documents/analysis.nb", output_format="markdown")
+# Returns: "# Analysis\n\n## Introduction\n..."
+
+# Get notebook outline (table of contents)
+get_notebook_outline("~/Documents/analysis.nb")
+# Returns:
+# {
+#   "sections": [
+#     {"level": "Title", "title": "My Analysis"},
+#     {"level": "Section", "title": "Introduction"},
+#     {"level": "Subsection", "title": "Background"}
+#   ]
+# }
+```
+
+---
+
+### TIER 3: Natural Language & Knowledge Base
+
+*Ask questions in English, access Wolfram's curated knowledge*
+
+| Tool | Description |
+|------|-------------|
+| `wolfram_alpha` | Query Wolfram Alpha with natural language |
+| `interpret_natural_language` | Convert English to Wolfram code |
+| `entity_lookup` | Look up countries, chemicals, planets, etc. |
+| `convert_units` | Convert between any units |
+| `get_constant` | Get physical/mathematical constants |
+
+**Examples:**
+
+```python
+# Ask Wolfram Alpha anything
+wolfram_alpha("population of France")
+# Returns: "66,438,822 people"
+
+wolfram_alpha("integrate x^2 from 0 to 1")
+# Returns: "1/3"
+
+wolfram_alpha("weather in Tokyo")
+# Returns: current weather data
+
+# Convert natural language to Wolfram code
+interpret_natural_language("the derivative of x squared")
+# Returns:
+# {
+#   "wolfram_code": "D[x^2, x]",
+#   "result": "2 x"
+# }
+
+# Look up real-world entities
+entity_lookup("Country", "Japan", properties=["Population", "Capital", "GDP"])
+# Returns:
+# {
+#   "name": "Japan",
+#   "Population": "124,370,947 people",
+#   "Capital": "Tokyo",
+#   "GDP": "$4.94 trillion"
+# }
+
+entity_lookup("Chemical", "Water")
+# Returns molecular weight, structure, properties...
+
+entity_lookup("Planet", "Mars")
+# Returns orbital period, mass, moons...
+
+# Convert units (1000s of units supported)
+convert_units("100 kilometers", "miles")
+# Returns: {"result": "62.1371 miles", "numeric": "62.1371"}
+
+convert_units("0 Celsius", "Fahrenheit")
+# Returns: {"result": "32 Fahrenheit"}
+
+convert_units("1 lightyear", "kilometers")
+# Returns: {"result": "9.461×10^12 kilometers"}
+
+# Get physical constants
+get_constant("SpeedOfLight")
+# Returns: {"exact": "299792458 m/s", "numeric": "2.998×10^8"}
+
+get_constant("Pi")
+# Returns: {"exact": "Pi", "numeric": "3.14159265358979..."}
+
+get_constant("PlanckConstant")
+# Returns the value with proper units
+```
+
+---
+
+### TIER 4: Debugging & Development Tools
+
+*Debug Mathematica code like a professional*
+
+| Tool | Description |
+|------|-------------|
+| `trace_evaluation` | Step-by-step evaluation trace (like a debugger) |
+| `time_expression` | Measure execution time and memory |
+| `check_syntax` | Validate syntax without executing |
+| `suggest_similar_functions` | Fuzzy search for function names |
+
+**Examples:**
+
+```python
+# Trace how an expression is evaluated (like a debugger)
+trace_evaluation("Expand[(x+1)^2]", max_depth=5)
+# Returns:
+# {
+#   "result": "1 + 2x + x^2",
+#   "steps": 12,
+#   "trace": ["(x+1)^2", "x^2 + 2*x*1 + 1^2", "1 + 2x + x^2"]
+# }
+
+# Time an expression (like Python's timeit)
+time_expression("Table[Prime[n], {n, 10000}]")
+# Returns:
+# {
+#   "time_seconds": 0.523,
+#   "time_ms": 523,
+#   "result": "{2, 3, 5, 7, ...}",
+#   "memory_delta_bytes": 123456
+# }
+
+# Check syntax before running (like a linter)
+check_syntax("Plot[Sin[x], {x, 0, 2 Pi}]")
+# Returns: {"valid": true, "message": "Valid syntax"}
+
+check_syntax("Plot[Sin[x], {x, 0, 2 Pi")  # Missing ]
+# Returns: {"valid": false, "message": "Syntax error in code"}
+
+# Can't remember exact function name?
+suggest_similar_functions("Integr")
+# Returns:
+# {
+#   "matches": [
+#     {"name": "Integrate", "usage": "Integrate[f, x] gives..."},
+#     {"name": "NIntegrate", "usage": "NIntegrate[f, {x, ...}] gives..."},
+#     {"name": "FourierIntegral", "usage": "..."}
+#   ]
+# }
+```
+
+---
+
+### TIER 5: Data Import/Export
+
+*Work with 250+ file formats*
+
+| Tool | Description |
+|------|-------------|
+| `import_data` | Import from file or URL (CSV, JSON, Excel, SQL...) |
+| `export_data` | Export expressions to any format |
+| `list_supported_formats` | List all 250+ supported formats |
+
+**Examples:**
+
+```python
+# Import CSV data
+import_data("~/data/sales.csv")
+# Returns:
+# {
+#   "head": "List",
+#   "dimensions": [1000, 5],
+#   "preview": "{{Date, Product, ...}, ...}"
+# }
+
+# Import from URL
+import_data("https://example.com/data.json")
+# Returns parsed JSON as Mathematica Association
+
+# Import Excel
+import_data("~/data/report.xlsx", format="XLSX")
+
+# Export computation results
+export_data("Table[{x, Sin[x]}, {x, 0, 2 Pi, 0.1}]", "~/output.csv")
+# Returns: {"path": "~/output.csv", "bytes": 1234}
+
+# Export a plot
+export_data("Plot[Sin[x], {x, 0, 2 Pi}]", "~/plot.pdf", format="PDF")
+
+# List all supported formats
+list_supported_formats()
+# Returns:
+# {
+#   "import_formats": ["CSV", "JSON", "XLSX", "PDF", "PNG", ...],  # 256 formats
+#   "export_formats": ["CSV", "JSON", "PDF", "SVG", "HTML", ...]   # 264 formats
+# }
+```
+
+---
+
+### TIER 6: Visualization & Graphics
+
+*Create, analyze, and export graphics*
+
+| Tool | Description |
+|------|-------------|
+| `export_graphics` | Export plots to PNG, PDF, SVG, EPS |
+| `inspect_graphics` | Analyze graphics structure |
+| `compare_plots` | Side-by-side plot comparison |
+| `create_animation` | Generate animated plots |
+| `rasterize_expression` | Render any expression as image |
+
+**Examples:**
+
+```python
+# Export a plot as PNG
+export_graphics(
+    "Plot[Sin[x], {x, 0, 2 Pi}]",
+    "~/plot.png",
+    format="PNG",
+    size=800
+)
+# Returns: {"path": "~/plot.png", "bytes": 16425}
+
+# Export as vector graphics
+export_graphics(
+    "Plot3D[Sin[x y], {x, -3, 3}, {y, -3, 3}]",
+    "~/surface.svg",
+    format="SVG"
+)
+
+# Inspect graphics structure
+inspect_graphics("Plot[Sin[x], {x, 0, 2 Pi}]")
+# Returns:
+# {
+#   "head": "Graphics",
+#   "primitives": ["Line", "Directive"],
+#   "plot_range": "{{0, 6.28}, {-1, 1}}",
+#   "options": {...}
+# }
+
+# Compare multiple plots side-by-side
+compare_plots(
+    ["Plot[Sin[x], {x,0,2Pi}]", "Plot[Cos[x], {x,0,2Pi}]"],
+    labels=["Sine", "Cosine"]
+)
+# Returns combined GraphicsRow expression
+
+# Create animation
+create_animation(
+    "Plot[Sin[n*x], {x, 0, 2Pi}]",
+    parameter="n",
+    range_spec="1, 5",
+    frames=20
+)
+# Returns animation expression (can export as GIF)
+```
+
+---
+
+### Core Tools (Existing)
+
+#### Notebook Management
 
 | Tool | Description |
 |------|-------------|
 | `get_notebooks` | List all open notebooks |
-| `get_notebook_info` | Get details about a specific notebook |
-| `create_notebook` | Create a new empty notebook |
+| `get_notebook_info` | Get details about a notebook |
+| `create_notebook` | Create a new notebook |
 | `save_notebook` | Save notebook to disk |
 | `close_notebook` | Close a notebook |
-| `export_notebook` | Export to PDF, HTML, TeX, Markdown |
+| `export_notebook` | Export to PDF, HTML, TeX |
 
-### Cell Operations
+#### Cell Operations
 
 | Tool | Description |
 |------|-------------|
-| `get_cells` | List cells in a notebook (optionally filter by style) |
-| `get_cell_content` | Get full content of a cell |
+| `get_cells` | List cells in a notebook |
+| `get_cell_content` | Get cell content |
 | `write_cell` | Insert a new cell |
 | `delete_cell` | Remove a cell |
-| `evaluate_cell` | Evaluate a specific cell |
+| `evaluate_cell` | Evaluate a cell |
 
-### Code Execution
+#### Code Execution
 
 | Tool | Description |
 |------|-------------|
 | `execute_code` | Run Wolfram Language code |
-| `evaluate_selection` | Evaluate currently selected cells |
-| `rasterize_expression` | Render expression as image |
+| `evaluate_selection` | Evaluate selected cells |
 
-### Mathematical Operations (Named Aliases)
+#### Mathematical Operations
 
 | Tool | Description |
 |------|-------------|
-| `mathematica_integrate` | Compute integrals (definite or indefinite) |
+| `mathematica_integrate` | Compute integrals |
 | `mathematica_solve` | Solve equations |
 | `mathematica_simplify` | Simplify expressions |
 | `mathematica_differentiate` | Compute derivatives |
 | `mathematica_expand` | Expand expressions |
 | `mathematica_factor` | Factor expressions |
 | `mathematica_limit` | Compute limits |
-| `mathematica_series` | Taylor/power series expansion |
+| `mathematica_series` | Taylor series |
 
-### Derivation Verification
-
-| Tool | Description |
-|------|-------------|
-| `verify_derivation` | Check if mathematical derivation steps are valid |
-
-### Symbol Introspection
+#### Verification & Introspection
 
 | Tool | Description |
 |------|-------------|
-| `resolve_function` | Search for functions by name, get syntax/usage |
-| `get_symbol_info` | Get comprehensive symbol information (usage, options, attributes) |
+| `verify_derivation` | Verify mathematical derivation steps |
+| `resolve_function` | Search for functions by name |
+| `get_symbol_info` | Get symbol documentation |
 
-### Wolfram Repository Integration
-
-| Tool | Description |
-|------|-------------|
-| `search_function_repository` | Search Wolfram Function Repository (2900+ functions) |
-| `get_function_repository_info` | Get details about a repository function |
-| `load_resource_function` | Load a function from the repository |
-| `search_data_repository` | Search Wolfram Data Repository |
-| `get_dataset_info` | Get dataset metadata |
-| `load_dataset` | Load a dataset from the repository |
-
-### Package Management
+#### Repository Integration
 
 | Tool | Description |
 |------|-------------|
-| `load_package` | Load a Mathematica package |
-| `list_loaded_packages` | List all loaded package contexts |
+| `search_function_repository` | Search 2900+ community functions |
+| `load_resource_function` | Load a repository function |
+| `search_data_repository` | Search curated datasets |
+| `load_dataset` | Load a dataset |
 
-### Long Computation (Async)
-
-| Tool | Description |
-|------|-------------|
-| `submit_computation` | Submit long-running computation (returns job_id) |
-| `poll_computation` | Check status of a submitted job |
-| `get_computation_result` | Retrieve result of completed job |
-
-### Expression Caching
+#### Async & Caching
 
 | Tool | Description |
 |------|-------------|
-| `cache_expression` | Evaluate and cache an expression |
-| `get_cached` | Retrieve a cached expression |
-| `list_cache` | List all cached expressions |
-| `clear_expression_cache` | Clear the expression cache |
-
-### Screenshots & Visualization
-
-| Tool | Description |
-|------|-------------|
-| `screenshot_notebook` | Capture full notebook view |
-| `screenshot_cell` | Capture a specific cell |
-| `rasterize_expression` | Render any expression as image |
+| `submit_computation` | Submit long-running computation |
+| `poll_computation` | Check job status |
+| `get_computation_result` | Get completed result |
+| `cache_expression` | Cache expensive computations |
+| `get_cached` | Retrieve cached result |
 
 ---
 
-## Usage Examples
+## Real-World Use Cases
 
-### Example 1: Verify a Mathematical Derivation
-
-```python
-# Check if x² - y² = (x-y)(x+y)
-verify_derivation(["x^2 - y^2", "(x-y)*(x+y)"])
-# Returns: Step 1 → 2: ✓ VALID
-
-# Check a multi-step derivation with an error
-verify_derivation(["Sin[x]^2 + Cos[x]^2", "1", "2"])
-# Returns:
-#   Step 1 → 2: ✓ VALID (Pythagorean identity)
-#   Step 2 → 3: ✗ INVALID (1 ≠ 2)
-```
-
-### Example 2: Use Named Math Aliases
+### Use Case 1: Data Science Workflow
 
 ```python
-# Indefinite integral
-mathematica_integrate("x^2", "x")
-# Returns: x^3/3
+# Import your data
+import_data("~/data/experiment.csv")
 
-# Definite integral
-mathematica_integrate("x^2", "x", "0", "1")
-# Returns: 1/3
+# Analyze it
+execute_code("""
+data = Import["~/data/experiment.csv"];
+{Mean[data], StandardDeviation[data], Correlation[data]}
+""")
 
-# Solve equation
-mathematica_solve("x^2 - 4 == 0", "x")
-# Returns: {{x -> -2}, {x -> 2}}
-
-# Simplify with assumptions
-mathematica_simplify("Sqrt[x^2]", assumptions="x > 0")
-# Returns: x
-
-# Compute limit
-mathematica_limit("Sin[x]/x", "x", "0")
-# Returns: 1
-
-# Taylor series
-mathematica_series("Exp[x]", "x", "0", 5)
-# Returns: 1 + x + x^2/2 + x^3/6 + x^4/24 + O[x]^5
-```
-
-### Example 3: Get Symbol Information
-
-```python
-# Deep introspection of a function
-get_symbol_info("Plot")
-# Returns:
-# {
-#   "symbol": "Plot",
-#   "usage": "Plot[f, {x, xmin, xmax}] generates a plot...",
-#   "attributes": ["Protected", "ReadProtected"],
-#   "options_count": 67,
-#   "related_symbols": ["ListPlot", "Plot3D", "ParametricPlot"]
-# }
-```
-
-### Example 4: Search Wolfram Function Repository
-
-```python
-# Search for graph-related functions
-search_function_repository("graph algorithms")
-# Returns list of community functions like:
-#   - RandomGraph
-#   - GraphDistance
-#   - FindHamiltonianPath
-
-# Load and use a repository function
-load_resource_function("RandomGraph")
-execute_code('ResourceFunction["RandomGraph"][{10, 20}]')
-```
-
-### Example 5: Long Computation Workflow
-
-```python
-# Submit a computation that takes >60 seconds
-result = submit_computation(
-    "FactorInteger[2^256 - 1]",
-    name="Large factorization"
+# Visualize
+export_graphics(
+    "ListPlot[data, PlotLabel -> \"Experiment Results\"]",
+    "~/results.png"
 )
-# Returns: {"job_id": "abc123", "status": "submitted"}
 
-# Poll for completion
-poll_computation("abc123")
-# Returns: {"status": "running", "elapsed_seconds": 45.2}
-
-# Get result when done
-poll_computation("abc123")
-# Returns: {"status": "completed", "has_result": true}
-
-get_computation_result("abc123")
-# Returns the factorization result
+# Export processed data
+export_data("processedData", "~/processed.json", format="JSON")
 ```
 
-### Example 6: Expression Caching
+### Use Case 2: Teaching Mathematics
 
 ```python
-# Cache an expensive computation
-cache_expression("my_integral", "Integrate[Sin[x]^10, x]")
-# Returns: result + confirmation cached
+# Ask a natural language question
+wolfram_alpha("solve quadratic equation x^2 + 5x + 6 = 0")
 
-# Retrieve later (instant, no recomputation)
-get_cached("my_integral")
-# Returns the cached result
+# Show step-by-step
+trace_evaluation("Solve[x^2 + 5x + 6 == 0, x]")
 
-# List all cached expressions
-list_cache()
-# Returns: {"my_integral": {"access_count": 2, "age_seconds": 120}}
+# Create visual explanation
+export_graphics(
+    "Plot[x^2 + 5x + 6, {x, -5, 0}, Epilog -> {Red, PointSize[Large], Point[{-2, 0}], Point[{-3, 0}]}]",
+    "~/quadratic.png"
+)
 ```
 
-### Example 7: Package Management
+### Use Case 3: Physics Calculations
 
 ```python
-# Load a package
-load_package("Developer`")
-# Returns: {"success": true, "new_contexts": ["Developer`"]}
+# Get physical constants
+get_constant("GravitationalConstant")
+get_constant("SpeedOfLight")
 
-# List loaded packages
-list_loaded_packages()
-# Returns list of all loaded package contexts
+# Unit conversions
+convert_units("1 astronomical unit", "kilometers")
+
+# Entity data
+entity_lookup("Planet", "Jupiter", ["Mass", "Radius", "OrbitalPeriod"])
+
+# Symbolic calculation
+execute_code("Solve[F == G m1 m2 / r^2, r]")
 ```
 
-### Example 8: Get Kernel State
+### Use Case 4: Document Processing
 
 ```python
-get_kernel_state()
-# Returns:
-# {
-#   "kernel_version": 14.1,
-#   "memory_in_use_mb": 256.4,
-#   "session_time": 3600.5,
-#   "global_symbol_count": 42,
-#   "loaded_packages": ["Developer`", "GeneralUtilities`", ...]
-# }
-```
+# Read a notebook
+outline = get_notebook_outline("~/research/paper.nb")
 
-### Example 9: Create Documented Notebook
+# Convert to LaTeX for publication
+convert_notebook("~/research/paper.nb", output_format="latex")
 
-```python
-create_notebook(title="Analysis")
-write_cell("My Analysis", style="Title")
-write_cell("Computing the integral:", style="Text")
-write_cell("Integrate[Sin[x]^2, x]", style="Input")
-
-# Evaluate all input cells
-cells = get_cells(style="Input")
-for cell in cells:
-    evaluate_cell(cell_id=cell["id"])
-
-screenshot_notebook()
-```
-
-### Example 10: Visualize and Return to LLM
-
-```python
-# Render a plot as image (LLM sees it directly)
-rasterize_expression("Plot[Sin[x], {x, 0, 2 Pi}]", image_size=500)
-# Returns: Image that LLM can see and describe
+# Extract just the code
+read_notebook_content("~/research/paper.nb", include_outputs=False)
 ```
 
 ---
@@ -382,19 +603,13 @@ Control features via environment variables:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `MATHEMATICA_ENABLE_FUNCTION_REPO` | `true` | Wolfram Function Repository integration |
-| `MATHEMATICA_ENABLE_DATA_REPO` | `true` | Wolfram Data Repository integration |
-| `MATHEMATICA_ENABLE_ASYNC` | `true` | Async long computation workflow |
+| `MATHEMATICA_ENABLE_FUNCTION_REPO` | `true` | Function Repository integration |
+| `MATHEMATICA_ENABLE_DATA_REPO` | `true` | Data Repository integration |
+| `MATHEMATICA_ENABLE_ASYNC` | `true` | Async computation workflow |
 | `MATHEMATICA_ENABLE_LOOKUP` | `true` | Symbol lookup/introspection |
-| `MATHEMATICA_ENABLE_MATH_ALIASES` | `true` | Named math operation shortcuts |
+| `MATHEMATICA_ENABLE_MATH_ALIASES` | `true` | Named math operations |
 | `MATHEMATICA_ENABLE_CACHE` | `true` | Expression caching |
-| `MATHEMATICA_ENABLE_TELEMETRY` | `false` | Usage telemetry (opt-in) |
-
-Check current status:
-```python
-get_feature_status()
-# Returns all feature flag states
-```
+| `MATHEMATICA_ENABLE_TELEMETRY` | `false` | Usage telemetry |
 
 ---
 
@@ -402,44 +617,8 @@ get_feature_status()
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `MATHEMATICA_HOST` | `localhost` | Host where Mathematica addon runs |
-| `MATHEMATICA_PORT` | `9881` | Port for the socket connection |
-
----
-
-## Output Formats
-
-The `execute_code` tool supports three output formats:
-
-| Format | Description | Example |
-|--------|-------------|---------|
-| `text` | Plain text | `x^3/3` |
-| `latex` | LaTeX formatted | `\frac{x^3}{3}` |
-| `mathematica` | InputForm | `x^3/3` |
-
----
-
-## Project Structure
-
-```
-mathematica-mcp/
-├── README.md
-├── pyproject.toml
-├── src/
-│   └── mathematica_mcp/
-│       ├── __init__.py
-│       ├── server.py       # MCP server with all tools
-│       ├── connection.py   # Socket connection to addon
-│       ├── session.py      # Kernel fallback (wolframscript)
-│       ├── config.py       # Feature flags
-│       ├── telemetry.py    # Usage tracking (opt-in)
-│       └── cache.py        # Expression caching
-├── addon/
-│   ├── MathematicaMCP.wl   # Main addon package
-│   ├── install.wl          # Installation script
-│   └── README.md
-└── tests/
-```
+| `MATHEMATICA_HOST` | `localhost` | Addon host |
+| `MATHEMATICA_PORT` | `9881` | Addon port |
 
 ---
 
@@ -449,21 +628,18 @@ mathematica-mcp/
 
 1. Is Mathematica running?
 2. Run `MCPServerStatus[]` in Mathematica
-3. Try `RestartMCPServer[]` in Mathematica
-4. Check if port 9881 is available: `lsof -i :9881`
+3. Try `RestartMCPServer[]`
+4. Check port: `lsof -i :9881`
 
 ### "Timeout waiting for response"
 
-- Use `submit_computation` for long-running computations
-- Break complex computations into smaller steps
+- Use `submit_computation` for long operations
+- Break complex computations into steps
 
-### Port conflicts
+### Variables not persisting
 
-```mathematica
-MathematicaMCP`Private`$MCPPort = 9882;
-StartMCPServer[]
-```
-Then set `MATHEMATICA_PORT=9882` environment variable.
+- Ensure you're using the **addon connection** (not wolframscript fallback)
+- Check `get_mathematica_status()` shows `connection_mode: "addon"`
 
 ---
 
@@ -478,12 +654,23 @@ Then set `MATHEMATICA_PORT=9882` environment variable.
 
 ---
 
-## Credits
+## Project Structure
 
-Inspired by:
-- [blender-mcp](https://github.com/ahujasid/blender-mcp) - Socket-based addon architecture
-- [texra-ai/mcp-server-mathematica](https://github.com/texra-ai/mcp-server-mathematica) - Derivation verification
-- [paraporoco/Wolfram-MCP](https://github.com/paraporoco/Wolfram-MCP) - Named math aliases
+```
+mathematica-mcp/
+├── src/mathematica_mcp/
+│   ├── server.py       # 60+ MCP tools
+│   ├── connection.py   # Socket connection to addon
+│   ├── session.py      # Kernel fallback (wolframscript)
+│   ├── config.py       # Feature flags
+│   ├── cache.py        # Expression caching
+│   └── telemetry.py    # Usage tracking
+├── addon/
+│   ├── MathematicaMCP.wl   # Main addon (persistent session)
+│   ├── install.wl          # Auto-install script
+│   └── README.md
+└── tests/
+```
 
 ---
 

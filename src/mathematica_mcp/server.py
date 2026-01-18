@@ -144,8 +144,11 @@ def _rank_candidates(query: str, candidates: List[Dict]) -> List[Dict]:
 
 
 def _try_addon_command(command: str, params: Optional[dict] = None) -> dict:
-    conn = get_mathematica_connection()
-    return conn.send_command(command, params)
+    try:
+        conn = get_mathematica_connection()
+        return conn.send_command(command, params or {})
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 
 @mcp.tool()
@@ -2240,6 +2243,1325 @@ async def clear_expression_cache() -> str:
     return json.dumps(
         {"success": True, "message": "Expression cache cleared"}, indent=2
     )
+
+
+# ============================================================================
+# TIER 1: Variable Introspection (Session State)
+# ============================================================================
+
+
+@mcp.tool()
+async def list_variables(include_system: bool = False) -> str:
+    """
+    List all user-defined variables in the current Mathematica kernel session.
+
+    Returns name, type (Head), byte size, and value preview for each variable
+    in the Global` context. This is the Mathematica equivalent of Python's
+    dir() or locals().
+
+    Args:
+        include_system: If True, include system variables (starting with $)
+
+    Returns:
+        List of variables with their metadata
+
+    Example:
+        After running 'x = 5; y = {1,2,3}' in Mathematica:
+        list_variables() -> [{name: "x", head: "Integer", preview: "5"}, ...]
+    """
+    result = _try_addon_command("list_variables", {"include_system": include_system})
+
+    if result.get("error"):
+        return json.dumps({"success": False, "error": result["error"]}, indent=2)
+
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+async def get_variable(name: str) -> str:
+    """
+    Get detailed information about a specific variable.
+
+    Like Python's type() + repr() combined - shows the value, type, size,
+    and LaTeX representation of a variable.
+
+    Args:
+        name: Variable name (e.g., "x", "myList", "Global`foo")
+
+    Returns:
+        Detailed variable information including value, head, dimensions, TeX form
+
+    Example:
+        get_variable("matrix") -> {value: "{{1,2},{3,4}}", head: "List", dimensions: [2,2]}
+    """
+    result = _try_addon_command("get_variable", {"name": name})
+
+    if result.get("error"):
+        return json.dumps({"success": False, "error": result["error"]}, indent=2)
+
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+async def set_variable(name: str, value: str) -> str:
+    """
+    Set a variable in the Mathematica kernel session.
+
+    Args:
+        name: Variable name (e.g., "x", "myData")
+        value: Wolfram Language expression to assign (e.g., "5", "{1,2,3}", "Plot[Sin[x],{x,0,Pi}]")
+
+    Returns:
+        Confirmation with the assigned value
+
+    Example:
+        set_variable("x", "Range[10]") -> {success: true, value: "{1,2,3,4,5,6,7,8,9,10}"}
+    """
+    result = _try_addon_command("set_variable", {"name": name, "value": value})
+
+    if result.get("error"):
+        return json.dumps({"success": False, "error": result["error"]}, indent=2)
+
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+async def clear_variables(
+    names: Optional[List[str]] = None,
+    pattern: Optional[str] = None,
+    clear_all: bool = False,
+) -> str:
+    """
+    Clear variables from the Mathematica kernel session.
+
+    Equivalent to Python's 'del' or clearing notebook state.
+
+    Args:
+        names: Specific variable names to clear (e.g., ["x", "y", "z"])
+        pattern: Wolfram pattern to match (e.g., "temp*" clears temp1, temp2, etc.)
+        clear_all: If True, clear ALL Global` variables (use with caution!)
+
+    Returns:
+        List of cleared variables
+
+    Example:
+        clear_variables(names=["x", "y"]) -> {cleared: ["x", "y"], count: 2}
+        clear_variables(pattern="temp*") -> {cleared: ["temp1", "temp2"], count: 2}
+    """
+    params = {}
+    if names:
+        params["names"] = names
+    if pattern:
+        params["pattern"] = pattern
+    if clear_all:
+        params["clear_all"] = True
+
+    result = _try_addon_command("clear_variables", params)
+
+    if result.get("error"):
+        return json.dumps({"success": False, "error": result["error"]}, indent=2)
+
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+async def get_expression_info(expression: str) -> str:
+    """
+    Get detailed structural information about a Wolfram expression.
+
+    Like Python's type() on steroids - shows Head, FullForm, tree structure,
+    depth, leaf count, and type checks (NumericQ, ListQ, etc.)
+
+    Args:
+        expression: Wolfram Language expression to analyze
+
+    Returns:
+        Structural information: head, full form, depth, leaf count, type flags
+
+    Example:
+        get_expression_info("{{1,2},{3,4}}") -> {head: "List", depth: 3, dimensions: [2,2]}
+        get_expression_info("Sin[x] + Cos[x]") -> {head: "Plus", leaf_count: 3}
+    """
+    result = _try_addon_command("get_expression_info", {"expression": expression})
+
+    if result.get("error"):
+        return json.dumps({"success": False, "error": result["error"]}, indent=2)
+
+    return json.dumps(result, indent=2)
+
+
+# ============================================================================
+# TIER 1: Error Recovery
+# ============================================================================
+
+
+@mcp.tool()
+async def get_messages(count: int = 10) -> str:
+    """
+    Get recent Mathematica messages/warnings from the session.
+
+    Like Python's exception traceback - helps debug what went wrong.
+
+    Args:
+        count: Number of recent messages to retrieve (default 10)
+
+    Returns:
+        List of recent messages with timestamps
+
+    Example:
+        After a failed computation:
+        get_messages() -> [{timestamp: "...", message: "Power::infy: Infinite expression 1/0 encountered."}]
+    """
+    result = _try_addon_command("get_messages", {"count": count})
+
+    if result.get("error"):
+        return json.dumps({"success": False, "error": result["error"]}, indent=2)
+
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+async def restart_kernel() -> str:
+    """
+    Restart the Mathematica kernel, clearing all state.
+
+    This is the nuclear option - clears all variables, definitions, and state.
+    Use when the kernel is in a bad state or you need a fresh start.
+
+    Returns:
+        Confirmation of kernel restart
+    """
+    close_kernel_session()
+    # Force reconnection
+    result = _try_addon_command("ping")
+
+    return json.dumps(
+        {
+            "success": True,
+            "message": "Kernel session cleared. Fresh session will be created on next execution.",
+            "ping_result": result,
+        },
+        indent=2,
+    )
+
+
+# ============================================================================
+# TIER 2: File Handling (.nb, .wl, .wlnb)
+# ============================================================================
+
+
+def _expand_path(path: str) -> str:
+    """Expand ~ and make path absolute."""
+    expanded = os.path.expanduser(path)
+    return os.path.abspath(expanded)
+
+
+@mcp.tool()
+async def open_notebook_file(path: str) -> str:
+    """
+    Open an existing Mathematica notebook file (.nb) in the Mathematica frontend.
+
+    Supports:
+    - Absolute paths: /Users/foo/notebook.nb
+    - Home-relative paths: ~/Documents/notebook.nb
+    - Relative paths (resolved from current directory)
+
+    Args:
+        path: Path to the .nb file
+
+    Returns:
+        Notebook ID and metadata for use with other notebook commands
+
+    Example:
+        open_notebook_file("~/Documents/analysis.nb") -> {id: "NotebookObject[...]", cell_count: 15}
+    """
+    expanded = _expand_path(path)
+    result = _try_addon_command("open_notebook_file", {"path": expanded})
+
+    if result.get("error"):
+        return json.dumps(
+            {"success": False, "error": result["error"], "path": expanded}, indent=2
+        )
+
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+async def run_script(path: str) -> str:
+    """
+    Execute a Wolfram Language script file (.wl, .m) and return the result.
+
+    This is equivalent to Get[path] - loads and executes the script in the
+    current kernel session. Any definitions or side effects persist.
+
+    Args:
+        path: Path to the .wl or .m script file
+
+    Returns:
+        The result of the last expression in the script, plus timing info
+
+    Example:
+        run_script("~/scripts/setup.wl") -> {result: "Null", timing_ms: 150}
+    """
+    expanded = _expand_path(path)
+    result = _try_addon_command("run_script", {"path": expanded})
+
+    if result.get("error"):
+        return json.dumps(
+            {"success": False, "error": result["error"], "path": expanded}, indent=2
+        )
+
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+async def read_notebook_content(path: str, include_outputs: bool = False) -> str:
+    """
+    Read the content of a notebook file as structured text.
+
+    Extracts all cells from a notebook file without opening it in the frontend.
+    Useful for understanding what's in a notebook before opening it.
+
+    Args:
+        path: Path to the .nb file
+        include_outputs: If True, include Output cells (default: only Input/Text)
+
+    Returns:
+        Structured list of cells with their content and styles
+    """
+    import subprocess
+    import shutil
+
+    expanded = _expand_path(path)
+
+    if not os.path.exists(expanded):
+        return json.dumps(
+            {"success": False, "error": f"File not found: {expanded}"}, indent=2
+        )
+
+    wolframscript = shutil.which("wolframscript")
+    if not wolframscript:
+        return json.dumps(
+            {"success": False, "error": "wolframscript not found"}, indent=2
+        )
+
+    style_filter = (
+        "True"
+        if include_outputs
+        else 'MemberQ[{"Input", "Code", "Text", "Section", "Subsection", "Title"}, #[[2]]]'
+    )
+
+    code = f'''
+Module[{{nb, cells, filtered}},
+  nb = Quiet[Check[Import["{expanded}", "Notebook"], $Failed]];
+  If[nb === $Failed,
+    <|"success" -> False, "error" -> "Failed to read notebook"|>,
+    cells = Cases[nb, Cell[content_, style_, ___] :> <|
+      "content" -> ToString[content, InputForm],
+      "style" -> style
+    |>, Infinity];
+    filtered = Select[cells, {style_filter} &];
+    <|
+      "success" -> True,
+      "path" -> "{expanded}",
+      "cell_count" -> Length[filtered],
+      "cells" -> Take[filtered, UpTo[50]]
+    |>
+  ]
+]
+'''
+
+    try:
+        result = subprocess.run(
+            [wolframscript, "-code", code],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        output = result.stdout.strip()
+        parsed = _parse_wolfram_association(output)
+        return json.dumps(parsed, indent=2)
+    except Exception as e:
+        return json.dumps({"success": False, "error": str(e)}, indent=2)
+
+
+@mcp.tool()
+async def convert_notebook(
+    path: str,
+    output_format: Literal["markdown", "latex", "plain", "wolfram"] = "markdown",
+) -> str:
+    """
+    Convert a Mathematica notebook to another format.
+
+    Supported formats:
+    - markdown: Readable Markdown with code blocks
+    - latex: LaTeX document
+    - plain: Plain text
+    - wolfram: Pure Wolfram Language code only
+
+    Args:
+        path: Path to the .nb file
+        output_format: Target format
+
+    Returns:
+        Converted content as a string
+    """
+    import subprocess
+    import shutil
+
+    expanded = _expand_path(path)
+
+    if not os.path.exists(expanded):
+        return json.dumps(
+            {"success": False, "error": f"File not found: {expanded}"}, indent=2
+        )
+
+    wolframscript = shutil.which("wolframscript")
+    if not wolframscript:
+        return json.dumps(
+            {"success": False, "error": "wolframscript not found"}, indent=2
+        )
+
+    format_map = {
+        "markdown": '"Text"',
+        "latex": '"TeX"',
+        "plain": '"Text"',
+        "wolfram": '"Text"',
+    }
+
+    code = f'''
+Module[{{nb, content}},
+  nb = Import["{expanded}"];
+  content = ExportString[nb, {format_map.get(output_format, '"Text"')}];
+  <|"success" -> True, "format" -> "{output_format}", "content" -> content|>
+]
+'''
+
+    try:
+        result = subprocess.run(
+            [wolframscript, "-code", code],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        output = result.stdout.strip()
+        parsed = _parse_wolfram_association(output)
+        return json.dumps(parsed, indent=2)
+    except Exception as e:
+        return json.dumps({"success": False, "error": str(e)}, indent=2)
+
+
+@mcp.tool()
+async def get_notebook_outline(path: str) -> str:
+    """
+    Get the structural outline of a notebook (sections, subsections, titles).
+
+    Like a table of contents - shows the organization without full content.
+
+    Args:
+        path: Path to the .nb file
+
+    Returns:
+        Hierarchical outline of notebook sections
+    """
+    import subprocess
+    import shutil
+
+    expanded = _expand_path(path)
+
+    if not os.path.exists(expanded):
+        return json.dumps(
+            {"success": False, "error": f"File not found: {expanded}"}, indent=2
+        )
+
+    wolframscript = shutil.which("wolframscript")
+    if not wolframscript:
+        return json.dumps(
+            {"success": False, "error": "wolframscript not found"}, indent=2
+        )
+
+    code = f'''
+Module[{{nb, sections}},
+  nb = Quiet[Check[Import["{expanded}", "Notebook"], $Failed]];
+  If[nb === $Failed,
+    <|"success" -> False, "error" -> "Failed to read notebook"|>,
+    sections = Cases[nb, 
+      Cell[content_, style:"Title"|"Section"|"Subsection"|"Subsubsection"|"Chapter", ___] :> <|
+        "level" -> style,
+        "title" -> If[StringQ[content], content, ToString[content]]
+      |>, 
+      Infinity
+    ];
+    <|
+      "success" -> True,
+      "path" -> "{expanded}",
+      "sections" -> sections,
+      "count" -> Length[sections]
+    |>
+  ]
+]
+'''
+
+    try:
+        result = subprocess.run(
+            [wolframscript, "-code", code],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        output = result.stdout.strip()
+        parsed = _parse_wolfram_association(output)
+        return json.dumps(parsed, indent=2)
+    except Exception as e:
+        return json.dumps({"success": False, "error": str(e)}, indent=2)
+
+
+# ============================================================================
+# TIER 3: Wolfram Alpha & Natural Language
+# ============================================================================
+
+
+@mcp.tool()
+async def wolfram_alpha(
+    query: str,
+    return_type: Literal["result", "data", "full"] = "result",
+) -> str:
+    """
+    Query Wolfram Alpha with natural language.
+
+    This gives Mathematica superpowers - ask questions in plain English
+    and get computed answers, data, and more.
+
+    Args:
+        query: Natural language question (e.g., "population of France",
+               "integrate x^2 from 0 to 1", "weather in Tokyo")
+        return_type:
+            - "result": Simple text result (default)
+            - "data": Structured data when available
+            - "full": All available pods/information
+
+    Returns:
+        Wolfram Alpha response in requested format
+
+    Example:
+        wolfram_alpha("population of Tokyo") -> "13.96 million people (2021)"
+        wolfram_alpha("derivative of sin(x^2)", "data") -> {result: "2 x cos(x^2)"}
+    """
+    import subprocess
+    import shutil
+
+    wolframscript = shutil.which("wolframscript")
+    if not wolframscript:
+        return json.dumps(
+            {"success": False, "error": "wolframscript not found"}, indent=2
+        )
+
+    # Escape quotes in query
+    safe_query = query.replace('"', '\\"')
+
+    if return_type == "full":
+        code = f'''
+Module[{{result}},
+  result = Quiet[Check[WolframAlpha["{safe_query}", "FullOutput"], $Failed]];
+  If[result === $Failed,
+    <|"success" -> False, "error" -> "Query failed"|>,
+    <|"success" -> True, "query" -> "{safe_query}", "result" -> ToString[result, InputForm]|>
+  ]
+]
+'''
+    elif return_type == "data":
+        code = f'''
+Module[{{result}},
+  result = Quiet[Check[WolframAlpha["{safe_query}", {{"Result", "Input"}}], $Failed]];
+  If[result === $Failed,
+    <|"success" -> False, "error" -> "Query failed"|>,
+    <|"success" -> True, "query" -> "{safe_query}", 
+      "result" -> ToString[result, InputForm]|>
+  ]
+]
+'''
+    else:
+        code = f'''
+Module[{{result}},
+  result = Quiet[Check[WolframAlpha["{safe_query}", "Result"], $Failed]];
+  If[result === $Failed,
+    <|"success" -> False, "error" -> "Query failed"|>,
+    <|"success" -> True, "query" -> "{safe_query}", "result" -> ToString[result]|>
+  ]
+]
+'''
+
+    try:
+        result = subprocess.run(
+            [wolframscript, "-code", code],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        output = result.stdout.strip()
+        parsed = _parse_wolfram_association(output)
+        return json.dumps(parsed, indent=2)
+    except subprocess.TimeoutExpired:
+        return json.dumps({"success": False, "error": "Query timed out"}, indent=2)
+    except Exception as e:
+        return json.dumps({"success": False, "error": str(e)}, indent=2)
+
+
+@mcp.tool()
+async def interpret_natural_language(text: str) -> str:
+    """
+    Convert natural language mathematical description to Wolfram Language code.
+
+    This is magic - describe what you want in English and get executable code.
+
+    Args:
+        text: Natural language description (e.g., "the integral of x squared from 0 to 1",
+              "solve x squared equals 4 for x", "plot sine of x from 0 to 2 pi")
+
+    Returns:
+        Wolfram Language code and its evaluation result
+
+    Example:
+        interpret_natural_language("the derivative of e to the x")
+        -> {code: "D[E^x, x]", result: "E^x"}
+    """
+    import subprocess
+    import shutil
+
+    wolframscript = shutil.which("wolframscript")
+    if not wolframscript:
+        return json.dumps(
+            {"success": False, "error": "wolframscript not found"}, indent=2
+        )
+
+    safe_text = text.replace('"', '\\"')
+
+    code = f'''
+Module[{{result, inputForm}},
+  result = Quiet[Check[
+    WolframAlpha["{safe_text}", {{"Input", "Result"}}],
+    $Failed
+  ]];
+  If[result === $Failed || result === {{}},
+    <|"success" -> False, "error" -> "Could not interpret text"|>,
+    inputForm = If[Length[result] >= 1, 
+      ToString[result[[1, 2]], InputForm], 
+      ""];
+    <|
+      "success" -> True,
+      "input" -> "{safe_text}",
+      "wolfram_code" -> inputForm,
+      "result" -> If[Length[result] >= 2, ToString[result[[2, 2]]], ToString[result]],
+      "tex" -> Quiet[Check[If[Length[result] >= 2, ToString[TeXForm[result[[2, 2]]]], ""], ""]]
+    |>
+  ]
+]
+'''
+
+    try:
+        result = subprocess.run(
+            [wolframscript, "-code", code],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        output = result.stdout.strip()
+        parsed = _parse_wolfram_association(output)
+        return json.dumps(parsed, indent=2)
+    except Exception as e:
+        return json.dumps({"success": False, "error": str(e)}, indent=2)
+
+
+@mcp.tool()
+async def entity_lookup(
+    entity_type: str,
+    name: str,
+    properties: Optional[List[str]] = None,
+) -> str:
+    """
+    Look up real-world entity data from Wolfram's curated knowledge base.
+
+    Entity types include: "Country", "City", "Chemical", "Planet", "Company",
+    "Person", "Movie", "University", "Element", "Star", and many more.
+
+    Args:
+        entity_type: Type of entity (e.g., "Country", "City", "Chemical")
+        name: Name to look up (e.g., "France", "Tokyo", "Water")
+        properties: Specific properties to retrieve (default: common properties)
+
+    Returns:
+        Entity data with requested properties
+
+    Example:
+        entity_lookup("Country", "Japan", ["Population", "Capital", "GDP"])
+        -> {name: "Japan", Population: "125.8 million", Capital: "Tokyo", GDP: "$4.94 trillion"}
+    """
+    import subprocess
+    import shutil
+
+    wolframscript = shutil.which("wolframscript")
+    if not wolframscript:
+        return json.dumps(
+            {"success": False, "error": "wolframscript not found"}, indent=2
+        )
+
+    safe_name = name.replace('"', '\\"')
+
+    if properties:
+        props_str = "{" + ", ".join(f'"{p}"' for p in properties) + "}"
+        code = f'''
+Module[{{entity, data}},
+  entity = Quiet[Check[Entity["{entity_type}", "{safe_name}"], $Failed]];
+  If[entity === $Failed || !EntityQ[entity],
+    <|"success" -> False, "error" -> "Entity not found"|>,
+    data = EntityValue[entity, {props_str}];
+    <|
+      "success" -> True,
+      "entity_type" -> "{entity_type}",
+      "name" -> "{safe_name}",
+      "properties" -> Map[ToString, data]
+    |>
+  ]
+]
+'''
+    else:
+        code = f'''
+Module[{{entity, props, data}},
+  entity = Quiet[Check[Entity["{entity_type}", "{safe_name}"], $Failed]];
+  If[entity === $Failed || !EntityQ[entity],
+    <|"success" -> False, "error" -> "Entity not found"|>,
+    props = Take[EntityProperties[entity], UpTo[10]];
+    data = EntityValue[entity, props];
+    <|
+      "success" -> True,
+      "entity_type" -> "{entity_type}",
+      "name" -> EntityValue[entity, "Name"],
+      "properties" -> MapThread[Rule, {{props, Map[ToString, data]}}]
+    |>
+  ]
+]
+'''
+
+    try:
+        result = subprocess.run(
+            [wolframscript, "-code", code],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        output = result.stdout.strip()
+        parsed = _parse_wolfram_association(output)
+        return json.dumps(parsed, indent=2)
+    except Exception as e:
+        return json.dumps({"success": False, "error": str(e)}, indent=2)
+
+
+@mcp.tool()
+async def convert_units(quantity: str, target_unit: str) -> str:
+    """
+    Convert between units using Wolfram's comprehensive unit system.
+
+    Args:
+        quantity: Value with unit (e.g., "5 miles", "100 kg", "25 Celsius")
+        target_unit: Target unit (e.g., "kilometers", "pounds", "Fahrenheit")
+
+    Returns:
+        Converted quantity
+
+    Example:
+        convert_units("100 kilometers", "miles") -> "62.1371 miles"
+        convert_units("0 Celsius", "Fahrenheit") -> "32 Fahrenheit"
+    """
+    import subprocess
+    import shutil
+
+    wolframscript = shutil.which("wolframscript")
+    if not wolframscript:
+        return json.dumps(
+            {"success": False, "error": "wolframscript not found"}, indent=2
+        )
+
+    safe_qty = quantity.replace('"', '\\"')
+    safe_unit = target_unit.replace('"', '\\"')
+
+    code = f'''
+Module[{{input, result}},
+  input = Quiet[Check[Interpreter["Quantity"]["{safe_qty}"], $Failed]];
+  If[input === $Failed,
+    <|"success" -> False, "error" -> "Could not parse quantity"|>,
+    result = Quiet[Check[UnitConvert[input, "{safe_unit}"], $Failed]];
+    If[result === $Failed,
+      <|"success" -> False, "error" -> "Conversion failed"|>,
+      <|
+        "success" -> True,
+        "input" -> "{safe_qty}",
+        "target_unit" -> "{safe_unit}",
+        "result" -> ToString[result],
+        "numeric" -> ToString[QuantityMagnitude[result]]
+      |>
+    ]
+  ]
+]
+'''
+
+    try:
+        result = subprocess.run(
+            [wolframscript, "-code", code],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        output = result.stdout.strip()
+        parsed = _parse_wolfram_association(output)
+        return json.dumps(parsed, indent=2)
+    except Exception as e:
+        return json.dumps({"success": False, "error": str(e)}, indent=2)
+
+
+@mcp.tool()
+async def get_constant(name: str) -> str:
+    """
+    Get a physical or mathematical constant.
+
+    Args:
+        name: Constant name (e.g., "SpeedOfLight", "PlanckConstant", "Pi",
+              "EulerGamma", "GoldenRatio", "Avogadro")
+
+    Returns:
+        Constant value with unit (if applicable) and numeric approximation
+
+    Example:
+        get_constant("SpeedOfLight") -> {value: "299792458 m/s", numeric: "2.998e8"}
+    """
+    import subprocess
+    import shutil
+
+    wolframscript = shutil.which("wolframscript")
+    if not wolframscript:
+        return json.dumps(
+            {"success": False, "error": "wolframscript not found"}, indent=2
+        )
+
+    code = f'''
+Module[{{constant, val, numeric}},
+  constant = Quiet[Check[ToExpression["{name}"], $Failed]];
+  If[constant === $Failed,
+    constant = Quiet[Check[Quantity["{name}"], $Failed]]
+  ];
+  If[constant === $Failed,
+    <|"success" -> False, "error" -> "Constant not found"|>,
+    <|
+      "success" -> True,
+      "name" -> "{name}",
+      "exact" -> ToString[constant, InputForm],
+      "numeric" -> ToString[N[constant, 15]],
+      "tex" -> Quiet[Check[ToString[TeXForm[constant]], ""]]
+    |>
+  ]
+]
+'''
+
+    try:
+        result = subprocess.run(
+            [wolframscript, "-code", code],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        output = result.stdout.strip()
+        parsed = _parse_wolfram_association(output)
+        return json.dumps(parsed, indent=2)
+    except Exception as e:
+        return json.dumps({"success": False, "error": str(e)}, indent=2)
+
+
+# ============================================================================
+# TIER 4: Interactive Debugging & Tracing
+# ============================================================================
+
+
+@mcp.tool()
+async def trace_evaluation(expression: str, max_depth: int = 5) -> str:
+    """
+    Trace the step-by-step evaluation of an expression.
+
+    Like a debugger's step-through - see exactly how Mathematica
+    transforms your expression at each step.
+
+    Args:
+        expression: Wolfram Language expression to trace
+        max_depth: Maximum trace depth (default 5, increase for complex expressions)
+
+    Returns:
+        List of evaluation steps from input to final result
+
+    Example:
+        trace_evaluation("Expand[(x+1)^2]") ->
+        Steps: ["(x+1)^2", "x^2 + 2*x*1 + 1^2", "x^2 + 2x + 1"]
+    """
+    result = _try_addon_command(
+        "trace_evaluation", {"expression": expression, "max_depth": max_depth}
+    )
+
+    if result.get("error"):
+        return json.dumps({"success": False, "error": result["error"]}, indent=2)
+
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+async def time_expression(expression: str) -> str:
+    """
+    Time the evaluation of an expression with memory tracking.
+
+    Like Python's timeit - measures execution time and memory impact.
+
+    Args:
+        expression: Wolfram Language expression to time
+
+    Returns:
+        Execution time (seconds and milliseconds), result, and memory delta
+
+    Example:
+        time_expression("Table[Prime[n], {n, 10000}]") ->
+        {time_seconds: 0.5, time_ms: 500, memory_delta_bytes: 123456}
+    """
+    result = _try_addon_command("time_expression", {"expression": expression})
+
+    if result.get("error"):
+        return json.dumps({"success": False, "error": result["error"]}, indent=2)
+
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+async def check_syntax(code: str) -> str:
+    """
+    Validate Wolfram Language code syntax without executing it.
+
+    Catches syntax errors before execution - like a linter for Mathematica.
+
+    Args:
+        code: Wolfram Language code to validate
+
+    Returns:
+        Syntax validity and error details if invalid
+
+    Example:
+        check_syntax("Plot[Sin[x], {x, 0, 2 Pi}]") -> {valid: true}
+        check_syntax("Plot[Sin[x], {x, 0, 2 Pi") -> {valid: false, error: "Missing ]"}
+    """
+    result = _try_addon_command("check_syntax", {"code": code})
+
+    if result.get("error"):
+        return json.dumps({"success": False, "error": result["error"]}, indent=2)
+
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+async def suggest_similar_functions(query: str) -> str:
+    """
+    Find Wolfram functions similar to a query using fuzzy matching.
+
+    Helps when you can't remember exact function names.
+
+    Args:
+        query: Partial or misspelled function name
+
+    Returns:
+        List of similar function names with usage info
+
+    Example:
+        suggest_similar_functions("Integr") -> ["Integrate", "NIntegrate", "FourierIntegral", ...]
+    """
+    import subprocess
+    import shutil
+
+    wolframscript = shutil.which("wolframscript")
+    if not wolframscript:
+        return json.dumps(
+            {"success": False, "error": "wolframscript not found"}, indent=2
+        )
+
+    code = f'''
+Module[{{query, matches}},
+  query = "{query}";
+  matches = Select[
+    Names["System`*"],
+    StringContainsQ[#, query, IgnoreCase -> True] &
+  ];
+  matches = Take[matches, UpTo[20]];
+  <|
+    "success" -> True,
+    "query" -> query,
+    "matches" -> Map[
+      <|
+        "name" -> #,
+        "usage" -> StringTake[
+          ToString[ToExpression[# <> "::usage"] /. _MessageName -> ""],
+          UpTo[100]
+        ]
+      |> &,
+      matches
+    ]
+  |>
+]
+'''
+
+    try:
+        result = subprocess.run(
+            [wolframscript, "-code", code],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        output = result.stdout.strip()
+        parsed = _parse_wolfram_association(output)
+        return json.dumps(parsed, indent=2)
+    except Exception as e:
+        return json.dumps({"success": False, "error": str(e)}, indent=2)
+
+
+# ============================================================================
+# TIER 5: Data I/O
+# ============================================================================
+
+
+@mcp.tool()
+async def import_data(
+    path: str,
+    format: Optional[str] = None,
+) -> str:
+    """
+    Import data from a file or URL into Mathematica.
+
+    Supports 200+ formats including CSV, JSON, Excel, SQL, Images, Audio,
+    Video, 3D models, scientific formats, and more.
+
+    Args:
+        path: File path or URL
+        format: Optional format hint (auto-detected if not specified)
+
+    Returns:
+        Imported data info (head, dimensions, preview)
+
+    Example:
+        import_data("data.csv") -> {head: "List", dimensions: [100, 5], preview: "{{a,b,c},...}"}
+        import_data("https://example.com/data.json") -> {head: "Association", ...}
+    """
+    expanded = _expand_path(path) if not path.startswith("http") else path
+
+    result = _try_addon_command(
+        "import_data", {"path": expanded, "format": format or "Automatic"}
+    )
+
+    if result.get("error"):
+        return json.dumps({"success": False, "error": result["error"]}, indent=2)
+
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+async def export_data(
+    expression: str,
+    path: str,
+    format: Optional[str] = None,
+) -> str:
+    """
+    Export data or graphics to a file.
+
+    Supports 200+ formats including CSV, JSON, Excel, PDF, PNG, SVG, etc.
+
+    Args:
+        expression: Wolfram expression to export (e.g., "data", "Plot[Sin[x],{x,0,2Pi}]")
+        path: Output file path
+        format: Optional format (auto-detected from extension if not specified)
+
+    Returns:
+        Export confirmation with file size
+
+    Example:
+        export_data("Table[{x, Sin[x]}, {x, 0, 2Pi, 0.1}]", "~/data.csv")
+        export_data("Plot[Sin[x], {x, 0, 2Pi}]", "~/plot.png", "PNG")
+    """
+    expanded = _expand_path(path)
+
+    result = _try_addon_command(
+        "export_data",
+        {"expression": expression, "path": expanded, "format": format or "Automatic"},
+    )
+
+    if result.get("error"):
+        return json.dumps({"success": False, "error": result["error"]}, indent=2)
+
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+async def list_supported_formats() -> str:
+    """
+    List all supported import/export formats.
+
+    Returns:
+        Lists of available import and export formats
+    """
+    result = _try_addon_command("list_import_formats", {})
+
+    if result.get("error"):
+        # Fallback to wolframscript
+        import subprocess
+        import shutil
+
+        wolframscript = shutil.which("wolframscript")
+        if not wolframscript:
+            return json.dumps(
+                {"success": False, "error": "wolframscript not found"}, indent=2
+            )
+
+        code = """
+<|
+  "success" -> True,
+  "import_formats" -> $ImportFormats,
+  "export_formats" -> $ExportFormats,
+  "import_count" -> Length[$ImportFormats],
+  "export_count" -> Length[$ExportFormats]
+|>
+"""
+        try:
+            result = subprocess.run(
+                [wolframscript, "-code", code],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            output = result.stdout.strip()
+            parsed = _parse_wolfram_association(output)
+            return json.dumps(parsed, indent=2)
+        except Exception as e:
+            return json.dumps({"success": False, "error": str(e)}, indent=2)
+
+    return json.dumps(result, indent=2)
+
+
+# ============================================================================
+# TIER 6: Visualization
+# ============================================================================
+
+
+@mcp.tool()
+async def inspect_graphics(expression: str) -> str:
+    """
+    Analyze the structure of a graphics object.
+
+    Shows primitives, options, plot range, and other details.
+
+    Args:
+        expression: Graphics expression to analyze
+
+    Returns:
+        Graphics structure: primitives, options, dimensions
+
+    Example:
+        inspect_graphics("Plot[Sin[x], {x, 0, 2Pi}]") ->
+        {type: "Graphics", primitives: ["Line"], options: {PlotRange -> ...}}
+    """
+    import subprocess
+    import shutil
+
+    wolframscript = shutil.which("wolframscript")
+    if not wolframscript:
+        return json.dumps(
+            {"success": False, "error": "wolframscript not found"}, indent=2
+        )
+
+    code = f'''
+Module[{{g, result}},
+  g = Quiet[Check[ToExpression["{expression}"], $Failed]];
+  If[g === $Failed || !MatchQ[Head[g], Graphics|Graphics3D|Graph|GeoGraphics],
+    <|"success" -> False, "error" -> "Not a graphics object"|>,
+    <|
+      "success" -> True,
+      "head" -> ToString[Head[g]],
+      "primitives" -> Union[Cases[g, h_Symbol /; Context[h] === "System`" :> ToString[h], Infinity]],
+      "options" -> ToString[Options[g], InputForm],
+      "plot_range" -> ToString[Quiet[PlotRange /. AbsoluteOptions[g]], InputForm],
+      "image_size" -> ToString[Quiet[ImageSize /. AbsoluteOptions[g]], InputForm]
+    |>
+  ]
+]
+'''
+
+    try:
+        result = subprocess.run(
+            [wolframscript, "-code", code],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        output = result.stdout.strip()
+        parsed = _parse_wolfram_association(output)
+        return json.dumps(parsed, indent=2)
+    except Exception as e:
+        return json.dumps({"success": False, "error": str(e)}, indent=2)
+
+
+@mcp.tool()
+async def export_graphics(
+    expression: str,
+    path: str,
+    format: Literal["PNG", "PDF", "SVG", "EPS", "JPEG"] = "PNG",
+    size: int = 600,
+) -> str:
+    """
+    Export a graphics expression to an image file.
+
+    Args:
+        expression: Graphics expression (e.g., "Plot[Sin[x], {x, 0, 2Pi}]")
+        path: Output file path
+        format: Image format (PNG, PDF, SVG, EPS, JPEG)
+        size: Image size in pixels (default 600)
+
+    Returns:
+        Export confirmation with file path and size
+
+    Example:
+        export_graphics("Plot[Sin[x], {x, 0, 2Pi}]", "~/plot.png", "PNG", 800)
+    """
+    expanded = _expand_path(path)
+
+    result = _try_addon_command(
+        "export_graphics",
+        {"expression": expression, "path": expanded, "format": format, "size": size},
+    )
+
+    if result.get("error"):
+        return json.dumps({"success": False, "error": result["error"]}, indent=2)
+
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+async def compare_plots(
+    expressions: List[str], labels: Optional[List[str]] = None
+) -> str:
+    """
+    Generate a side-by-side comparison of multiple plots.
+
+    Args:
+        expressions: List of plot expressions to compare
+        labels: Optional labels for each plot
+
+    Returns:
+        Combined plot expression for visualization
+
+    Example:
+        compare_plots(["Plot[Sin[x], {x,0,2Pi}]", "Plot[Cos[x], {x,0,2Pi}]"], ["Sin", "Cos"])
+    """
+    import subprocess
+    import shutil
+
+    wolframscript = shutil.which("wolframscript")
+    if not wolframscript:
+        return json.dumps(
+            {"success": False, "error": "wolframscript not found"}, indent=2
+        )
+
+    plots_list = "{" + ", ".join(expressions) + "}"
+    labels_code = (
+        "None" if not labels else "{" + ", ".join(f'"{l}"' for l in labels) + "}"
+    )
+
+    code = f"""
+Module[{{plots, labels, grid}},
+  plots = {plots_list};
+  labels = {labels_code};
+  grid = If[labels === None,
+    GraphicsRow[plots],
+    GraphicsRow[MapThread[Labeled[#1, #2, Top] &, {{plots, labels}}]]
+  ];
+  <|
+    "success" -> True,
+    "combined_expression" -> ToString[grid, InputForm],
+    "plot_count" -> Length[plots]
+  |>
+]
+"""
+
+    try:
+        result = subprocess.run(
+            [wolframscript, "-code", code],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        output = result.stdout.strip()
+        parsed = _parse_wolfram_association(output)
+        return json.dumps(parsed, indent=2)
+    except Exception as e:
+        return json.dumps({"success": False, "error": str(e)}, indent=2)
+
+
+@mcp.tool()
+async def create_animation(
+    expression: str,
+    parameter: str,
+    range_spec: str,
+    frames: int = 20,
+) -> str:
+    """
+    Create an animation by varying a parameter.
+
+    Args:
+        expression: Expression with parameter (e.g., "Plot[Sin[n*x], {x, 0, 2Pi}]")
+        parameter: Parameter to animate (e.g., "n")
+        range_spec: Range for parameter (e.g., "1, 5" or "0, 2Pi, Pi/4")
+        frames: Number of frames (default 20)
+
+    Returns:
+        Animation expression that can be exported as GIF
+
+    Example:
+        create_animation("Plot[Sin[n*x], {x, 0, 2Pi}]", "n", "1, 5", 10)
+    """
+    import subprocess
+    import shutil
+
+    wolframscript = shutil.which("wolframscript")
+    if not wolframscript:
+        return json.dumps(
+            {"success": False, "error": "wolframscript not found"}, indent=2
+        )
+
+    code = f'''
+Module[{{expr, param, range, anim}},
+  expr = Hold[{expression}];
+  range = {{{parameter}, {range_spec}}};
+  anim = Table[
+    ReleaseHold[expr /. {parameter} -> val],
+    {{val, range[[2]], range[[3]], (range[[3]] - range[[2]])/{frames}}}
+  ];
+  <|
+    "success" -> True,
+    "frame_count" -> Length[anim],
+    "parameter" -> "{parameter}",
+    "animation_expression" -> ToString[ListAnimate[anim], InputForm]
+  |>
+]
+'''
+
+    try:
+        result = subprocess.run(
+            [wolframscript, "-code", code],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        output = result.stdout.strip()
+        parsed = _parse_wolfram_association(output)
+        return json.dumps(parsed, indent=2)
+    except Exception as e:
+        return json.dumps({"success": False, "error": str(e)}, indent=2)
 
 
 # ============================================================================
