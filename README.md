@@ -5,9 +5,10 @@ Full GUI control of Mathematica notebooks and kernel via Model Context Protocol 
 This MCP server allows LLMs (like Claude) to:
 - **Create, read, and manipulate notebooks** - Full programmatic access to Mathematica notebooks
 - **Execute Wolfram Language code** - Run computations and get results
+- **Verify mathematical derivations** - Check if derivation steps are mathematically valid
+- **Access Wolfram repositories** - Search and load functions/datasets from Wolfram repositories
 - **Take screenshots** - Capture notebook views, cells, or rendered expressions
-- **Navigate and edit** - Select cells, scroll, insert content
-- **Export** - Save notebooks to PDF, HTML, TeX, and more
+- **Run long computations** - Submit async jobs for computations >60 seconds
 
 ## Architecture
 
@@ -51,18 +52,12 @@ cd ~/mcp/mathematica-mcp/addon
 wolframscript -file install.wl
 ```
 
-- Writes an auto-load snippet to `~/Library/Wolfram/Kernel/init.m` (user base) so the addon loads and starts on launch.
-- Default port: **9881**. Change at runtime with `MathematicaMCP`Private`$MCPPort = <port>; StartMCPServer[]` before starting the server.
-
 **Option B: Manual load in Mathematica (single session)**
 
 ```mathematica
 Get["~/mcp/mathematica-mcp/addon/MathematicaMCP.wl"]
-MathematicaMCP`Private`$MCPPort = 9881; (* optional: change before start *)
 StartMCPServer[]
 ```
-
-**Troubleshooting ports:** If you see "Address already in use", set a new port (e.g., 9883) with `$MCPPort` before `StartMCPServer[]` and set `MATHEMATICA_PORT` on the client side accordingly.
 
 ### Step 3: Configure Your LLM Client
 
@@ -73,30 +68,7 @@ StartMCPServer[]
   "mcpServers": {
     "mathematica": {
       "command": "uv",
-      "args": [
-        "--directory",
-        "/Users/YOUR_USERNAME/mcp/mathematica-mcp",
-        "run",
-        "mathematica-mcp"
-      ]
-    }
-  }
-}
-```
-
-**For OpenCode (`~/.config/opencode/opencode.json`):**
-
-```json
-{
-  "mcpServers": {
-    "mathematica": {
-      "command": "uv",
-      "args": [
-        "--directory",
-        "/Users/YOUR_USERNAME/mcp/mathematica-mcp",
-        "run",
-        "mathematica-mcp"
-      ]
+      "args": ["--directory", "/Users/YOUR_USERNAME/mcp/mathematica-mcp", "run", "mathematica-mcp"]
     }
   }
 }
@@ -125,7 +97,7 @@ StartMCPServer[]
    MCPServerStatus[]
    (* Should show: <|"running" -> True, "port" -> 9881, ...|> *)
    ```
-3. **Start your LLM client** (Claude Code, OpenCode, Claude Desktop, etc.)
+3. **Start your LLM client** (Claude Code, Claude Desktop, etc.)
 4. **Ask Claude to interact with Mathematica!**
 
 ---
@@ -137,6 +109,8 @@ StartMCPServer[]
 | Tool | Description |
 |------|-------------|
 | `get_mathematica_status` | Check connection status and system info |
+| `get_kernel_state` | Get memory usage, loaded packages, session uptime |
+| `get_feature_status` | Show which features are enabled/disabled |
 
 ### Notebook Management
 
@@ -163,14 +137,70 @@ StartMCPServer[]
 
 | Tool | Description |
 |------|-------------|
-| `execute_code` | Run Wolfram Language code (defaults to `output_target="notebook"` for proper graphics rendering) |
+| `execute_code` | Run Wolfram Language code |
 | `evaluate_selection` | Evaluate currently selected cells |
+| `rasterize_expression` | Render expression as image |
 
-### Documentation & Lookup
+### Mathematical Operations (Named Aliases)
 
 | Tool | Description |
 |------|-------------|
-| `resolve_function` | Search for Wolfram functions by name, get syntax/usage, and optionally auto-execute |
+| `mathematica_integrate` | Compute integrals (definite or indefinite) |
+| `mathematica_solve` | Solve equations |
+| `mathematica_simplify` | Simplify expressions |
+| `mathematica_differentiate` | Compute derivatives |
+| `mathematica_expand` | Expand expressions |
+| `mathematica_factor` | Factor expressions |
+| `mathematica_limit` | Compute limits |
+| `mathematica_series` | Taylor/power series expansion |
+
+### Derivation Verification
+
+| Tool | Description |
+|------|-------------|
+| `verify_derivation` | Check if mathematical derivation steps are valid |
+
+### Symbol Introspection
+
+| Tool | Description |
+|------|-------------|
+| `resolve_function` | Search for functions by name, get syntax/usage |
+| `get_symbol_info` | Get comprehensive symbol information (usage, options, attributes) |
+
+### Wolfram Repository Integration
+
+| Tool | Description |
+|------|-------------|
+| `search_function_repository` | Search Wolfram Function Repository (2900+ functions) |
+| `get_function_repository_info` | Get details about a repository function |
+| `load_resource_function` | Load a function from the repository |
+| `search_data_repository` | Search Wolfram Data Repository |
+| `get_dataset_info` | Get dataset metadata |
+| `load_dataset` | Load a dataset from the repository |
+
+### Package Management
+
+| Tool | Description |
+|------|-------------|
+| `load_package` | Load a Mathematica package |
+| `list_loaded_packages` | List all loaded package contexts |
+
+### Long Computation (Async)
+
+| Tool | Description |
+|------|-------------|
+| `submit_computation` | Submit long-running computation (returns job_id) |
+| `poll_computation` | Check status of a submitted job |
+| `get_computation_result` | Retrieve result of completed job |
+
+### Expression Caching
+
+| Tool | Description |
+|------|-------------|
+| `cache_expression` | Evaluate and cache an expression |
+| `get_cached` | Retrieve a cached expression |
+| `list_cache` | List all cached expressions |
+| `clear_expression_cache` | Clear the expression cache |
 
 ### Screenshots & Visualization
 
@@ -178,645 +208,214 @@ StartMCPServer[]
 |------|-------------|
 | `screenshot_notebook` | Capture full notebook view |
 | `screenshot_cell` | Capture a specific cell |
-| `rasterize_expression` | Render any expression as image (without modifying notebook) |
-
-### Navigation
-
-| Tool | Description |
-|------|-------------|
-| `select_cell` | Select a cell (move cursor) |
-| `scroll_to_cell` | Scroll to make cell visible |
+| `rasterize_expression` | Render any expression as image |
 
 ---
 
-## Understanding Tool Workflows
+## Usage Examples
 
-This section explains **when to use which tool** for different scenarios. Understanding these distinctions is critical for effective notebook automation.
-
-### The Three Ways to Execute Code
-
-| Tool | What It Does | Where Output Appears | Use When |
-|------|--------------|---------------------|----------|
-| `write_cell` | **Only writes** code to notebook | No output (code not executed) | Building notebooks for later execution |
-| `evaluate_cell` | Executes a cell **in the notebook** | Output appears in Mathematica GUI | User needs to see results in Mathematica |
-| `execute_code` | Executes code **immediately** | CLI (text) or notebook (graphics) | Quick computations or plotting |
-| `rasterize_expression` | Executes and **returns image** | Image returned to LLM/conversation | LLM needs to see/describe plots |
-
-### Key Insight: `write_cell` Does NOT Execute
+### Example 1: Verify a Mathematical Derivation
 
 ```python
-# This ONLY adds code to the notebook - no plot is generated!
-write_cell("Plot[Sin[x], {x, 0, 2 Pi}]", style="Input")
+# Check if x² - y² = (x-y)(x+y)
+verify_derivation(["x^2 - y^2", "(x-y)*(x+y)"])
+# Returns: Step 1 → 2: ✓ VALID
 
-# To see the plot, you must ALSO do one of:
-evaluate_cell(cell_id)           # Execute in Mathematica
-# OR
-rasterize_expression("Plot[...]") # Get image back to LLM
+# Check a multi-step derivation with an error
+verify_derivation(["Sin[x]^2 + Cos[x]^2", "1", "2"])
+# Returns:
+#   Step 1 → 2: ✓ VALID (Pythagorean identity)
+#   Step 2 → 3: ✗ INVALID (1 ≠ 2)
 ```
 
-### The `output_target` Parameter
-
-The `execute_code` tool has an `output_target` parameter that controls where results go:
-
-#### `output_target="notebook"` (default)
-
-Inserts an **Input cell** into the active notebook and **evaluates it**. The output (including graphics) renders properly in Mathematica. Best for:
-- Plots and visualizations
-- Building documented notebooks
-- When user needs to see results in Mathematica GUI
-- **Any graphical output** (this is why it's the default)
+### Example 2: Use Named Math Aliases
 
 ```python
-# Creates plot IN the Mathematica notebook (default behavior)
-execute_code("Plot[Sin[x], {x, 0, 2 Pi}]")
+# Indefinite integral
+mathematica_integrate("x^2", "x")
+# Returns: x^3/3
 
-# Adds 3D surface to notebook
-execute_code("Plot3D[Sin[x] Cos[y], {x, -Pi, Pi}, {y, -Pi, Pi}]")
+# Definite integral
+mathematica_integrate("x^2", "x", "0", "1")
+# Returns: 1/3
+
+# Solve equation
+mathematica_solve("x^2 - 4 == 0", "x")
+# Returns: {{x -> -2}, {x -> 2}}
+
+# Simplify with assumptions
+mathematica_simplify("Sqrt[x^2]", assumptions="x > 0")
+# Returns: x
+
+# Compute limit
+mathematica_limit("Sin[x]/x", "x", "0")
+# Returns: 1
+
+# Taylor series
+mathematica_series("Exp[x]", "x", "0", 5)
+# Returns: 1 + x + x^2/2 + x^3/6 + x^4/24 + O[x]^5
 ```
 
-**Note:** With `output_target="notebook"`, the LLM does NOT see the plot directly. To see it, use `screenshot_notebook()`, `screenshot_cell()`, or `rasterize_expression()`.
-
-#### `output_target="cli"`
-
-Returns the result as **text** to the LLM. Use this for:
-- Symbolic computations
-- Numerical results
-- LaTeX-formatted expressions
-- Any non-graphical output where you need the result as text
+### Example 3: Get Symbol Information
 
 ```python
-# Returns text: "2"
-execute_code("Integrate[x^2 Exp[-x], {x, 0, Infinity}]", output_target="cli")
-
-# Returns LaTeX: "\frac{x^3}{3}"
-execute_code("Integrate[x^2, x]", format="latex", output_target="cli")
-
-# Returns: "{1, 1, 2, 3, 5, 8, 13, 21, 34, 55}"
-execute_code("Table[Fibonacci[n], {n, 1, 10}]", output_target="cli")
+# Deep introspection of a function
+get_symbol_info("Plot")
+# Returns:
+# {
+#   "symbol": "Plot",
+#   "usage": "Plot[f, {x, xmin, xmax}] generates a plot...",
+#   "attributes": ["Protected", "ReadProtected"],
+#   "options_count": 67,
+#   "related_symbols": ["ListPlot", "Plot3D", "ParametricPlot"]
+# }
 ```
 
-### Complete Workflow Examples
-
-#### Example 1: Create Notebook with Plots (User Views in Mathematica)
+### Example 4: Search Wolfram Function Repository
 
 ```python
-# Step 1: Create notebook
+# Search for graph-related functions
+search_function_repository("graph algorithms")
+# Returns list of community functions like:
+#   - RandomGraph
+#   - GraphDistance
+#   - FindHamiltonianPath
+
+# Load and use a repository function
+load_resource_function("RandomGraph")
+execute_code('ResourceFunction["RandomGraph"][{10, 20}]')
+```
+
+### Example 5: Long Computation Workflow
+
+```python
+# Submit a computation that takes >60 seconds
+result = submit_computation(
+    "FactorInteger[2^256 - 1]",
+    name="Large factorization"
+)
+# Returns: {"job_id": "abc123", "status": "submitted"}
+
+# Poll for completion
+poll_computation("abc123")
+# Returns: {"status": "running", "elapsed_seconds": 45.2}
+
+# Get result when done
+poll_computation("abc123")
+# Returns: {"status": "completed", "has_result": true}
+
+get_computation_result("abc123")
+# Returns the factorization result
+```
+
+### Example 6: Expression Caching
+
+```python
+# Cache an expensive computation
+cache_expression("my_integral", "Integrate[Sin[x]^10, x]")
+# Returns: result + confirmation cached
+
+# Retrieve later (instant, no recomputation)
+get_cached("my_integral")
+# Returns the cached result
+
+# List all cached expressions
+list_cache()
+# Returns: {"my_integral": {"access_count": 2, "age_seconds": 120}}
+```
+
+### Example 7: Package Management
+
+```python
+# Load a package
+load_package("Developer`")
+# Returns: {"success": true, "new_contexts": ["Developer`"]}
+
+# List loaded packages
+list_loaded_packages()
+# Returns list of all loaded package contexts
+```
+
+### Example 8: Get Kernel State
+
+```python
+get_kernel_state()
+# Returns:
+# {
+#   "kernel_version": 14.1,
+#   "memory_in_use_mb": 256.4,
+#   "session_time": 3600.5,
+#   "global_symbol_count": 42,
+#   "loaded_packages": ["Developer`", "GeneralUtilities`", ...]
+# }
+```
+
+### Example 9: Create Documented Notebook
+
+```python
 create_notebook(title="Analysis")
-
-# Step 2: Add content (write_cell does NOT execute)
 write_cell("My Analysis", style="Title")
-write_cell("Plot of sin(x):", style="Text")
-write_cell("Plot[Sin[x], {x, 0, 2 Pi}]", style="Input")
+write_cell("Computing the integral:", style="Text")
+write_cell("Integrate[Sin[x]^2, x]", style="Input")
 
-# Step 3: Get cell IDs
+# Evaluate all input cells
 cells = get_cells(style="Input")
+for cell in cells:
+    evaluate_cell(cell_id=cell["id"])
 
-# Step 4: Evaluate cells (NOW the plot renders in Mathematica)
-evaluate_cell(cell_id=cells[0]["id"])
-
-# Step 5: (Optional) Take screenshot to see result
 screenshot_notebook()
 ```
 
-#### Example 2: Quick Plot Visible to LLM
+### Example 10: Visualize and Return to LLM
 
 ```python
-# Use rasterize_expression - LLM sees the plot directly in conversation
+# Render a plot as image (LLM sees it directly)
 rasterize_expression("Plot[Sin[x], {x, 0, 2 Pi}]", image_size=500)
 # Returns: Image that LLM can see and describe
 ```
 
-#### Example 3: Computation + Plot in Notebook
+---
 
+## Feature Flags
+
+Control features via environment variables:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MATHEMATICA_ENABLE_FUNCTION_REPO` | `true` | Wolfram Function Repository integration |
+| `MATHEMATICA_ENABLE_DATA_REPO` | `true` | Wolfram Data Repository integration |
+| `MATHEMATICA_ENABLE_ASYNC` | `true` | Async long computation workflow |
+| `MATHEMATICA_ENABLE_LOOKUP` | `true` | Symbol lookup/introspection |
+| `MATHEMATICA_ENABLE_MATH_ALIASES` | `true` | Named math operation shortcuts |
+| `MATHEMATICA_ENABLE_CACHE` | `true` | Expression caching |
+| `MATHEMATICA_ENABLE_TELEMETRY` | `false` | Usage telemetry (opt-in) |
+
+Check current status:
 ```python
-# Compute symbolically (result returned as text)
-result = execute_code("Integrate[Sin[x]^2, x]", output_target="cli")
-# Returns: "x/2 - Sin[2x]/4"
-
-# Plot in notebook (user sees in Mathematica)
-execute_code("Plot[Sin[x]^2, {x, 0, 2 Pi}, PlotLabel -> \"Sin²(x)\"]",
-             output_target="notebook")
-
-# Verify by taking screenshot
-screenshot_notebook()
-```
-
-#### Example 4: Build and Evaluate Entire Notebook
-
-```python
-# Create structure
-create_notebook(title="Fibonacci Analysis")
-write_cell("Fibonacci Sequence", style="Title")
-write_cell("Generating the sequence:", style="Text")
-write_cell("fib = Table[Fibonacci[k], {k, 1, 20}]", style="Input")
-write_cell("Ratio convergence to golden ratio:", style="Text")
-write_cell("ListPlot[Table[Fibonacci[k+1]/Fibonacci[k]//N, {k,1,20}]]", style="Input")
-
-# Get all input cells
-cells = get_cells(style="Input")
-
-# Evaluate each one
-for cell in cells:
-    evaluate_cell(cell_id=cell["id"])
-
-# Now ALL plots are visible in Mathematica
-screenshot_notebook()
-```
-
-#### Example 5: LLM Describes Plot Content
-
-```python
-# Render plot as image (LLM receives it)
-image = rasterize_expression("""
-Plot[{Sin[x], Cos[x]}, {x, 0, 2 Pi},
-  PlotLegends -> {"Sin", "Cos"},
-  PlotStyle -> {Blue, Red}]
-""", image_size=500)
-
-# LLM can now describe: "The plot shows two sinusoidal curves -
-# a blue sine wave and a red cosine wave, phase-shifted by π/2..."
-```
-
-### Decision Tree: Which Tool to Use?
-
-```
-Do you need to BUILD a notebook for later use?
-├── YES → use write_cell (then evaluate_cell when ready)
-└── NO → Do you need the LLM to SEE the result?
-         ├── YES → Is it graphical?
-         │         ├── YES → use rasterize_expression
-         │         └── NO → use execute_code(output_target="cli")
-         └── NO → Is it graphical (plot, 3D, etc)?
-                  ├── YES → use execute_code() [default renders in notebook]
-                  └── NO → use execute_code(output_target="cli") for text result
-```
-
-### Common Mistakes and Fixes
-
-| Mistake | Problem | Fix |
-|---------|---------|-----|
-| `write_cell("Plot[...]")` and expecting to see plot | `write_cell` doesn't execute | Add `evaluate_cell()` afterward OR use `execute_code("Plot[...]")` |
-| `execute_code("1+1")` expecting text back | Default now renders in notebook | Add `output_target="cli"` for text results |
-| Using `execute_code("Plot[...]")` but LLM can't describe the plot | Plot is in Mathematica, not returned to LLM | Use `rasterize_expression()` instead, OR take `screenshot_notebook()` after |
-| `evaluate_cell()` returns nothing useful | It only confirms execution, doesn't return output | Use `screenshot_cell()` to see result, or `execute_code(output_target="cli")` for text output |
-
-### Format Parameter Examples
-
-The `format` parameter works with `output_target="cli"`:
-
-```python
-# Plain text (default)
-execute_code("Integrate[x^2, x]", format="text")
-# Returns: "x^3/3"
-
-# LaTeX (for documents)
-execute_code("Integrate[x^2, x]", format="latex")
-# Returns: "\frac{x^3}{3}"
-
-# Mathematica InputForm (copy-pasteable)
-execute_code("Integrate[x^2, x]", format="mathematica")
-# Returns: "x^3/3"
-
-# Complex expression in LaTeX
-execute_code("Integrate[1/(x^4 + 1), x]", format="latex")
-# Returns: "\frac{-\log(x^2-\sqrt{2}x+1)+\log(x^2+\sqrt{2}x+1)..."
+get_feature_status()
+# Returns all feature flag states
 ```
 
 ---
 
-## Verified Test Results
-
-The following tests have been verified working with Claude Opus 4.5 and Mathematica 14.1 on macOS ARM64:
-
-### Test Summary
-
-| Test | Description | Method | Result |
-|------|-------------|--------|--------|
-| 1 | Basic 2D Plot (Sin) | `execute_code` → notebook | ✓ |
-| 2 | Multiple Functions + State Persistence | `execute_code` → notebook | ✓ |
-| 3 | 3D Surface Plot | `execute_code` → notebook | ✓ |
-| 4 | Contour Plot | `execute_code` → notebook | ✓ |
-| 5 | Parametric Plot (Lissajous) | `execute_code` → notebook | ✓ |
-| 6 | Graphics (Color Wheel) | `rasterize_expression` | ✓ |
-| 7 | Symbolic Computation | `execute_code` → CLI | ✓ |
-| 8 | LaTeX Formatted Output | `execute_code` → CLI | ✓ |
-| 9 | State Persistence | `execute_code` → CLI | ✓ |
-
-### Test Details
-
-#### Test 1: Basic 2D Plot
-
-```python
-execute_code("Plot[Sin[x], {x, 0, 2 Pi}, PlotLabel -> \"Test 1: Basic Sin Wave\"]",
-             output_target="notebook")
-```
-**Result:** Smooth sine wave from 0 to 2π, oscillating between -1 and 1, with label visible.
-
-#### Test 2: State Persistence + Multiple Functions
-
-```python
-execute_code("testVar = 42;", output_target="notebook")
-
-execute_code("""
-Plot[{Sin[x], Cos[x], Sin[x] Cos[x]}, {x, 0, 2 Pi},
-  PlotLabel -> StringJoin["Test 2: Multiple Functions (testVar = ", ToString[testVar], ")"],
-  PlotLegends -> {"Sin", "Cos", "Sin*Cos"},
-  PlotStyle -> {Blue, Red, Green}]
-""", output_target="notebook")
-```
-**Result:** Three colored curves (Blue=Sin, Red=Cos, Green=Sin*Cos) with legend. Title shows "testVar = 42" confirming state persistence.
-
-#### Test 3: 3D Surface Plot
-
-```python
-execute_code("""
-Plot3D[Sin[x] Cos[y], {x, 0, 2 Pi}, {y, 0, 2 Pi},
-  PlotLabel -> "Test 3: 3D Surface",
-  ColorFunction -> "Rainbow",
-  Mesh -> None]
-""", output_target="notebook")
-```
-**Result:** Rainbow-colored 3D surface with characteristic saddle-point geometry.
-
-#### Test 4: Contour Plot
-
-```python
-execute_code("""
-ContourPlot[Sin[x^2 + y^2], {x, -2, 2}, {y, -2, 2},
-  PlotLabel -> "Test 4: Contour Plot",
-  ColorFunction -> "TemperatureMap",
-  Contours -> 15]
-""", output_target="notebook")
-```
-**Result:** Concentric circular contours (ripple pattern) with temperature color map.
-
-#### Test 5: Parametric Plot (Lissajous Curve)
-
-```python
-execute_code("""
-ParametricPlot[{Sin[3t], Cos[5t]}, {t, 0, 2 Pi},
-  PlotLabel -> "Test 5: Lissajous Curve (3:5)",
-  PlotStyle -> {Thick, Purple},
-  AspectRatio -> 1]
-""", output_target="notebook")
-```
-**Result:** Purple Lissajous curve with 3:5 frequency ratio, complex interweaving pattern.
-
-#### Test 6: Rasterize Expression (Color Wheel)
-
-```python
-rasterize_expression("""
-Graphics[{EdgeForm[Black],
-  Table[{Hue[i/12], Disk[{Cos[2 Pi i/12], Sin[2 Pi i/12]}, 0.3]}, {i, 0, 11}]},
-  PlotLabel -> "Test 6: Rasterize (Color Wheel)"]
-""", image_size=400)
-```
-**Result:** 12 colored disks arranged in a circle showing full Hue spectrum. Rendered directly without modifying notebook.
-
-#### Test 7: Symbolic Computation (CLI Output)
-
-```python
-execute_code("""
-result = Integrate[x^2 * Exp[-x], {x, 0, Infinity}];
-result
-""", format="text", output_target="cli")
-```
-**Result:** Returns `2` (correct: Γ(3) = 2!)
-
-#### Test 8: LaTeX Formatted Output
-
-```python
-execute_code("Integrate[1/(x^4 + 1), x]", format="latex", output_target="cli")
-```
-**Result:** Returns LaTeX-formatted antiderivative:
-```latex
-\frac{-\log(x^2-\sqrt{2}x+1)+\log(x^2+\sqrt{2}x+1)-2\tan^{-1}(1-\sqrt{2}x)+2\tan^{-1}(\sqrt{2}x+1)}{4\sqrt{2}}
-```
-
-#### Test 9: State Persistence Verification
-
-```python
-execute_code("{testVar, result}", output_target="cli")
-```
-**Result:** Returns `{42, 2}` - variables from earlier tests are preserved.
-
-### Verified Capabilities
-
-- **Plots render correctly** in Mathematica notebook GUI
-- **LLM can see and describe screenshots** (colors, shapes, labels, legends)
-- **State persists** between sequential commands (variables carry through)
-- **Both output targets work**: `output_target="notebook"` and `output_target="cli"`
-- **Rasterize renders images** directly without modifying notebook
-- **Screenshot captures** full notebook state
-- **Multiple output formats**: text, latex, mathematica (InputForm)
-
----
-
-## Example Workflows
-
-### Workflow 1: Interactive Computation
-
-**User:** "Calculate the integral of sin(x)cos(x) from 0 to pi and show me the steps"
-
-**Claude uses:**
-```python
-execute_code("Integrate[Sin[x] Cos[x], {x, 0, Pi}]", output_target="cli")
-# Returns: 0
-
-execute_code("Integrate[Sin[x] Cos[x], x]", format="latex", output_target="cli")
-# Returns: "\frac{\sin^2(x)}{2}"
-
-execute_code("Plot[Sin[x] Cos[x], {x, 0, Pi}, PlotLabel -> \"Sin[x]Cos[x]\"]")
-# Creates plot in active notebook (default behavior)
-```
-
-### Workflow 2: Create a Documented Notebook
-
-**User:** "Create a notebook analyzing the Fibonacci sequence with plots"
-
-**Claude uses:**
-```python
-create_notebook(title="Fibonacci Analysis")
-# Returns notebook ID
-
-write_cell("Fibonacci Sequence Analysis", style="Title")
-write_cell("First, let's generate the sequence:", style="Text")
-write_cell("fib = RecurrenceTable[{a[n] == a[n-1] + a[n-2], a[1] == 1, a[2] == 1}, a, {n, 20}]",
-           style="Input")
-write_cell("Plotting the growth:", style="Text")
-write_cell("ListPlot[fib, Joined -> True, PlotLabel -> \"Fibonacci Growth\"]", style="Input")
-
-evaluate_selection()  # or evaluate each cell
-
-screenshot_notebook()
-# Returns image of the completed notebook
-```
-
-### Workflow 3: Debug Mathematical Derivation
-
-**User:** "Check my derivation in the open notebook - are steps 3-5 correct?"
-
-**Claude uses:**
-```python
-get_notebooks()
-# Lists open notebooks
-
-get_cells(notebook="derivation.nb", style="Input")
-# Returns list of input cells with IDs and content previews
-
-get_cell_content(cell_id="CellObject[...]")  # for cells 3, 4, 5
-# Gets the actual mathematical content
-
-execute_code("Simplify[step3 == step4]")
-# Verifies each transition
-```
-
-### Workflow 4: Export Research Work
-
-**User:** "Export my analysis notebook to PDF and take a screenshot"
-
-**Claude uses:**
-```python
-get_notebooks()
-# Find the target notebook
-
-save_notebook(notebook="analysis.nb")
-# Save current state
-
-export_notebook(path="~/Documents/analysis.pdf", format="PDF")
-# Export to PDF
-
-screenshot_notebook(notebook="analysis.nb")
-# Returns preview image
-```
-
-### Workflow 5: Visualize Mathematical Objects
-
-**User:** "Show me what a torus knot looks like"
-
-**Claude uses:**
-```python
-rasterize_expression(
-    "ParametricPlot3D[{(3 + Cos[3t]) Cos[2t], (3 + Cos[3t]) Sin[2t], Sin[3t]}, {t, 0, 2Pi}]",
-    image_size=500
-)
-# Returns rendered 3D plot image directly
-```
-
-### Workflow 6: Batch Cell Evaluation
-
-**User:** "Evaluate all the Input cells in my notebook"
-
-**Claude uses:**
-```python
-get_cells(style="Input")
-# Returns all input cells
-
-# For each cell:
-evaluate_cell(cell_id="CellObject[...]")
-
-screenshot_notebook()
-# Show the results
-```
-
-### Workflow 7: Compare Mathematical Expressions
-
-**User:** "Is sin(2x) equal to 2sin(x)cos(x)?"
-
-**Claude uses:**
-```python
-execute_code("Simplify[Sin[2x] == 2 Sin[x] Cos[x]]")
-# Returns: True
-
-execute_code("""
-Plot[{Sin[2x], 2 Sin[x] Cos[x]}, {x, 0, 2 Pi},
-  PlotStyle -> {{Blue, Thick}, {Red, Dashed}},
-  PlotLegends -> {"Sin[2x]", "2 Sin[x] Cos[x]"}]
-""", output_target="notebook")
-# Visual confirmation - curves overlap perfectly
-
-screenshot_notebook()
-# LLM describes: "Both curves overlap perfectly, confirming the identity"
-```
-
-### Workflow 8: Verify Calculation Steps
-
-**User:** "Check if this derivative is correct: d/dx[x^3 e^x] = (3x^2 + x^3)e^x"
-
-**Claude uses:**
-```python
-execute_code("D[x^3 Exp[x], x]")
-# Returns: e^x x^2 (3 + x)
-
-execute_code("Simplify[D[x^3 Exp[x], x] == (3 x^2 + x^3) Exp[x]]")
-# Returns: True
-
-execute_code("D[x^3 Exp[x], x]", format="latex")
-# Returns: "e^x x^2 (x+3)" in LaTeX
-```
-
-### Workflow 9: Function Lookup and Auto-Execute
-
-**User:** "How do I integrate something in Mathematica?"
-
-**Claude uses:**
-```python
-resolve_function("Integra")
-# Returns: ambiguous - shows Integrate, NIntegrate, etc. with descriptions
-
-resolve_function("Integrate")
-# Returns: resolved - shows usage and example syntax
-
-resolve_function("Integrate", expression="Integrate[x^2, x]")
-# Returns: resolved AND executes the expression automatically
-```
-
-### Workflow 10: Check Execution Warnings
-
-**User:** "Calculate 1/0 and show me any warnings"
-
-**Claude uses:**
-```python
-execute_code("1/0", output_target="cli")
-# Returns structured result with:
-# - output: "ComplexInfinity"
-# - warnings: ["Power::infy: Infinite expression 1/0 encountered."]
-# - timing_ms: 15
-# - execution_method: "wolframscript"
-```
-
----
-
-## Advanced Usage
-
-### Structured Execution Results
-
-All execution responses now include structured metadata:
-
-| Field | Description |
-|-------|-------------|
-| `success` | Boolean indicating if execution succeeded |
-| `output` | The computed result as text |
-| `output_tex` | LaTeX formatted output (if applicable) |
-| `warnings` | List of Mathematica warning messages |
-| `timing_ms` | Execution time in milliseconds |
-| `execution_method` | How code was executed (`addon`, `wolframclient`, `wolframscript`) |
-
-### resolve_function Tool
-
-The `resolve_function` tool helps discover correct Wolfram Language syntax:
-
-```python
-resolve_function(
-    query="Plot",           # Function name to search
-    expression=None,        # Optional: expression to execute if resolved
-    auto_execute=True,      # Auto-execute if unambiguous match found
-    max_candidates=5,       # Max candidates to return
-    output_target="cli"     # Where to execute ("cli" or "notebook")
-)
-```
-
-**Response statuses:**
-- `resolved`: Exact or clear match found
-- `ambiguous`: Multiple candidates - user should clarify
-- `not_found`: No matching functions
-
-### Environment Variables
+## Environment Variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `MATHEMATICA_HOST` | `localhost` | Host where Mathematica addon runs |
 | `MATHEMATICA_PORT` | `9881` | Port for the socket connection |
 
-### Output Formats
+---
+
+## Output Formats
 
 The `execute_code` tool supports three output formats:
 
-| Format | Description | Use Case |
-|--------|-------------|----------|
-| `text` | Plain text representation | General computation results |
-| `latex` | LaTeX formatted output | Mathematical expressions for documents |
-| `mathematica` | Mathematica InputForm | Copy-pasteable Wolfram code |
-
-### Output Targets
-
-| Target | Description | Use Case |
-|--------|-------------|----------|
-| `notebook` (default) | Insert into active notebook and evaluate | Plots, visualizations, any graphics |
-| `cli` | Return result as text | Symbolic computations, numerical results |
-
-### Fallback Mode
-
-If the Mathematica addon is not running, some tools (like `execute_code`) will fall back to using `wolframclient` for kernel-only operation. Install the optional dependency:
-
-```bash
-pip install wolframclient
-```
-
-Note: Fallback mode cannot control notebooks - only execute code.
-
-### Manual Addon Control
-
-In Mathematica:
-```mathematica
-(* Start the server *)
-Get["~/mcp/mathematica-mcp/addon/MathematicaMCP.wl"]
-StartMCPServer[]
-
-(* Check status *)
-MCPServerStatus[]
-
-(* Restart if needed *)
-RestartMCPServer[]
-
-(* Stop the server *)
-StopMCPServer[]
-```
-
-### Debug Mode
-
-Enable verbose logging in Mathematica:
-```mathematica
-MathematicaMCP`Private`$MCPDebug = True;
-```
-
----
-
-## Troubleshooting
-
-### "Could not connect to Mathematica addon"
-
-1. Is Mathematica running?
-2. Run `MCPServerStatus[]` in Mathematica - does it show `"running" -> True`?
-3. Try `RestartMCPServer[]` in Mathematica
-4. Check if port 9881 is available: `lsof -i :9881`
-
-### "Timeout waiting for response"
-
-- The computation might be slow. Increase timeout or simplify the request.
-- For long computations, break them into smaller steps.
-
-### "Addon loads but server won't start"
-
-- Check for port conflicts: `lsof -i :9881`
-- Try a different port:
-  ```mathematica
-  MathematicaMCP`Private`$MCPPort = 9882;
-  StartMCPServer[]
-  ```
-  Then set `MATHEMATICA_PORT=9882` environment variable.
-
-### Screenshots are blank or wrong size
-
-- Ensure the notebook is visible (not minimized)
-- Try scrolling to the target cell first with `scroll_to_cell`
-- Use `max_height` parameter to control screenshot size
-
-### Variables not persisting between calls
-
-- This is expected if Mathematica kernel restarts
-- Variables persist within a session - verified working in tests
-- Use `execute_code` with compound statements if needed
+| Format | Description | Example |
+|--------|-------------|---------|
+| `text` | Plain text | `x^3/3` |
+| `latex` | LaTeX formatted | `\frac{x^3}{3}` |
+| `mathematica` | InputForm | `x^3/3` |
 
 ---
 
@@ -831,14 +430,40 @@ mathematica-mcp/
 │       ├── __init__.py
 │       ├── server.py       # MCP server with all tools
 │       ├── connection.py   # Socket connection to addon
-│       └── session.py      # Kernel fallback (wolframclient)
+│       ├── session.py      # Kernel fallback (wolframscript)
+│       ├── config.py       # Feature flags
+│       ├── telemetry.py    # Usage tracking (opt-in)
+│       └── cache.py        # Expression caching
 ├── addon/
 │   ├── MathematicaMCP.wl   # Main addon package
 │   ├── install.wl          # Installation script
-│   └── README.md           # Addon-specific docs
+│   └── README.md
 └── tests/
-    └── ...
 ```
+
+---
+
+## Troubleshooting
+
+### "Could not connect to Mathematica addon"
+
+1. Is Mathematica running?
+2. Run `MCPServerStatus[]` in Mathematica
+3. Try `RestartMCPServer[]` in Mathematica
+4. Check if port 9881 is available: `lsof -i :9881`
+
+### "Timeout waiting for response"
+
+- Use `submit_computation` for long-running computations
+- Break complex computations into smaller steps
+
+### Port conflicts
+
+```mathematica
+MathematicaMCP`Private`$MCPPort = 9882;
+StartMCPServer[]
+```
+Then set `MATHEMATICA_PORT=9882` environment variable.
 
 ---
 
@@ -847,10 +472,18 @@ mathematica-mcp/
 | Component | Tested Version |
 |-----------|----------------|
 | Mathematica | 14.1 |
-| Python | 3.11+ |
+| Python | 3.10+ |
 | macOS | ARM64 (Apple Silicon) |
-| Claude | Opus 4.5 |
 | MCP Protocol | 1.0 |
+
+---
+
+## Credits
+
+Inspired by:
+- [blender-mcp](https://github.com/ahujasid/blender-mcp) - Socket-based addon architecture
+- [texra-ai/mcp-server-mathematica](https://github.com/texra-ai/mcp-server-mathematica) - Derivation verification
+- [paraporoco/Wolfram-MCP](https://github.com/paraporoco/Wolfram-MCP) - Named math aliases
 
 ---
 
@@ -860,10 +493,4 @@ MIT License
 
 ---
 
-## Credits
-
-Inspired by [blender-mcp](https://github.com/ahujasid/blender-mcp) for the socket-based addon architecture.
-
----
-
-*Last tested: January 2026*
+*Last updated: January 2026*
