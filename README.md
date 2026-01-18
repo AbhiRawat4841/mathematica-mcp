@@ -166,6 +166,12 @@ StartMCPServer[]
 | `execute_code` | Run Wolfram Language code (defaults to `output_target="notebook"` for proper graphics rendering) |
 | `evaluate_selection` | Evaluate currently selected cells |
 
+### Documentation & Lookup
+
+| Tool | Description |
+|------|-------------|
+| `resolve_function` | Search for Wolfram functions by name, get syntax/usage, and optionally auto-execute |
+
 ### Screenshots & Visualization
 
 | Tool | Description |
@@ -649,9 +655,71 @@ execute_code("D[x^3 Exp[x], x]", format="latex")
 # Returns: "e^x x^2 (x+3)" in LaTeX
 ```
 
+### Workflow 9: Function Lookup and Auto-Execute
+
+**User:** "How do I integrate something in Mathematica?"
+
+**Claude uses:**
+```python
+resolve_function("Integra")
+# Returns: ambiguous - shows Integrate, NIntegrate, etc. with descriptions
+
+resolve_function("Integrate")
+# Returns: resolved - shows usage and example syntax
+
+resolve_function("Integrate", expression="Integrate[x^2, x]")
+# Returns: resolved AND executes the expression automatically
+```
+
+### Workflow 10: Check Execution Warnings
+
+**User:** "Calculate 1/0 and show me any warnings"
+
+**Claude uses:**
+```python
+execute_code("1/0", output_target="cli")
+# Returns structured result with:
+# - output: "ComplexInfinity"
+# - warnings: ["Power::infy: Infinite expression 1/0 encountered."]
+# - timing_ms: 15
+# - execution_method: "wolframscript"
+```
+
 ---
 
 ## Advanced Usage
+
+### Structured Execution Results
+
+All execution responses now include structured metadata:
+
+| Field | Description |
+|-------|-------------|
+| `success` | Boolean indicating if execution succeeded |
+| `output` | The computed result as text |
+| `output_tex` | LaTeX formatted output (if applicable) |
+| `warnings` | List of Mathematica warning messages |
+| `timing_ms` | Execution time in milliseconds |
+| `execution_method` | How code was executed (`addon`, `wolframclient`, `wolframscript`) |
+
+### resolve_function Tool
+
+The `resolve_function` tool helps discover correct Wolfram Language syntax:
+
+```python
+resolve_function(
+    query="Plot",           # Function name to search
+    expression=None,        # Optional: expression to execute if resolved
+    auto_execute=True,      # Auto-execute if unambiguous match found
+    max_candidates=5,       # Max candidates to return
+    output_target="cli"     # Where to execute ("cli" or "notebook")
+)
+```
+
+**Response statuses:**
+- `resolved`: Exact or clear match found
+- `ambiguous`: Multiple candidates - user should clarify
+- `not_found`: No matching functions
 
 ### Environment Variables
 

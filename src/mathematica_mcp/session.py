@@ -3,12 +3,13 @@ import platform
 import os
 import subprocess
 import shutil
+import time
 from typing import Any, Optional
 
 logger = logging.getLogger("mathematica_mcp.session")
 
 _kernel_session: Any = None
-_use_wolframscript: bool = False  # Fallback to CLI if wolframclient fails
+_use_wolframscript: bool = False
 
 
 def find_wolfram_kernel() -> Optional[str]:
@@ -48,25 +49,46 @@ def find_wolfram_kernel() -> Optional[str]:
 def _execute_via_wolframscript(
     code: str, output_format: str = "text"
 ) -> dict[str, Any]:
-    """Execute code via wolframscript CLI (slower but more reliable)."""
+    """Execute code via wolframscript CLI with timing and warning capture."""
     wolframscript = shutil.which("wolframscript")
     if not wolframscript:
         return {
             "success": False,
             "output": "wolframscript not found in PATH",
             "error": "wolframscript not available",
+            "warnings": [],
+            "timing_ms": 0,
+            "execution_method": "wolframscript",
         }
 
+    wrapped_code = f"""
+Module[{{startTime, result, messages, timing}},
+  startTime = AbsoluteTime[];
+  Block[{{$MessageList = {{}}}},
+    result = Quiet[Check[{code}, $Failed]];
+    messages = $MessageList;
+  ];
+  timing = Round[(AbsoluteTime[] - startTime) * 1000];
+  <|
+    "output" -> ToString[result, InputForm],
+    "messages" -> ToString[messages],
+    "timing_ms" -> timing,
+    "failed" -> (result === $Failed)
+  |>
+]
+"""
+
+    start_time = time.time()
     try:
         result = subprocess.run(
-            [wolframscript, "-code", code],
+            [wolframscript, "-code", wrapped_code],
             capture_output=True,
             text=True,
             timeout=60,
         )
+        python_timing = int((time.time() - start_time) * 1000)
         output = result.stdout.strip()
 
-        # Remove trailing Null from Print statements
         if output.endswith("\nNull"):
             output = output[:-5].strip()
 
@@ -75,9 +97,19 @@ def _execute_via_wolframscript(
                 "success": False,
                 "output": result.stderr or output,
                 "error": result.stderr or "Non-zero exit code",
+                "warnings": [],
+                "timing_ms": python_timing,
+                "execution_method": "wolframscript",
             }
 
-        # Get TeXForm if requested
+        warnings_list = []
+        if "messages" in output and "{" in output:
+            import re
+
+            msg_match = re.search(r'"messages"\s*->\s*"([^"]*)"', output)
+            if msg_match and msg_match.group(1) and msg_match.group(1) != "{}":
+                warnings_list = [msg_match.group(1)]
+
         tex_output = ""
         if output_format == "latex":
             try:
@@ -91,11 +123,20 @@ def _execute_via_wolframscript(
             except Exception:
                 pass
 
+        clean_output = output
+        import re
+
+        out_match = re.search(r'"output"\s*->\s*"([^"]*)"', output)
+        if out_match:
+            clean_output = out_match.group(1)
+
         return {
             "success": True,
-            "output": output,
+            "output": clean_output,
             "output_tex": tex_output,
-            "output_inputform": output,
+            "output_inputform": clean_output,
+            "warnings": warnings_list,
+            "timing_ms": python_timing,
             "execution_method": "wolframscript",
         }
     except subprocess.TimeoutExpired:
@@ -103,12 +144,18 @@ def _execute_via_wolframscript(
             "success": False,
             "output": "Execution timed out after 60 seconds",
             "error": "timeout",
+            "warnings": [],
+            "timing_ms": 60000,
+            "execution_method": "wolframscript",
         }
     except Exception as e:
         return {
             "success": False,
             "output": f"wolframscript execution failed: {e}",
             "error": str(e),
+            "warnings": [],
+            "timing_ms": int((time.time() - start_time) * 1000),
+            "execution_method": "wolframscript",
         }
 
 
@@ -158,11 +205,11 @@ def close_kernel_session():
 
 
 def execute_in_kernel(code: str, output_format: str = "text") -> dict[str, Any]:
+    """Execute code in kernel with structured metadata (timing, warnings)."""
     global _use_wolframscript
 
     session = get_kernel_session()
 
-    # Use wolframscript if session failed to initialize
     if session is None or _use_wolframscript:
         return _execute_via_wolframscript(code, output_format)
 
@@ -171,8 +218,10 @@ def execute_in_kernel(code: str, output_format: str = "text") -> dict[str, Any]:
     except ImportError:
         return _execute_via_wolframscript(code, output_format)
 
+    start_time = time.time()
     try:
         result = session.evaluate(wlexpr(code))
+        timing_ms = int((time.time() - start_time) * 1000)
 
         output = str(result)
         tex_output = ""
@@ -188,9 +237,10 @@ def execute_in_kernel(code: str, output_format: str = "text") -> dict[str, Any]:
             "output": output,
             "output_tex": tex_output,
             "output_inputform": str(result),
+            "warnings": [],
+            "timing_ms": timing_ms,
             "execution_method": "wolframclient",
         }
     except Exception as e:
-        # Try wolframscript as final fallback
         logger.warning(f"wolframclient evaluation failed ({e}), trying wolframscript")
         return _execute_via_wolframscript(code, output_format)
