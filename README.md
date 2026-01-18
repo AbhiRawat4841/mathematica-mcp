@@ -163,7 +163,7 @@ StartMCPServer[]
 
 | Tool | Description |
 |------|-------------|
-| `execute_code` | Run Wolfram Language code (supports `output_target="notebook"` for plotting) |
+| `execute_code` | Run Wolfram Language code (defaults to `output_target="notebook"` for proper graphics rendering) |
 | `evaluate_selection` | Evaluate currently selected cells |
 
 ### Screenshots & Visualization
@@ -180,6 +180,201 @@ StartMCPServer[]
 |------|-------------|
 | `select_cell` | Select a cell (move cursor) |
 | `scroll_to_cell` | Scroll to make cell visible |
+
+---
+
+## Understanding Tool Workflows
+
+This section explains **when to use which tool** for different scenarios. Understanding these distinctions is critical for effective notebook automation.
+
+### The Three Ways to Execute Code
+
+| Tool | What It Does | Where Output Appears | Use When |
+|------|--------------|---------------------|----------|
+| `write_cell` | **Only writes** code to notebook | No output (code not executed) | Building notebooks for later execution |
+| `evaluate_cell` | Executes a cell **in the notebook** | Output appears in Mathematica GUI | User needs to see results in Mathematica |
+| `execute_code` | Executes code **immediately** | CLI (text) or notebook (graphics) | Quick computations or plotting |
+| `rasterize_expression` | Executes and **returns image** | Image returned to LLM/conversation | LLM needs to see/describe plots |
+
+### Key Insight: `write_cell` Does NOT Execute
+
+```python
+# This ONLY adds code to the notebook - no plot is generated!
+write_cell("Plot[Sin[x], {x, 0, 2 Pi}]", style="Input")
+
+# To see the plot, you must ALSO do one of:
+evaluate_cell(cell_id)           # Execute in Mathematica
+# OR
+rasterize_expression("Plot[...]") # Get image back to LLM
+```
+
+### The `output_target` Parameter
+
+The `execute_code` tool has an `output_target` parameter that controls where results go:
+
+#### `output_target="notebook"` (default)
+
+Inserts an **Input cell** into the active notebook and **evaluates it**. The output (including graphics) renders properly in Mathematica. Best for:
+- Plots and visualizations
+- Building documented notebooks
+- When user needs to see results in Mathematica GUI
+- **Any graphical output** (this is why it's the default)
+
+```python
+# Creates plot IN the Mathematica notebook (default behavior)
+execute_code("Plot[Sin[x], {x, 0, 2 Pi}]")
+
+# Adds 3D surface to notebook
+execute_code("Plot3D[Sin[x] Cos[y], {x, -Pi, Pi}, {y, -Pi, Pi}]")
+```
+
+**Note:** With `output_target="notebook"`, the LLM does NOT see the plot directly. To see it, use `screenshot_notebook()`, `screenshot_cell()`, or `rasterize_expression()`.
+
+#### `output_target="cli"`
+
+Returns the result as **text** to the LLM. Use this for:
+- Symbolic computations
+- Numerical results
+- LaTeX-formatted expressions
+- Any non-graphical output where you need the result as text
+
+```python
+# Returns text: "2"
+execute_code("Integrate[x^2 Exp[-x], {x, 0, Infinity}]", output_target="cli")
+
+# Returns LaTeX: "\frac{x^3}{3}"
+execute_code("Integrate[x^2, x]", format="latex", output_target="cli")
+
+# Returns: "{1, 1, 2, 3, 5, 8, 13, 21, 34, 55}"
+execute_code("Table[Fibonacci[n], {n, 1, 10}]", output_target="cli")
+```
+
+### Complete Workflow Examples
+
+#### Example 1: Create Notebook with Plots (User Views in Mathematica)
+
+```python
+# Step 1: Create notebook
+create_notebook(title="Analysis")
+
+# Step 2: Add content (write_cell does NOT execute)
+write_cell("My Analysis", style="Title")
+write_cell("Plot of sin(x):", style="Text")
+write_cell("Plot[Sin[x], {x, 0, 2 Pi}]", style="Input")
+
+# Step 3: Get cell IDs
+cells = get_cells(style="Input")
+
+# Step 4: Evaluate cells (NOW the plot renders in Mathematica)
+evaluate_cell(cell_id=cells[0]["id"])
+
+# Step 5: (Optional) Take screenshot to see result
+screenshot_notebook()
+```
+
+#### Example 2: Quick Plot Visible to LLM
+
+```python
+# Use rasterize_expression - LLM sees the plot directly in conversation
+rasterize_expression("Plot[Sin[x], {x, 0, 2 Pi}]", image_size=500)
+# Returns: Image that LLM can see and describe
+```
+
+#### Example 3: Computation + Plot in Notebook
+
+```python
+# Compute symbolically (result returned as text)
+result = execute_code("Integrate[Sin[x]^2, x]", output_target="cli")
+# Returns: "x/2 - Sin[2x]/4"
+
+# Plot in notebook (user sees in Mathematica)
+execute_code("Plot[Sin[x]^2, {x, 0, 2 Pi}, PlotLabel -> \"Sin²(x)\"]",
+             output_target="notebook")
+
+# Verify by taking screenshot
+screenshot_notebook()
+```
+
+#### Example 4: Build and Evaluate Entire Notebook
+
+```python
+# Create structure
+create_notebook(title="Fibonacci Analysis")
+write_cell("Fibonacci Sequence", style="Title")
+write_cell("Generating the sequence:", style="Text")
+write_cell("fib = Table[Fibonacci[k], {k, 1, 20}]", style="Input")
+write_cell("Ratio convergence to golden ratio:", style="Text")
+write_cell("ListPlot[Table[Fibonacci[k+1]/Fibonacci[k]//N, {k,1,20}]]", style="Input")
+
+# Get all input cells
+cells = get_cells(style="Input")
+
+# Evaluate each one
+for cell in cells:
+    evaluate_cell(cell_id=cell["id"])
+
+# Now ALL plots are visible in Mathematica
+screenshot_notebook()
+```
+
+#### Example 5: LLM Describes Plot Content
+
+```python
+# Render plot as image (LLM receives it)
+image = rasterize_expression("""
+Plot[{Sin[x], Cos[x]}, {x, 0, 2 Pi},
+  PlotLegends -> {"Sin", "Cos"},
+  PlotStyle -> {Blue, Red}]
+""", image_size=500)
+
+# LLM can now describe: "The plot shows two sinusoidal curves -
+# a blue sine wave and a red cosine wave, phase-shifted by π/2..."
+```
+
+### Decision Tree: Which Tool to Use?
+
+```
+Do you need to BUILD a notebook for later use?
+├── YES → use write_cell (then evaluate_cell when ready)
+└── NO → Do you need the LLM to SEE the result?
+         ├── YES → Is it graphical?
+         │         ├── YES → use rasterize_expression
+         │         └── NO → use execute_code(output_target="cli")
+         └── NO → Is it graphical (plot, 3D, etc)?
+                  ├── YES → use execute_code() [default renders in notebook]
+                  └── NO → use execute_code(output_target="cli") for text result
+```
+
+### Common Mistakes and Fixes
+
+| Mistake | Problem | Fix |
+|---------|---------|-----|
+| `write_cell("Plot[...]")` and expecting to see plot | `write_cell` doesn't execute | Add `evaluate_cell()` afterward OR use `execute_code("Plot[...]")` |
+| `execute_code("1+1")` expecting text back | Default now renders in notebook | Add `output_target="cli"` for text results |
+| Using `execute_code("Plot[...]")` but LLM can't describe the plot | Plot is in Mathematica, not returned to LLM | Use `rasterize_expression()` instead, OR take `screenshot_notebook()` after |
+| `evaluate_cell()` returns nothing useful | It only confirms execution, doesn't return output | Use `screenshot_cell()` to see result, or `execute_code(output_target="cli")` for text output |
+
+### Format Parameter Examples
+
+The `format` parameter works with `output_target="cli"`:
+
+```python
+# Plain text (default)
+execute_code("Integrate[x^2, x]", format="text")
+# Returns: "x^3/3"
+
+# LaTeX (for documents)
+execute_code("Integrate[x^2, x]", format="latex")
+# Returns: "\frac{x^3}{3}"
+
+# Mathematica InputForm (copy-pasteable)
+execute_code("Integrate[x^2, x]", format="mathematica")
+# Returns: "x^3/3"
+
+# Complex expression in LaTeX
+execute_code("Integrate[1/(x^4 + 1), x]", format="latex")
+# Returns: "\frac{-\log(x^2-\sqrt{2}x+1)+\log(x^2+\sqrt{2}x+1)..."
+```
 
 ---
 
@@ -319,15 +514,14 @@ execute_code("{testVar, result}", output_target="cli")
 
 **Claude uses:**
 ```python
-execute_code("Integrate[Sin[x] Cos[x], {x, 0, Pi}]")
+execute_code("Integrate[Sin[x] Cos[x], {x, 0, Pi}]", output_target="cli")
 # Returns: 0
 
-execute_code("Integrate[Sin[x] Cos[x], x]", format="latex")
+execute_code("Integrate[Sin[x] Cos[x], x]", format="latex", output_target="cli")
 # Returns: "\frac{\sin^2(x)}{2}"
 
-execute_code("Plot[Sin[x] Cos[x], {x, 0, Pi}, PlotLabel -> \"Sin[x]Cos[x]\"]",
-             output_target="notebook")
-# Creates plot in active notebook
+execute_code("Plot[Sin[x] Cos[x], {x, 0, Pi}, PlotLabel -> \"Sin[x]Cos[x]\"]")
+# Creates plot in active notebook (default behavior)
 ```
 
 ### Workflow 2: Create a Documented Notebook
@@ -480,8 +674,8 @@ The `execute_code` tool supports three output formats:
 
 | Target | Description | Use Case |
 |--------|-------------|----------|
-| `cli` | Return result as text | Computations, symbolic results |
-| `notebook` | Insert into active notebook | Plots, visualizations, documented work |
+| `notebook` (default) | Insert into active notebook and evaluate | Plots, visualizations, any graphics |
+| `cli` | Return result as text | Symbolic computations, numerical results |
 
 ### Fallback Mode
 

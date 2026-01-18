@@ -218,7 +218,7 @@ async def evaluate_cell(cell_id: str) -> str:
 async def execute_code(
     code: str,
     format: Literal["text", "latex", "mathematica"] = "text",
-    output_target: Literal["cli", "notebook"] = "cli",
+    output_target: Literal["cli", "notebook"] = "notebook",
 ) -> str:
     """
     Execute Wolfram Language code and return the result.
@@ -226,11 +226,11 @@ async def execute_code(
     Args:
         code: Wolfram Language code to execute
         format: Output format - text (default), latex (for equations), mathematica (InputForm)
-        output_target: Where to display the output - "cli" (return text) or "notebook" (insert into active notebook)
+        output_target: Where to display the output - "notebook" (insert into active notebook, default) or "cli" (return text)
 
     Examples:
-        execute_code("Integrate[x^2, x]")
-        execute_code("Plot[Sin[x], {x,0,Pi}]", output_target="notebook")
+        execute_code("Plot[Sin[x], {x,0,Pi}]")  # renders in notebook by default
+        execute_code("Integrate[x^2, x]", output_target="cli")  # returns text
     """
     if output_target == "notebook":
         try:
