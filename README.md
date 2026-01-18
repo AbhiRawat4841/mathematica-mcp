@@ -29,6 +29,7 @@ This MCP gives LLMs **full session control** with persistent state, variable int
 - Natural language + Wolfram Alpha: NL→code, Alpha queries, entities, units, constants
 - Real debugging: trace evaluation, timing with memory, syntax check, fuzzy function search
 - File and notebooks: open/run .nb/.wl/.wlnb, read/convert notebooks (MD/LaTeX), outlines, scripts
+- **Offline notebook parsing**: Python-native parser extracts clean Wolfram code from complex BoxData without wolframscript
 - Data I/O: import/export 250+ formats (CSV/JSON/Excel/URLs), list supported formats
 - Knowledge/units: entity lookup (countries/chemicals/planets…), convert_units (thousands), get_constant
 - Graphics: export PNG/PDF/SVG/EPS, inspect graphics, compare plots, animations
@@ -50,7 +51,7 @@ This MCP gives LLMs **full session control** with persistent state, variable int
 ```
 
 **Two components:**
-1. **Python MCP Server** - Exposes 60+ tools to LLMs via MCP protocol
+1. **Python MCP Server** - Exposes 65+ tools to LLMs via MCP protocol
 2. **Mathematica Addon** - Runs inside Mathematica with persistent session state
 
 ---
@@ -217,6 +218,66 @@ get_notebook_outline("~/Documents/analysis.nb")
 #   ]
 # }
 ```
+
+### Python-Native Notebook Parsing (Offline)
+
+*Parse complex notebooks without wolframscript - works offline*
+
+| Tool | Description |
+|------|-------------|
+| `parse_notebook_python` | Parse .nb files with Python (markdown/wolfram/outline/json output) |
+| `get_notebook_cell` | Get full content of a specific cell by index |
+
+These tools use a pure Python parser that extracts clean, readable Wolfram code from complex BoxData structures. Ideal for:
+- Offline notebook analysis (no Mathematica license needed)
+- Understanding notebooks with complex mathematical notation
+- Extracting executable code from research notebooks
+
+**Examples:**
+
+```python
+# Parse notebook to readable Markdown
+parse_notebook_python("~/research/quantum_nmr.nb", output_format="markdown")
+# Returns:
+# {
+#   "success": true,
+#   "cell_count": 142,
+#   "code_cells": 48,
+#   "content": "## Auxiliary functions\n\n### Formatting\n\n```wolfram\nClear[Ix,Iy,Iz];\nIx[j_]:=Subsuperscript[...];\n```\n..."
+# }
+
+# Extract only executable Wolfram code
+parse_notebook_python("~/research/quantum_nmr.nb", output_format="wolfram")
+# Returns pure Wolfram Language code ready to execute:
+# (* In[1]:= *)
+# Clear[R]
+# R[{beta_,phi_}]:=RotationMatrix[phi,{0,0,1}].RotationMatrix[beta,{1,0,0}]...
+
+# Get hierarchical outline
+parse_notebook_python("~/research/quantum_nmr.nb", output_format="outline")
+# Returns:
+# {
+#   "sections": [
+#     {"level": "Section", "title": "Auxiliary functions", "index": 0},
+#     {"level": "Subsection", "title": "Formatting", "index": 1},
+#     {"level": "Subsection", "title": "Toggling frame functions", "index": 5}
+#   ]
+# }
+
+# Get structured cell data
+parse_notebook_python("~/research/quantum_nmr.nb", output_format="json")
+# Returns all cells with index, style, label, and content preview
+
+# Get full content of a specific cell
+get_notebook_cell("~/research/quantum_nmr.nb", cell_index=10)
+# Returns complete cell content without truncation
+```
+
+**Supported BoxData structures:**
+- RowBox, FractionBox, SuperscriptBox, SubscriptBox, SubsuperscriptBox
+- SqrtBox, RadicalBox, GridBox (matrices)
+- Greek letters: α, β, γ, φ, π, θ, ω, etc.
+- Special operators: →, :>, [[, ]], <|, |>, etc.
 
 ---
 
@@ -659,12 +720,13 @@ Control features via environment variables:
 ```
 mathematica-mcp/
 ├── src/mathematica_mcp/
-│   ├── server.py       # 60+ MCP tools
-│   ├── connection.py   # Socket connection to addon
-│   ├── session.py      # Kernel fallback (wolframscript)
-│   ├── config.py       # Feature flags
-│   ├── cache.py        # Expression caching
-│   └── telemetry.py    # Usage tracking
+│   ├── server.py          # 65+ MCP tools
+│   ├── notebook_parser.py # Python-native .nb parser (offline)
+│   ├── connection.py      # Socket connection to addon
+│   ├── session.py         # Kernel fallback (wolframscript)
+│   ├── config.py          # Feature flags
+│   ├── cache.py           # Expression caching
+│   └── telemetry.py       # Usage tracking
 ├── addon/
 │   ├── MathematicaMCP.wl   # Main addon (persistent session)
 │   ├── install.wl          # Auto-install script

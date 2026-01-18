@@ -2716,6 +2716,173 @@ Module[{{nb, sections}},
         return json.dumps({"success": False, "error": str(e)}, indent=2)
 
 
+@mcp.tool()
+async def parse_notebook_python(
+    path: str,
+    output_format: Literal["markdown", "wolfram", "outline", "json"] = "markdown",
+) -> str:
+    """
+    Parse a Mathematica notebook using Python-native parser.
+
+    This tool provides offline notebook parsing without requiring wolframscript.
+    It extracts clean, readable Wolfram code from complex BoxData structures.
+
+    Args:
+        path: Path to the .nb file
+        output_format:
+            - "markdown": Readable Markdown with code blocks (default)
+            - "wolfram": Pure executable Wolfram Language code only
+            - "outline": Hierarchical section outline
+            - "json": Structured JSON with all cell data
+
+    Returns:
+        Notebook content in the requested format
+    """
+    from .notebook_parser import NotebookParser
+
+    expanded = _expand_path(path)
+
+    if not os.path.exists(expanded):
+        return json.dumps(
+            {"success": False, "error": f"File not found: {expanded}"}, indent=2
+        )
+
+    try:
+        parser = NotebookParser()
+        notebook = parser.parse_file(expanded)
+
+        if output_format == "markdown":
+            content = parser.to_markdown(notebook)
+            return json.dumps(
+                {
+                    "success": True,
+                    "format": "markdown",
+                    "path": expanded,
+                    "cell_count": len(notebook.cells),
+                    "code_cells": len(notebook.get_code_cells()),
+                    "content": content,
+                },
+                indent=2,
+            )
+
+        elif output_format == "wolfram":
+            content = parser.to_wolfram_code(notebook)
+            return json.dumps(
+                {
+                    "success": True,
+                    "format": "wolfram",
+                    "path": expanded,
+                    "code_cells": len(notebook.get_code_cells()),
+                    "content": content,
+                },
+                indent=2,
+            )
+
+        elif output_format == "outline":
+            outline = notebook.get_outline()
+            return json.dumps(
+                {
+                    "success": True,
+                    "format": "outline",
+                    "path": expanded,
+                    "section_count": len(outline),
+                    "sections": outline,
+                },
+                indent=2,
+            )
+
+        elif output_format == "json":
+            cells_data = [
+                {
+                    "index": c.cell_index,
+                    "style": c.style.value,
+                    "label": c.cell_label,
+                    "content": c.content[:500] if len(c.content) > 500 else c.content,
+                    "truncated": len(c.content) > 500,
+                }
+                for c in notebook.cells
+            ]
+            return json.dumps(
+                {
+                    "success": True,
+                    "format": "json",
+                    "path": expanded,
+                    "title": notebook.title,
+                    "cell_count": len(notebook.cells),
+                    "code_cells": len(notebook.get_code_cells()),
+                    "cells": cells_data,
+                },
+                indent=2,
+            )
+
+        else:
+            return json.dumps(
+                {"success": False, "error": f"Unknown format: {output_format}"},
+                indent=2,
+            )
+
+    except Exception as e:
+        return json.dumps({"success": False, "error": str(e)}, indent=2)
+
+
+@mcp.tool()
+async def get_notebook_cell(
+    path: str,
+    cell_index: int,
+) -> str:
+    """
+    Get the full content of a specific cell by index.
+
+    Use parse_notebook_python with format="json" to see all cell indices first.
+
+    Args:
+        path: Path to the .nb file
+        cell_index: Cell index (0-based)
+
+    Returns:
+        Full cell content and metadata
+    """
+    from .notebook_parser import NotebookParser
+
+    expanded = _expand_path(path)
+
+    if not os.path.exists(expanded):
+        return json.dumps(
+            {"success": False, "error": f"File not found: {expanded}"}, indent=2
+        )
+
+    try:
+        parser = NotebookParser()
+        notebook = parser.parse_file(expanded)
+
+        if cell_index < 0 or cell_index >= len(notebook.cells):
+            return json.dumps(
+                {
+                    "success": False,
+                    "error": f"Cell index {cell_index} out of range (0-{len(notebook.cells) - 1})",
+                },
+                indent=2,
+            )
+
+        cell = notebook.cells[cell_index]
+        return json.dumps(
+            {
+                "success": True,
+                "index": cell.cell_index,
+                "style": cell.style.value,
+                "label": cell.cell_label,
+                "content": cell.content,
+                "raw_content_preview": cell.raw_content[:500]
+                if cell.raw_content
+                else "",
+            },
+            indent=2,
+        )
+
+    except Exception as e:
+        return json.dumps({"success": False, "error": str(e)}, indent=2)
+
+
 # ============================================================================
 # TIER 3: Wolfram Alpha & Natural Language
 # ============================================================================
