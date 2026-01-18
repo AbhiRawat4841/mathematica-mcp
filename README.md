@@ -232,6 +232,18 @@ These tools use a pure Python parser that extracts clean, readable Wolfram code 
 - Offline notebook analysis (no Mathematica license needed)
 - Understanding notebooks with complex mathematical notation
 - Extracting executable code from research notebooks
+- **Large notebook support**: Automatic truncation prevents timeouts on notebooks with huge symbolic expressions
+
+**Parameters:**
+
+| Tool | Parameter | Default | Description |
+|------|-----------|---------|-------------|
+| `parse_notebook_python` | `path` | (required) | Path to .nb file |
+| | `output_format` | `"markdown"` | Output: markdown, wolfram, outline, json |
+| | `truncation_threshold` | `25000` | Max chars per cell before truncation (0 = disable) |
+| `get_notebook_cell` | `path` | (required) | Path to .nb file |
+| | `cell_index` | (required) | Cell index (0-based) |
+| | `full` | `false` | Bypass truncation for complete content |
 
 **Examples:**
 
@@ -264,14 +276,25 @@ parse_notebook_python("~/research/quantum_nmr.nb", output_format="outline")
 #   ]
 # }
 
-# Get structured cell data
+# Get structured cell data (shows truncation info)
 parse_notebook_python("~/research/quantum_nmr.nb", output_format="json")
-# Returns all cells with index, style, label, and content preview
+# Returns all cells with: index, style, label, content preview,
+# was_truncated (bool), original_length (int)
 
-# Get full content of a specific cell
-get_notebook_cell("~/research/quantum_nmr.nb", cell_index=10)
-# Returns complete cell content without truncation
+# Get full content of a specific cell (bypasses truncation)
+get_notebook_cell("~/research/quantum_nmr.nb", cell_index=10, full=True)
+# Returns complete cell content even if it was truncated in parse output
+
+# Disable truncation for small notebooks (may timeout on large ones)
+parse_notebook_python("~/small_notebook.nb", truncation_threshold=0)
 ```
+
+**Truncation Behavior:**
+
+Cells with content exceeding `truncation_threshold` (default 25KB) are automatically truncated to prevent timeouts on notebooks with extremely large symbolic expressions (e.g., deeply nested BCH commutators). Truncated cells:
+- Show a notice in markdown output with the original size
+- Include `was_truncated: true` and `original_length` in JSON output
+- Can be retrieved in full using `get_notebook_cell(..., full=True)`
 
 **Supported BoxData structures:**
 - RowBox, FractionBox, SuperscriptBox, SubscriptBox, SubsuperscriptBox
@@ -742,4 +765,4 @@ MIT License
 
 ---
 
-*Last updated: January 2026*
+*Last updated: January 2026 (v1.1 - Added truncation support for large notebooks)*

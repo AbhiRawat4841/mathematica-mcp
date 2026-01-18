@@ -21,6 +21,43 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
+# =============================================================================
+# Truncation Settings for Large Expressions
+# =============================================================================
+# Large symbolic expressions (e.g., deeply nested commutators in BCH formulas)
+# can cause timeouts. We truncate expressions exceeding this threshold.
+TRUNCATION_THRESHOLD = 25000  # 25KB - only extreme cases get truncated
+
+
+def truncate_large_expression(
+    text: str, threshold: int = TRUNCATION_THRESHOLD
+) -> tuple[str, bool, int]:
+    """
+    Truncate text if it exceeds the threshold.
+
+    Args:
+        text: The text to potentially truncate
+        threshold: Maximum allowed length before truncation
+
+    Returns:
+        Tuple of (result_text, was_truncated, original_length)
+    """
+    original_length = len(text)
+    if original_length <= threshold:
+        return text, False, original_length
+
+    # Keep first 80% and last 10% of threshold, with truncation notice in middle
+    keep_start = int(threshold * 0.8)
+    keep_end = int(threshold * 0.1)
+
+    truncation_notice = (
+        f"\n\n[... TRUNCATED: Expression too large ({original_length:,} chars, "
+        f"threshold {threshold:,}). Use get_notebook_cell with full=True for complete content ...]\n\n"
+    )
+
+    truncated_text = text[:keep_start] + truncation_notice + text[-keep_end:]
+    return truncated_text, True, original_length
+
 
 class CellStyle(Enum):
     """Mathematica cell styles."""
@@ -50,9 +87,10 @@ class Cell:
     raw_content: str = ""
     cell_label: str = ""
     cell_index: int = 0
+    was_truncated: bool = False
+    original_length: int = 0
 
     def is_code(self) -> bool:
-        """Check if this cell contains executable code."""
         return self.style in (CellStyle.INPUT, CellStyle.CODE)
 
     def is_documentation(self) -> bool:
@@ -762,8 +800,9 @@ class NotebookParser:
         outline = notebook.get_outline()
     """
 
-    def __init__(self):
+    def __init__(self, truncation_threshold: int = TRUNCATION_THRESHOLD):
         self.box_parser = BoxDataParser()
+        self.truncation_threshold = truncation_threshold
 
     def parse_file(self, path: str | Path) -> NotebookStructure:
         """Parse a notebook file and return structured content."""
@@ -887,17 +926,22 @@ class NotebookParser:
             CellStyle.SUBSUBSECTION,
             CellStyle.CHAPTER,
         ):
-            # Text cells often have simple string content
             parsed_content = self._extract_text_content(raw_content)
         else:
             parsed_content = convert_special_chars(raw_content)
 
+        truncated_content, was_truncated, original_length = truncate_large_expression(
+            parsed_content, self.truncation_threshold
+        )
+
         return Cell(
             style=style,
-            content=parsed_content,
+            content=truncated_content,
             raw_content=raw_content,
             cell_label=label,
             cell_index=index,
+            was_truncated=was_truncated,
+            original_length=original_length,
         )
 
     def _detect_style(self, cell_text: str) -> CellStyle:
@@ -1046,9 +1090,19 @@ class NotebookParser:
                 lines.append(f"1. {cell.content}\n")
             elif cell.style in (CellStyle.INPUT, CellStyle.CODE):
                 label = f"  (* {cell.cell_label} *)" if cell.cell_label else ""
-                lines.append(f"```wolfram{label}\n{cell.content}\n```\n")
+                truncation_notice = ""
+                if cell.was_truncated:
+                    truncation_notice = f"\n> **Note**: Cell {cell.cell_index} was truncated ({cell.original_length:,} chars). Use `get_notebook_cell(index={cell.cell_index}, full=True)` for complete content.\n"
+                lines.append(
+                    f"```wolfram{label}\n{cell.content}\n```{truncation_notice}\n"
+                )
             elif cell.style == CellStyle.OUTPUT:
-                lines.append(f"```\n(* Output *)\n{cell.content}\n```\n")
+                truncation_notice = ""
+                if cell.was_truncated:
+                    truncation_notice = f"\n> **Note**: Output was truncated ({cell.original_length:,} chars). Use `get_notebook_cell(index={cell.cell_index}, full=True)` for complete content.\n"
+                lines.append(
+                    f"```\n(* Output *)\n{cell.content}\n```{truncation_notice}\n"
+                )
 
         return "\n".join(lines)
 

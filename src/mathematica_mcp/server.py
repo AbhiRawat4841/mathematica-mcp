@@ -2720,6 +2720,7 @@ Module[{{nb, sections}},
 async def parse_notebook_python(
     path: str,
     output_format: Literal["markdown", "wolfram", "outline", "json"] = "markdown",
+    truncation_threshold: int = 25000,
 ) -> str:
     """
     Parse a Mathematica notebook using Python-native parser.
@@ -2734,6 +2735,8 @@ async def parse_notebook_python(
             - "wolfram": Pure executable Wolfram Language code only
             - "outline": Hierarchical section outline
             - "json": Structured JSON with all cell data
+        truncation_threshold: Max chars per cell before truncation (default 25000).
+            Set to 0 to disable truncation (may timeout on large notebooks).
 
     Returns:
         Notebook content in the requested format
@@ -2748,7 +2751,14 @@ async def parse_notebook_python(
         )
 
     try:
-        parser = NotebookParser()
+        effective_threshold = (
+            truncation_threshold if truncation_threshold > 0 else float("inf")
+        )
+        parser = NotebookParser(
+            truncation_threshold=int(effective_threshold)
+            if effective_threshold != float("inf")
+            else 10**9
+        )
         notebook = parser.parse_file(expanded)
 
         if output_format == "markdown":
@@ -2798,7 +2808,12 @@ async def parse_notebook_python(
                     "style": c.style.value,
                     "label": c.cell_label,
                     "content": c.content[:500] if len(c.content) > 500 else c.content,
-                    "truncated": len(c.content) > 500,
+                    "content_length": len(c.content),
+                    "truncated_in_json": len(c.content) > 500,
+                    "was_truncated": c.was_truncated,
+                    "original_length": c.original_length
+                    if c.was_truncated
+                    else len(c.content),
                 }
                 for c in notebook.cells
             ]
@@ -2829,6 +2844,7 @@ async def parse_notebook_python(
 async def get_notebook_cell(
     path: str,
     cell_index: int,
+    full: bool = False,
 ) -> str:
     """
     Get the full content of a specific cell by index.
@@ -2838,6 +2854,7 @@ async def get_notebook_cell(
     Args:
         path: Path to the .nb file
         cell_index: Cell index (0-based)
+        full: If True, bypass truncation and return complete cell content (may be very large)
 
     Returns:
         Full cell content and metadata
@@ -2852,7 +2869,8 @@ async def get_notebook_cell(
         )
 
     try:
-        parser = NotebookParser()
+        threshold = 10**9 if full else 25000
+        parser = NotebookParser(truncation_threshold=threshold)
         notebook = parser.parse_file(expanded)
 
         if cell_index < 0 or cell_index >= len(notebook.cells):
@@ -2872,6 +2890,11 @@ async def get_notebook_cell(
                 "style": cell.style.value,
                 "label": cell.cell_label,
                 "content": cell.content,
+                "content_length": len(cell.content),
+                "was_truncated": cell.was_truncated,
+                "original_length": cell.original_length
+                if cell.was_truncated
+                else len(cell.content),
                 "raw_content_preview": cell.raw_content[:500]
                 if cell.raw_content
                 else "",
