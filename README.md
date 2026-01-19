@@ -806,6 +806,10 @@ Control features via environment variables:
 - Ensure you're using the **addon connection** (not wolframscript fallback)
 - Check `get_mathematica_status()` shows `connection_mode: "addon"`
 
+### Output parsing issues (older Mathematica versions)
+
+The MCP server uses `ExportString[..., "RawJSON"]` for reliable JSON output from Mathematica. For older versions that don't support this, a robust regex-based fallback parser handles Association output with properly escaped quotes.
+
 ---
 
 ## Compatibility
@@ -836,6 +840,8 @@ mathematica-mcp/
 │   ├── install.wl          # Auto-install script
 │   └── README.md
 └── tests/
+    ├── test_session.py              # 49 tests: session, parsing, math operations
+    └── test_derivation_verification.py  # 14 tests: algebraic/trig identity verification
 ```
 
 ---
@@ -846,4 +852,4 @@ MIT License
 
 ---
 
-*Last updated: January 2026 (v1.1 - Added truncation support for large notebooks)*
+*Last updated: January 2026 (v1.2 - Improved output parsing with JSON export and fallback parser, added 63 tests)*

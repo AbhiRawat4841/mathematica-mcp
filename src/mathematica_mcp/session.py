@@ -1,6 +1,8 @@
+import json
 import logging
 import platform
 import os
+import re
 import subprocess
 import shutil
 import time
@@ -46,6 +48,34 @@ def find_wolfram_kernel() -> Optional[str]:
     return None
 
 
+def _parse_association_output(output: str) -> dict[str, Any]:
+    """Robust Association parser handling escaped quotes.
+
+    Fallback for older Mathematica versions that don't support RawJSON export.
+    Uses a regex that properly handles escaped sequences.
+    """
+    result: dict[str, Any] = {"output": output, "messages": "", "timing_ms": 0, "failed": False}
+
+    # Pattern: (?:[^"\\]|\\.)* handles escaped sequences properly
+    out_match = re.search(r'"output"\s*->\s*"((?:[^"\\]|\\.)*)"', output)
+    if out_match:
+        result["output"] = out_match.group(1).replace('\\"', '"').replace('\\\\', '\\')
+
+    msg_match = re.search(r'"messages"\s*->\s*"((?:[^"\\]|\\.)*)"', output)
+    if msg_match:
+        result["messages"] = msg_match.group(1)
+
+    timing_match = re.search(r'"timing_ms"\s*->\s*(\d+)', output)
+    if timing_match:
+        result["timing_ms"] = int(timing_match.group(1))
+
+    failed_match = re.search(r'"failed"\s*->\s*(True|False)', output)
+    if failed_match:
+        result["failed"] = failed_match.group(1) == "True"
+
+    return result
+
+
 def _execute_via_wolframscript(
     code: str, output_format: str = "text"
 ) -> dict[str, Any]:
@@ -62,19 +92,20 @@ def _execute_via_wolframscript(
         }
 
     wrapped_code = f"""
-Module[{{startTime, result, messages, timing}},
+Module[{{startTime, result, messages, timing, response}},
   startTime = AbsoluteTime[];
   Block[{{$MessageList = {{}}}},
     result = Quiet[Check[{code}, $Failed]];
     messages = $MessageList;
   ];
   timing = Round[(AbsoluteTime[] - startTime) * 1000];
-  <|
+  response = <|
     "output" -> ToString[result, InputForm],
     "messages" -> ToString[messages],
     "timing_ms" -> timing,
     "failed" -> (result === $Failed)
-  |>
+  |>;
+  ExportString[response, "RawJSON"]
 ]
 """
 
@@ -102,13 +133,18 @@ Module[{{startTime, result, messages, timing}},
                 "execution_method": "wolframscript",
             }
 
-        warnings_list = []
-        if "messages" in output and "{" in output:
-            import re
-
-            msg_match = re.search(r'"messages"\s*->\s*"([^"]*)"', output)
-            if msg_match and msg_match.group(1) and msg_match.group(1) != "{}":
-                warnings_list = [msg_match.group(1)]
+        # Parse JSON output from ExportString[..., "RawJSON"]
+        try:
+            parsed = json.loads(output)
+            clean_output = parsed.get("output", output)
+            messages_str = parsed.get("messages", "")
+            warnings_list = [messages_str] if messages_str and messages_str != "{}" else []
+        except json.JSONDecodeError:
+            # Fallback to robust Association parser for older Mathematica
+            parsed = _parse_association_output(output)
+            clean_output = parsed["output"]
+            messages_str = parsed.get("messages", "")
+            warnings_list = [messages_str] if messages_str and messages_str != "{}" else []
 
         tex_output = ""
         if output_format == "latex":
@@ -122,13 +158,6 @@ Module[{{startTime, result, messages, timing}},
                 tex_output = tex_result.stdout.strip()
             except Exception:
                 pass
-
-        clean_output = output
-        import re
-
-        out_match = re.search(r'"output"\s*->\s*"([^"]*)"', output)
-        if out_match:
-            clean_output = out_match.group(1)
 
         return {
             "success": True,

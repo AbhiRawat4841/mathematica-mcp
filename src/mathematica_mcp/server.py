@@ -424,13 +424,12 @@ async def execute_code(
                 )
                 return json.dumps(result, indent=2)
 
-    try:
-        result = _try_addon_command("execute_code", {"code": code, "format": format})
-        return json.dumps(result, indent=2)
-    except Exception:
+    result = _try_addon_command("execute_code", {"code": code, "format": format})
+    # Check if addon command succeeded, otherwise fall back to kernel
+    if result.get("success") is False or "error" in result:
         result = execute_in_kernel(code, format)
         result["execution_mode"] = "kernel_fallback"
-        return json.dumps(result, indent=2)
+    return json.dumps(result, indent=2)
 
 
 @mcp.tool()
