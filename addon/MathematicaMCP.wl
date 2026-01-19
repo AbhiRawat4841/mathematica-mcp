@@ -186,6 +186,7 @@ processCommand[request_Association] := Module[
       "evaluate_cell", cmdEvaluateCell[params],
       
       "execute_code", cmdExecuteCode[params],
+      "execute_code_notebook", cmdExecuteCodeNotebook[params],
       "execute_selection", cmdExecuteSelection[params],
       
       "screenshot_notebook", cmdScreenshotNotebook[params],
@@ -437,14 +438,34 @@ cmdDeleteCell[params_] := Module[{cell},
   <|"deleted" -> True|>
 ];
 
-cmdEvaluateCell[params_] := Module[{cell},
+cmdEvaluateCell[params_] := Module[{cell, nb, cellsBefore, cellsAfter, maxWait, waitInterval, elapsed},
   cell = resolveCellObject[Lookup[params, "cell_id", None]];
   If[!MatchQ[cell, _CellObject],
     Return[<|"error" -> "Invalid cell ID"|>]
   ];
-  SelectionMove[cell, All, CellContents];
-  SelectionEvaluate[ParentNotebook[cell]];
-  <|"evaluated" -> True, "cell" -> ToString[cell, InputForm]|>
+  nb = ParentNotebook[cell];
+  maxWait = Lookup[params, "max_wait", 10];
+  waitInterval = 0.1;
+
+  cellsBefore = Length[Cells[nb]];
+  (* Use FrontEndTokenExecute for proper graphics rendering *)
+  SelectionMove[cell, All, Cell];
+  FrontEndTokenExecute["EvaluateCells"];
+
+  elapsed = 0;
+  While[elapsed < maxWait,
+    Pause[waitInterval];
+    elapsed += waitInterval;
+    cellsAfter = Length[Cells[nb]];
+    If[cellsAfter > cellsBefore,
+      Pause[0.15];
+      Break[];
+    ];
+  ];
+
+  FrontEndTokenExecute[nb, "Refresh"];
+
+  <|"evaluated" -> True, "cell" -> ToString[cell, InputForm], "waited_seconds" -> elapsed|>
 ];
 
 (* ============================================================================ *)
@@ -485,20 +506,121 @@ cmdExecuteCode[params_] := Module[{code, format, result, output, texOutput},
   |>
 ];
 
-cmdExecuteSelection[params_] := Module[{nb},
+cmdExecuteSelection[params_] := Module[{nb, cellsBefore, cellsAfter, maxWait, waitInterval, elapsed},
   nb = resolveNotebook[Lookup[params, "notebook", None]];
-  SelectionEvaluate[nb];
-  <|"evaluated" -> True|>
+  maxWait = Lookup[params, "max_wait", 10]; (* seconds *)
+  waitInterval = 0.1; (* 100ms polling interval *)
+
+  (* Count cells before evaluation *)
+  cellsBefore = Length[Cells[nb]];
+
+  (* Fire evaluation - use FrontEndTokenExecute for proper graphics rendering *)
+  FrontEndTokenExecute["EvaluateCells"];
+
+  (* Wait for output cell to appear (cell count increases) *)
+  elapsed = 0;
+  While[elapsed < maxWait,
+    Pause[waitInterval];
+    elapsed += waitInterval;
+    cellsAfter = Length[Cells[nb]];
+    If[cellsAfter > cellsBefore,
+      (* Output cell appeared - give brief extra time for rendering *)
+      Pause[0.15];
+      Break[];
+    ];
+  ];
+
+  (* Force frontend to flush rendering queue *)
+  FrontEndTokenExecute[nb, "Refresh"];
+
+  <|
+    "evaluated" -> True,
+    "waited_seconds" -> elapsed,
+    "cells_before" -> cellsBefore,
+    "cells_after" -> Length[Cells[nb]]
+  |>
+];
+
+(* Atomic notebook execution - combines find/create notebook, write cell, and evaluate in one operation *)
+cmdExecuteCodeNotebook[params_] := Module[
+  {code, nb, nbs, cell, cellsBefore, cellsAfter, maxWait, waitInterval, elapsed, createdNew},
+
+  code = Lookup[params, "code", ""];
+  If[code === "", Return[<|"error" -> "No code provided"|>]];
+
+  (* Find or create visible notebook - single operation *)
+  nbs = Select[Notebooks[],
+    Module[{title, vis},
+      title = Quiet[CurrentValue[#, WindowTitle] /. $Failed -> ""];
+      vis = Quiet[CurrentValue[#, Visible] /. $Failed -> True];
+      StringQ[title] && title != "Automatic" &&
+      !StringContainsQ[title, "WelcomeScreen"] && TrueQ[vis]
+    ] &
+  ];
+
+  createdNew = False;
+  nb = If[Length[nbs] > 0,
+    First[nbs],
+    createdNew = True;
+    CreateDocument[{}, WindowTitle -> "Analysis"]
+  ];
+
+  (* Count cells before we start *)
+  cellsBefore = Length[Cells[nb]];
+
+  (* Write cell at end of notebook *)
+  SelectionMove[nb, After, Notebook];
+  NotebookWrite[nb, Cell[code, "Input"], After];
+
+  (* Get the cell we just wrote *)
+  cell = Last[Cells[nb, CellStyle -> "Input"]];
+
+  (* Evaluate with faster polling *)
+  maxWait = Lookup[params, "max_wait", 30];
+  waitInterval = 0.05;  (* 50ms - faster than the old 100ms *)
+
+  (* Use FrontEndTokenExecute for proper graphics rendering *)
+  SelectionMove[cell, All, Cell];
+  FrontEndTokenExecute["EvaluateCells"];
+
+  (* Wait for output cell to appear *)
+  elapsed = 0;
+  While[elapsed < maxWait,
+    Pause[waitInterval];
+    elapsed += waitInterval;
+    cellsAfter = Length[Cells[nb]];
+    (* +1 for our input cell, so we need > cellsBefore + 1 for output *)
+    If[cellsAfter > cellsBefore + 1,
+      Pause[0.1];  (* Brief settle time for rendering *)
+      Break[];
+    ];
+  ];
+
+  (* Force frontend refresh *)
+  FrontEndTokenExecute[nb, "Refresh"];
+
+  <|
+    "success" -> True,
+    "notebook_id" -> ToString[nb, InputForm],
+    "cell_id" -> ToString[cell, InputForm],
+    "waited_seconds" -> elapsed,
+    "created_notebook" -> createdNew
+  |>
 ];
 
 (* ============================================================================ *)
 (* SCREENSHOT COMMANDS                                                          *)
 (* ============================================================================ *)
 
-cmdScreenshotNotebook[params_] := Module[{nb, img, path, maxHeight, format},
+cmdScreenshotNotebook[params_] := Module[{nb, img, path, maxHeight, format, waitMs},
   nb = resolveNotebook[Lookup[params, "notebook", None]];
   maxHeight = Lookup[params, "max_height", 2000];
   format = Lookup[params, "format", "PNG"];
+  waitMs = Lookup[params, "wait_ms", 100]; (* brief settle time *)
+  
+  (* Force frontend to complete any pending rendering *)
+  FrontEndTokenExecute[nb, "Refresh"];
+  Pause[waitMs / 1000.0];
   
   path = FileNameJoin[{$TemporaryDirectory, "mcp_nb_" <> CreateUUID[] <> ".png"}];
   

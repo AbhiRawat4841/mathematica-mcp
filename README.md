@@ -57,6 +57,8 @@ This MCP gives LLMs **full session control** with persistent state, variable int
 1. **Python MCP Server** - Exposes 65+ tools to LLMs via MCP protocol
 2. **Mathematica Addon** - Runs inside Mathematica with persistent session state
 
+**Performance:** Notebook execution uses an atomic command that combines notebook lookup, cell creation, and evaluation into a single round-trip (vs. 4 separate calls), resulting in 3-4x faster plot rendering.
+
 ---
 
 ## Installation
@@ -805,6 +807,24 @@ Control features via environment variables:
 3. Try `RestartMCPServer[]`
 4. Check port: `lsof -i :9881`
 
+### "Address already in use" on port 9881
+
+This happens when a zombie kernel process is holding the port, even after restarting Mathematica:
+
+```bash
+# Find the process using port 9881
+lsof -i :9881
+
+# Kill the zombie process (use the PID from above)
+kill -9 <PID>
+```
+
+Common causes:
+- A `WolframKernel` process from `wolframclient` that didn't terminate properly
+- A previous MCP server session that crashed without cleanup
+
+After killing the process, run `StartMCPServer[]` in Mathematica again.
+
 ### "Timeout waiting for response"
 
 - Use `submit_computation` for long operations
@@ -861,4 +881,4 @@ MIT License
 
 ---
 
-*Last updated: January 2026 (v1.2 - Improved output parsing with JSON export and fallback parser, added 63 tests)*
+*Last updated: January 2026 (v1.3 - Performance optimization: atomic notebook execution reduces 4 round-trips to 1; Graphics rendering fix for proper plot display)*

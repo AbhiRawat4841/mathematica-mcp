@@ -8,7 +8,13 @@ from typing import Literal, Optional, List, Dict, Any
 from mcp.server.fastmcp import FastMCP, Image
 
 from .connection import get_mathematica_connection, close_connection
-from .session import execute_in_kernel, get_kernel_session, close_kernel_session
+from .session import (
+    execute_in_kernel,
+    get_kernel_session,
+    close_kernel_session,
+    _is_graphics_output,
+    _rasterize_via_wolframscript,
+)
 from .config import FEATURES
 from .telemetry import telemetry_tool, get_usage_stats, reset_stats
 from .cache import (
@@ -305,6 +311,10 @@ async def write_cell(
         notebook: Target notebook ID. If None, uses selected notebook.
         position: Where to insert - After (after cursor), Before, End (of notebook), Beginning
 
+    IMPORTANT:
+    If no visible notebook is open, `write_cell` might fail or write to a hidden system notebook.
+    ALWAYS ensure a visible notebook exists (use `create_notebook` if unsure) before writing.
+
     Examples:
         write_cell("Plot[Sin[x], {x, 0, 2 Pi}]")
         write_cell("Analysis Results", style="Section", position="Beginning")
@@ -360,51 +370,46 @@ async def execute_code(
         format: Output format - text (default), latex (for equations), mathematica (InputForm)
         output_target: Where to display the output - "notebook" (insert into active notebook, default) or "cli" (return text)
 
+    IMPORTANT:
+    If output_target="notebook" (default), this tool will automatically find a visible notebook or create a new one.
+    You do NOT need to manually create a notebook unless you want a specific title.
+    However, if you encounter issues with hidden notebooks (e.g. "Automatic"), use `create_notebook` explicitly first.
+
     Examples:
-        execute_code("Plot[Sin[x], {x,0,Pi}]")  # renders in notebook by default
+        execute_code("Plot[Sin[x], {x,0,Pi}]")  # renders in notebook
         execute_code("Integrate[x^2, x]", output_target="cli")  # returns text
     """
     if output_target == "notebook":
         try:
+            # Use atomic command that combines find/create notebook + write + evaluate
+            # in a single round-trip for better performance
+            result = _try_addon_command(
+                "execute_code_notebook", {"code": code, "max_wait": 30}
+            )
 
-            def run_notebook_sequence():
-                _try_addon_command(
-                    "write_cell",
-                    {"content": code, "style": "Input", "position": "After"},
-                )
-                _try_addon_command(
-                    "execute_code",
-                    {"code": "SelectionMove[SelectedNotebook[], Previous, Cell]"},
-                )
-                _try_addon_command("execute_selection", {})
-
-            try:
-                # Attempt 1: Direct execution
-                run_notebook_sequence()
-                return json.dumps(
-                    {"status": "executed_in_notebook", "code": code}, indent=2
-                )
-            except Exception:
-                # Attempt 2: Auto-create notebook and retry
-                logger.info(
-                    "Notebook execution failed. Attempting to create new notebook."
-                )
-                _try_addon_command("create_notebook", {"title": "Untitled Analysis"})
-                run_notebook_sequence()
-                return json.dumps(
-                    {
-                        "status": "executed_in_notebook",
-                        "code": code,
-                        "note": "Created new notebook 'Untitled Analysis' as none was active.",
-                    },
-                    indent=2,
-                )
+            if result.get("success"):
+                response = {
+                    "status": "executed_in_notebook",
+                    "code": code,
+                    "notebook_id": result.get("notebook_id"),
+                    "cell_id": result.get("cell_id"),
+                    "evaluated": True,
+                    "message": "Executing in visible notebook. Output should appear in the front-end.",
+                }
+                if result.get("created_notebook"):
+                    response["note"] = (
+                        "Created new notebook 'Analysis' because no suitable visible notebook was found."
+                    )
+                return json.dumps(response, indent=2)
+            else:
+                raise RuntimeError(result.get("error", "Atomic notebook execution failed"))
 
         except Exception as e:
             logger.warning(
-                f"Notebook execution failed completely: {e}. Falling back to CLI."
+                f"Notebook execution failed: {e}. Falling back to CLI."
             )
-            # Fallback to CLI execution
+
+            # Fallback to CLI execution with auto-rasterization for graphics
             try:
                 result = _try_addon_command(
                     "execute_code", {"code": code, "format": format}
@@ -414,14 +419,18 @@ async def execute_code(
                         "Executed via CLI as notebook interface returned an error."
                     )
                     return json.dumps(result, indent=2)
-                # If result isn't a dict, we wrap it
                 return f"{result}\n(Note: Executed via CLI as notebook interface returned an error.)"
             except Exception:
                 result = execute_in_kernel(code, format)
                 result["execution_mode"] = "kernel_fallback"
                 result["note"] = (
-                    "Executed via CLI as notebook interface returned an error."
+                    "Executed via CLI as notebook interface returned an error. "
+                    "Run StartMCPServer[] in Mathematica for notebook rendering."
                 )
+                # Return image info if graphics were rasterized
+                if result.get("is_graphics") and result.get("image_path"):
+                    result["rendered_image"] = result["image_path"]
+                    result["tip"] = "Use the Read tool to view the rendered image."
                 return json.dumps(result, indent=2)
 
     result = _try_addon_command("execute_code", {"code": code, "format": format})
@@ -429,6 +438,24 @@ async def execute_code(
     if result.get("success") is False or "error" in result:
         result = execute_in_kernel(code, format)
         result["execution_mode"] = "kernel_fallback"
+        # Return image info if graphics were rasterized
+        if result.get("is_graphics") and result.get("image_path"):
+            result["rendered_image"] = result["image_path"]
+            result["tip"] = "Use the Read tool to view the rendered image."
+    else:
+        # Check if addon returned Graphics output and rasterize it
+        output = result.get("output", "")
+        output_inputform = result.get("output_inputform", "")
+        if _is_graphics_output(output) or _is_graphics_output(output_inputform):
+            image_path = _rasterize_via_wolframscript(code)
+            if image_path:
+                result["rendered_image"] = image_path
+                result["output"] = f"[Graphics rendered to image: {image_path}]"
+                result["is_graphics"] = True
+                result["tip"] = "Use the Read tool to view the rendered image."
+                # Keep a short preview of the raw output for debugging
+                if output_inputform:
+                    result["output_inputform"] = output_inputform[:200] + "..." if len(output_inputform) > 200 else output_inputform
     return json.dumps(result, indent=2)
 
 

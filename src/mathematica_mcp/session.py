@@ -262,14 +262,94 @@ def close_kernel_session():
         logger.info("Closed kernel session")
 
 
+def _is_graphics_output(output: str) -> bool:
+    """Check if output looks like a Graphics object."""
+    if not output:
+        return False
+    output_stripped = output.strip()
+    # Check for placeholder patterns (used by addon)
+    if output_stripped in ["-Graphics-", "-Graphics3D-", "-Image-"]:
+        return True
+    # Check for actual Graphics patterns
+    graphics_patterns = [
+        "Graphics[",
+        "Graphics3D[",
+        "Image[",
+        "Legended[Graphics",
+        "Show[Graphics",
+    ]
+    return any(output_stripped.startswith(p) for p in graphics_patterns)
+
+
+def _rasterize_via_wolframscript(code: str, image_size: int = 500) -> Optional[str]:
+    """Rasterize a graphics expression via wolframscript, return temp file path."""
+    import tempfile
+
+    wolframscript = shutil.which("wolframscript")
+    if not wolframscript:
+        return None
+
+    # Create temp file for the image
+    fd, temp_path = tempfile.mkstemp(suffix=".png")
+    os.close(fd)
+
+    rasterize_code = f'''
+Module[{{result, img}},
+  result = {code};
+  If[Head[result] === Graphics || Head[result] === Graphics3D ||
+     Head[result] === Legended || Head[result] === Image ||
+     MatchQ[result, _Show],
+    img = Rasterize[result, ImageResolution -> 144, ImageSize -> {image_size}];
+    Export["{temp_path}", img, "PNG"];
+    "success",
+    "not_graphics"
+  ]
+]
+'''
+
+    try:
+        result = subprocess.run(
+            [wolframscript, "-code", rasterize_code],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        output = result.stdout.strip()
+
+        if "success" in output and os.path.exists(temp_path):
+            return temp_path
+        else:
+            # Clean up temp file if rasterization failed
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+            return None
+    except Exception as e:
+        logger.warning(f"Rasterization via wolframscript failed: {e}")
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+        return None
+
+
 def execute_in_kernel(code: str, output_format: str = "text") -> dict[str, Any]:
-    """Execute code in kernel with structured metadata (timing, warnings)."""
+    """Execute code in kernel with structured metadata (timing, warnings).
+
+    Automatically rasterizes Graphics results to images for better display.
+    """
     global _use_wolframscript
 
     session = get_kernel_session()
 
     if session is None or _use_wolframscript:
-        return _execute_via_wolframscript(code, output_format)
+        result = _execute_via_wolframscript(code, output_format)
+        # Check if result is a Graphics object and rasterize it
+        output = result.get("output", "")
+        if result.get("success") and _is_graphics_output(output):
+            image_path = _rasterize_via_wolframscript(code)
+            if image_path:
+                result["image_path"] = image_path
+                result["output"] = f"[Graphics rendered to image: {image_path}]"
+                result["is_graphics"] = True
+        return result
 
     try:
         from wolframclient.language import wlexpr
@@ -297,7 +377,7 @@ def execute_in_kernel(code: str, output_format: str = "text") -> dict[str, Any]:
         except Exception:
             pass
 
-        return {
+        response = {
             "success": True,
             "output": output_inputform,
             "output_tex": output_tex,
@@ -307,6 +387,16 @@ def execute_in_kernel(code: str, output_format: str = "text") -> dict[str, Any]:
             "timing_ms": timing_ms,
             "execution_method": "wolframclient",
         }
+
+        # Check if result is a Graphics object and rasterize it
+        if _is_graphics_output(output_inputform):
+            image_path = _rasterize_via_wolframscript(code)
+            if image_path:
+                response["image_path"] = image_path
+                response["output"] = f"[Graphics rendered to image: {image_path}]"
+                response["is_graphics"] = True
+
+        return response
     except Exception as e:
         logger.warning(f"wolframclient evaluation failed ({e}), trying wolframscript")
         return _execute_via_wolframscript(code, output_format)
