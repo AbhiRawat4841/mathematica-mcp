@@ -6,6 +6,9 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![Mathematica 14+](https://img.shields.io/badge/Mathematica-14+-red.svg)](https://www.wolfram.com/mathematica/)
 
+> **New to MCP?**
+> **[Click here for the Beginner Quick Start Guide](docs/quick-start.md)** to get up and running in 5 minutes!
+
 ---
 
 ## Why This MCP?
