@@ -1,5 +1,6 @@
 import functools
 import logging
+import threading
 import time
 from typing import Callable, Any, Dict
 from collections import defaultdict
@@ -11,6 +12,7 @@ logger = logging.getLogger("mathematica_mcp.telemetry")
 _usage_stats: Dict[str, Dict[str, Any]] = defaultdict(
     lambda: {"calls": 0, "total_time_ms": 0, "errors": 0}
 )
+_stats_lock = threading.Lock()
 
 
 def telemetry_tool(name: str):
@@ -24,13 +26,15 @@ def telemetry_tool(name: str):
             try:
                 result = await func(*args, **kwargs)
                 elapsed_ms = int((time.time() - start_time) * 1000)
-                _usage_stats[name]["calls"] += 1
-                _usage_stats[name]["total_time_ms"] += elapsed_ms
+                with _stats_lock:
+                    _usage_stats[name]["calls"] += 1
+                    _usage_stats[name]["total_time_ms"] += elapsed_ms
                 logger.debug(f"Telemetry: {name} completed in {elapsed_ms}ms")
                 return result
             except Exception as e:
-                _usage_stats[name]["calls"] += 1
-                _usage_stats[name]["errors"] += 1
+                with _stats_lock:
+                    _usage_stats[name]["calls"] += 1
+                    _usage_stats[name]["errors"] += 1
                 logger.debug(f"Telemetry: {name} failed with {type(e).__name__}")
                 raise
 
@@ -40,9 +44,13 @@ def telemetry_tool(name: str):
 
 
 def get_usage_stats() -> Dict[str, Dict[str, Any]]:
-    return dict(_usage_stats)
+    with _stats_lock:
+        return dict(_usage_stats)
 
 
 def reset_stats():
     global _usage_stats
-    _usage_stats = defaultdict(lambda: {"calls": 0, "total_time_ms": 0, "errors": 0})
+    with _stats_lock:
+        _usage_stats = defaultdict(
+            lambda: {"calls": 0, "total_time_ms": 0, "errors": 0}
+        )

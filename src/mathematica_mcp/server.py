@@ -1946,6 +1946,11 @@ Module[{{data, info}},
 
 # In-memory job storage (would use persistent storage in production)
 _computation_jobs: Dict[str, Dict[str, Any]] = {}
+import threading as _threading
+
+_computation_jobs_lock = _threading.Lock()
+_MAX_JOBS = 100
+_MAX_JOB_AGE_SECONDS = 3600
 
 
 @mcp.tool()
@@ -1978,6 +1983,15 @@ async def submit_computation(
     import threading
     import time
 
+    def _prune_jobs(now: float) -> None:
+        expired = [
+            job_id
+            for job_id, job in _computation_jobs.items()
+            if now - job.get("submitted_at", now) > _MAX_JOB_AGE_SECONDS
+        ]
+        for job_id in expired:
+            _computation_jobs.pop(job_id, None)
+
     job_id = str(uuid.uuid4())[:8]
 
     wolframscript = shutil.which("wolframscript")
@@ -1986,16 +2000,27 @@ async def submit_computation(
             {"success": False, "error": "wolframscript not found in PATH"}, indent=2
         )
 
-    _computation_jobs[job_id] = {
-        "id": job_id,
-        "name": name or f"Job {job_id}",
-        "code": code,
-        "status": "running",
-        "submitted_at": time.time(),
-        "timeout": timeout,
-        "result": None,
-        "error": None,
-    }
+    now = time.time()
+    with _computation_jobs_lock:
+        _prune_jobs(now)
+        if len(_computation_jobs) >= _MAX_JOBS:
+            return json.dumps(
+                {
+                    "success": False,
+                    "error": "Too many active jobs. Try again later.",
+                },
+                indent=2,
+            )
+        _computation_jobs[job_id] = {
+            "id": job_id,
+            "name": name or f"Job {job_id}",
+            "code": code,
+            "status": "running",
+            "submitted_at": now,
+            "timeout": timeout,
+            "result": None,
+            "error": None,
+        }
 
     def run_computation():
         try:
@@ -2006,23 +2031,29 @@ async def submit_computation(
                 timeout=timeout,
             )
 
-            if result.returncode == 0:
-                _computation_jobs[job_id]["status"] = "completed"
-                _computation_jobs[job_id]["result"] = result.stdout.strip()
-            else:
-                _computation_jobs[job_id]["status"] = "failed"
-                _computation_jobs[job_id]["error"] = result.stderr or "Execution failed"
+            with _computation_jobs_lock:
+                if result.returncode == 0:
+                    _computation_jobs[job_id]["status"] = "completed"
+                    _computation_jobs[job_id]["result"] = result.stdout.strip()
+                else:
+                    _computation_jobs[job_id]["status"] = "failed"
+                    _computation_jobs[job_id]["error"] = (
+                        result.stderr or "Execution failed"
+                    )
 
         except subprocess.TimeoutExpired:
-            _computation_jobs[job_id]["status"] = "timeout"
-            _computation_jobs[job_id]["error"] = (
-                f"Computation timed out after {timeout}s"
-            )
+            with _computation_jobs_lock:
+                _computation_jobs[job_id]["status"] = "timeout"
+                _computation_jobs[job_id]["error"] = (
+                    f"Computation timed out after {timeout}s"
+                )
         except Exception as e:
-            _computation_jobs[job_id]["status"] = "failed"
-            _computation_jobs[job_id]["error"] = str(e)
+            with _computation_jobs_lock:
+                _computation_jobs[job_id]["status"] = "failed"
+                _computation_jobs[job_id]["error"] = str(e)
 
-        _computation_jobs[job_id]["completed_at"] = time.time()
+        with _computation_jobs_lock:
+            _computation_jobs[job_id]["completed_at"] = time.time()
 
     thread = threading.Thread(target=run_computation, daemon=True)
     thread.start()
@@ -2052,12 +2083,13 @@ async def poll_computation(job_id: str) -> str:
     """
     import time
 
-    if job_id not in _computation_jobs:
-        return json.dumps(
-            {"success": False, "error": f"Job '{job_id}' not found"}, indent=2
-        )
+    with _computation_jobs_lock:
+        if job_id not in _computation_jobs:
+            return json.dumps(
+                {"success": False, "error": f"Job '{job_id}' not found"}, indent=2
+            )
 
-    job = _computation_jobs[job_id]
+        job = _computation_jobs[job_id]
 
     elapsed = time.time() - job["submitted_at"]
 
@@ -2085,12 +2117,13 @@ async def get_computation_result(job_id: str) -> str:
     Returns:
         The computation result if completed, or error information
     """
-    if job_id not in _computation_jobs:
-        return json.dumps(
-            {"success": False, "error": f"Job '{job_id}' not found"}, indent=2
-        )
+    with _computation_jobs_lock:
+        if job_id not in _computation_jobs:
+            return json.dumps(
+                {"success": False, "error": f"Job '{job_id}' not found"}, indent=2
+            )
 
-    job = _computation_jobs[job_id]
+        job = _computation_jobs[job_id]
 
     if job["status"] == "running":
         return json.dumps(

@@ -2,6 +2,7 @@ import json
 import socket
 import logging
 import os
+import threading
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -10,6 +11,8 @@ logger = logging.getLogger("mathematica_mcp.connection")
 DEFAULT_HOST = "localhost"
 DEFAULT_PORT = 9881
 SOCKET_TIMEOUT = 180.0
+MAX_RESPONSE_BYTES = 5 * 1024 * 1024
+MAX_REQUEST_BYTES = 5 * 1024 * 1024
 
 
 @dataclass
@@ -21,6 +24,10 @@ class MathematicaConnection:
         default_factory=lambda: int(os.getenv("MATHEMATICA_PORT", DEFAULT_PORT))
     )
     _socket: Optional[socket.socket] = field(default=None, repr=False)
+    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+    _auth_token: str = field(
+        default_factory=lambda: os.getenv("MATHEMATICA_MCP_TOKEN", "")
+    )
 
     def connect(self) -> bool:
         if self._socket:
@@ -59,63 +66,67 @@ class MathematicaConnection:
     def send_command(
         self, command: str, params: Optional[dict[str, Any]] = None
     ) -> dict[str, Any]:
-        if not self._socket and not self.connect():
-            raise ConnectionError(
-                "Not connected to Mathematica addon. "
-                "Make sure Mathematica is running with the addon loaded. "
-                "Run StartMCPServer[] in Mathematica."
-            )
+        with self._lock:
+            if not self._socket and not self.connect():
+                raise ConnectionError(
+                    "Not connected to Mathematica addon. "
+                    "Make sure Mathematica is running with the addon loaded. "
+                    "Run StartMCPServer[] in Mathematica."
+                )
 
-        request = {"command": command, "params": params or {}}
-        assert self._socket is not None
+            request = {"command": command, "params": params or {}}
+            if self._auth_token:
+                request["token"] = self._auth_token
 
-        try:
-            request_bytes = json.dumps(request).encode("utf-8")
-            self._socket.sendall(request_bytes)
+            request_bytes = (json.dumps(request) + "\n").encode("utf-8")
+            if len(request_bytes) > MAX_REQUEST_BYTES:
+                raise ValueError("Request too large")
 
-            response_bytes = self._receive_complete_json()
-            response = json.loads(response_bytes.decode("utf-8"))
+            assert self._socket is not None
 
-            if response.get("status") == "error":
-                error_msg = response.get("message", "Unknown error from Mathematica")
-                raise RuntimeError(f"Mathematica error: {error_msg}")
+            try:
+                self._socket.sendall(request_bytes)
 
-            return response.get("result", {})
+                response_bytes = self._receive_framed_json()
+                response = json.loads(response_bytes.decode("utf-8"))
 
-        except socket.timeout:
-            self._socket = None
-            raise TimeoutError(
-                "Timeout waiting for Mathematica response. The computation may be too slow."
-            )
-        except (ConnectionError, BrokenPipeError, ConnectionResetError) as e:
-            self._socket = None
-            raise ConnectionError(f"Connection to Mathematica lost: {e}")
-        except json.JSONDecodeError as e:
-            raise ValueError(f"Invalid JSON response from Mathematica: {e}")
+                if response.get("status") == "error":
+                    error_msg = response.get(
+                        "message", "Unknown error from Mathematica"
+                    )
+                    raise RuntimeError(f"Mathematica error: {error_msg}")
 
-    def _receive_complete_json(self, buffer_size: int = 8192) -> bytes:
-        chunks: list[bytes] = []
+                return response.get("result", {})
+
+            except socket.timeout:
+                self._socket = None
+                raise TimeoutError(
+                    "Timeout waiting for Mathematica response. The computation may be too slow."
+                )
+            except (ConnectionError, BrokenPipeError, ConnectionResetError) as e:
+                self._socket = None
+                raise ConnectionError(f"Connection to Mathematica lost: {e}")
+            except json.JSONDecodeError as e:
+                raise ValueError(f"Invalid JSON response from Mathematica: {e}")
+
+    def _receive_framed_json(self, buffer_size: int = 8192) -> bytes:
+        buffer = b""
         assert self._socket is not None
 
         while True:
             chunk = self._socket.recv(buffer_size)
             if not chunk:
-                if not chunks:
-                    raise ConnectionError("Connection closed before receiving data")
-                break
+                raise ConnectionError("Connection closed before receiving data")
 
-            chunks.append(chunk)
+            buffer += chunk
+            if len(buffer) > MAX_RESPONSE_BYTES:
+                raise ValueError("Response too large")
 
-            try:
-                data = b"".join(chunks)
-                json.loads(data.decode("utf-8"))
-                return data
-            except json.JSONDecodeError:
-                continue
-
-        data = b"".join(chunks)
-        json.loads(data.decode("utf-8"))
-        return data
+            if b"\n" in buffer:
+                line, _, remainder = buffer.partition(b"\n")
+                if remainder:
+                    logger.debug("Extra data after JSON frame; ignoring")
+                return line
 
 
 _global_connection: Optional[MathematicaConnection] = None

@@ -54,6 +54,9 @@ htmlcov/
 *.tmp
 *.temp
 *.log
+*.bak
+
+debug_parser.py
 
 # UV
 .uv/

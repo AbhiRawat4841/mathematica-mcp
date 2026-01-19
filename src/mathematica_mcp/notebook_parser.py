@@ -2,13 +2,14 @@
 Python-native Mathematica notebook (.nb) parser.
 
 This module provides pure Python parsing of Mathematica notebook files,
-converting complex BoxData structures into readable Wolfram Language code.
+converting complex BoxData structures into readable text or Wolfram Language code.
 
 Key features:
 - Parse BoxData structures (RowBox, FractionBox, SuperscriptBox, etc.)
-- Convert Greek letters and special characters
+- Convert Greek letters and special characters to Unicode
 - Extract cells by type (Input, Output, Text, Section, etc.)
-- Generate clean, executable Wolfram code
+- Generate clean, executable Wolfram code OR readable Markdown
+- Parse tables (GridBox) into Markdown tables
 
 This parser works offline without requiring wolframscript.
 """
@@ -21,32 +22,17 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-# =============================================================================
-# Truncation Settings for Large Expressions
-# =============================================================================
-# Large symbolic expressions (e.g., deeply nested commutators in BCH formulas)
-# can cause timeouts. We truncate expressions exceeding this threshold.
-TRUNCATION_THRESHOLD = 25000  # 25KB - only extreme cases get truncated
+TRUNCATION_THRESHOLD = 25000  # 25KB
 
 
 def truncate_large_expression(
     text: str, threshold: int = TRUNCATION_THRESHOLD
 ) -> tuple[str, bool, int]:
-    """
-    Truncate text if it exceeds the threshold.
-
-    Args:
-        text: The text to potentially truncate
-        threshold: Maximum allowed length before truncation
-
-    Returns:
-        Tuple of (result_text, was_truncated, original_length)
-    """
+    """Truncate text if it exceeds the threshold."""
     original_length = len(text)
     if original_length <= threshold:
         return text, False, original_length
 
-    # Keep first 80% and last 10% of threshold, with truncation notice in middle
     keep_start = int(threshold * 0.8)
     keep_end = int(threshold * 0.1)
 
@@ -94,7 +80,6 @@ class Cell:
         return self.style in (CellStyle.INPUT, CellStyle.CODE)
 
     def is_documentation(self) -> bool:
-        """Check if this cell is documentation/text."""
         return self.style in (
             CellStyle.TITLE,
             CellStyle.CHAPTER,
@@ -116,15 +101,12 @@ class NotebookStructure:
     title: str = ""
 
     def get_code_cells(self) -> list[Cell]:
-        """Get only executable code cells."""
         return [c for c in self.cells if c.is_code()]
 
     def get_documentation_cells(self) -> list[Cell]:
-        """Get only documentation cells."""
         return [c for c in self.cells if c.is_documentation()]
 
     def get_outline(self) -> list[dict]:
-        """Get hierarchical outline of sections."""
         outline = []
         for cell in self.cells:
             if cell.style in (
@@ -144,96 +126,115 @@ class NotebookStructure:
         return outline
 
 
-# Greek letters and special Mathematica characters
+# Expanded Greek letters and special characters (Unicode)
 SPECIAL_CHARS = {
     # Greek letters (lowercase)
-    r"\[Alpha]": "alpha",
-    r"\[Beta]": "beta",
-    r"\[Gamma]": "gamma",
-    r"\[Delta]": "delta",
-    r"\[Epsilon]": "epsilon",
-    r"\[Zeta]": "zeta",
-    r"\[Eta]": "eta",
-    r"\[Theta]": "theta",
-    r"\[Iota]": "iota",
-    r"\[Kappa]": "kappa",
-    r"\[Lambda]": "lambda",
-    r"\[Mu]": "mu",
-    r"\[Nu]": "nu",
-    r"\[Xi]": "xi",
-    r"\[Omicron]": "omicron",
-    r"\[Pi]": "Pi",  # Keep capital for Mathematica
-    r"\[Rho]": "rho",
-    r"\[Sigma]": "sigma",
-    r"\[Tau]": "tau",
-    r"\[Upsilon]": "upsilon",
-    r"\[Phi]": "phi",
-    r"\[Chi]": "chi",
-    r"\[Psi]": "psi",
-    r"\[Omega]": "omega",
-    # Greek letters (uppercase) - use backslash prefix
-    r"\[CapitalAlpha]": "Alpha",
-    r"\[CapitalBeta]": "Beta",
-    r"\[CapitalGamma]": "Gamma",
-    r"\[CapitalDelta]": "Delta",
-    r"\[CapitalEpsilon]": "Epsilon",
-    r"\[CapitalZeta]": "Zeta",
-    r"\[CapitalEta]": "Eta",
-    r"\[CapitalTheta]": "Theta",
-    r"\[CapitalIota]": "Iota",
-    r"\[CapitalKappa]": "Kappa",
-    r"\[CapitalLambda]": "Lambda",
-    r"\[CapitalMu]": "Mu",
-    r"\[CapitalNu]": "Nu",
-    r"\[CapitalXi]": "Xi",
-    r"\[CapitalOmicron]": "Omicron",
-    r"\[CapitalPi]": "PI",
-    r"\[CapitalRho]": "Rho",
-    r"\[CapitalSigma]": "Sigma",
-    r"\[CapitalTau]": "Tau",
-    r"\[CapitalUpsilon]": "Upsilon",
-    r"\[CapitalPhi]": "Phi",
-    r"\[CapitalChi]": "Chi",
-    r"\[CapitalPsi]": "Psi",
-    r"\[CapitalOmega]": "Omega",
+    r"\[Alpha]": "α",
+    r"\[Beta]": "β",
+    r"\[Gamma]": "γ",
+    r"\[Delta]": "δ",
+    r"\[Epsilon]": "ε",
+    r"\[CurlyEpsilon]": "ε",
+    r"\[Zeta]": "ζ",
+    r"\[Eta]": "η",
+    r"\[Theta]": "θ",
+    r"\[CurlyTheta]": "θ",
+    r"\[Iota]": "ι",
+    r"\[Kappa]": "κ",
+    r"\[Lambda]": "λ",
+    r"\[Mu]": "μ",
+    r"\[Nu]": "ν",
+    r"\[Xi]": "ξ",
+    r"\[Omicron]": "ο",
+    r"\[Pi]": "π",
+    r"\[CurlyPi]": "ϖ",
+    r"\[Rho]": "ρ",
+    r"\[Sigma]": "σ",
+    r"\[FinalSigma]": "ς",
+    r"\[Tau]": "τ",
+    r"\[Upsilon]": "υ",
+    r"\[Phi]": "φ",
+    r"\[CurlyPhi]": "ϕ",
+    r"\[Chi]": "χ",
+    r"\[Psi]": "ψ",
+    r"\[Omega]": "ω",
+    # Greek letters (uppercase)
+    r"\[CapitalAlpha]": "Α",
+    r"\[CapitalBeta]": "Β",
+    r"\[CapitalGamma]": "Γ",
+    r"\[CapitalDelta]": "Δ",
+    r"\[CapitalEpsilon]": "Ε",
+    r"\[CapitalZeta]": "Ζ",
+    r"\[CapitalEta]": "Η",
+    r"\[CapitalTheta]": "Θ",
+    r"\[CapitalIota]": "Ι",
+    r"\[CapitalKappa]": "Κ",
+    r"\[CapitalLambda]": "Λ",
+    r"\[CapitalMu]": "Μ",
+    r"\[CapitalNu]": "Ν",
+    r"\[CapitalXi]": "Ξ",
+    r"\[CapitalOmicron]": "Ο",
+    r"\[CapitalPi]": "Π",
+    r"\[CapitalRho]": "Ρ",
+    r"\[CapitalSigma]": "Σ",
+    r"\[CapitalTau]": "Τ",
+    r"\[CapitalUpsilon]": "Υ",
+    r"\[CapitalPhi]": "Φ",
+    r"\[CapitalChi]": "Χ",
+    r"\[CapitalPsi]": "Ψ",
+    r"\[CapitalOmega]": "Ω",
     # Mathematical symbols
-    r"\[Infinity]": "Infinity",
-    r"\[Degree]": "Degree",
-    r"\[Rule]": "->",
+    r"\[Infinity]": "∞",
+    r"\[Degree]": "°",
+    r"\[Rule]": "→",
     r"\[RuleDelayed]": ":>",
     r"\[Equal]": "==",
-    r"\[NotEqual]": "!=",
-    r"\[LessEqual]": "<=",
-    r"\[GreaterEqual]": ">=",
-    r"\[Element]": "\\[Element]",
-    r"\[And]": "&&",
-    r"\[Or]": "||",
-    r"\[Not]": "!",
-    r"\[Implies]": "=>",
-    r"\[Equivalent]": "<=>",
-    r"\[ForAll]": "ForAll",
-    r"\[Exists]": "Exists",
+    r"\[NotEqual]": "≠",
+    r"\[LessEqual]": "≤",
+    r"\[GreaterEqual]": "≥",
+    r"\[Element]": "∈",
+    r"\[Subset]": "⊂",
+    r"\[Superset]": "⊃",
+    r"\[Union]": "∪",
+    r"\[Intersection]": "∩",
+    r"\[EmptySet]": "∅",
+    r"\[And]": "∧",
+    r"\[Or]": "∨",
+    r"\[Not]": "¬",
+    r"\[Implies]": "⟹",
+    r"\[Equivalent]": "⟺",
+    r"\[ForAll]": "∀",
+    r"\[Exists]": "∃",
     # Operators
     r"\[Times]": "*",
     r"\[Divide]": "/",
-    r"\[PlusMinus]": "+-",
-    r"\[MinusPlus]": "-+",
-    r"\[Cross]": "\\[Cross]",
-    r"\[CircleTimes]": "\\[CircleTimes]",
-    r"\[CirclePlus]": "\\[CirclePlus]",
+    r"\[PlusMinus]": "±",
+    r"\[MinusPlus]": "∓",
+    r"\[Cross]": "×",
+    r"\[CircleTimes]": "⊗",
+    r"\[CirclePlus]": "⊕",
+    r"\[TensorProduct]": "⊗",
+    r"\[Dot]": "·",
+    r"\[CenterDot]": "·",
+    r"\[SmallCircle]": "∘",
     # Arrows
-    r"\[LeftArrow]": "<-",
-    r"\[RightArrow]": "->",
-    r"\[UpArrow]": "^",
-    r"\[DownArrow]": "v",
-    r"\[DoubleLeftArrow]": "<=",
-    r"\[DoubleRightArrow]": "=>",
-    # Brackets and grouping
+    r"\[LeftArrow]": "←",
+    r"\[RightArrow]": "→",
+    r"\[UpArrow]": "↑",
+    r"\[DownArrow]": "↓",
+    r"\[LeftRightArrow]": "↔",
+    r"\[DoubleRightArrow]": "⇒",
+    r"\[DoubleLeftArrow]": "⇐",
+    r"\[LongRightArrow]": "⟶",
+    r"\[LongLeftArrow]": "⟵",
+    # Brackets
     r"\[LeftDoubleBracket]": "[[",
     r"\[RightDoubleBracket]": "]]",
     r"\[LeftAssociation]": "<|",
     r"\[RightAssociation]": "|>",
-    # Spacing and formatting
+    r"\[LeftAngleBracket]": "⟨",
+    r"\[RightAngleBracket]": "⟩",
+    # Spacing
     r"\[IndentingNewLine]": "\n",
     r"\[NewLine]": "\n",
     r"\[InvisibleSpace]": "",
@@ -241,36 +242,21 @@ SPECIAL_CHARS = {
     r"\[ThinSpace]": " ",
     r"\[MediumSpace]": " ",
     r"\[ThickSpace]": " ",
-    r"\[NegativeVeryThinSpace]": "",
-    r"\[NegativeThinSpace]": "",
-    r"\[NegativeMediumSpace]": "",
-    r"\[NegativeThickSpace]": "",
-    r"\[NonBreakingSpace]": " ",
-    r"\[InvisibleComma]": ",",
-    r"\[InvisibleApplication]": "",
-    r"\[InvisibleTimes]": "*",
-    # Common mathematical constants and functions
+    r"\[InvisibleTimes]": " ",
+    # Constants/Functions
     r"\[ExponentialE]": "E",
     r"\[ImaginaryI]": "I",
     r"\[ImaginaryJ]": "I",
     r"\[DifferentialD]": "d",
-    r"\[PartialD]": "D",
-    r"\[Integral]": "Integrate",
-    r"\[Sum]": "Sum",
-    r"\[Product]": "Product",
-    r"\[Sqrt]": "Sqrt",
-    # Subscript/superscript indicators (handled specially in box parsing)
-    r"\[UnderBrace]": "",
-    r"\[OverBrace]": "",
-    # Miscellaneous
+    r"\[PartialD]": "∂",
+    r"\[Integral]": "∫",
+    r"\[Sum]": "Σ",
+    r"\[Product]": "Π",
+    r"\[Sqrt]": "√",
+    # Misc
     r"\[Null]": "",
-    r"\[Continuation]": "",
-    r"\[DoubleStruckCapitalC]": "Complexes",
-    r"\[DoubleStruckCapitalN]": "Integers",
-    r"\[DoubleStruckCapitalQ]": "Rationals",
-    r"\[DoubleStruckCapitalR]": "Reals",
-    r"\[DoubleStruckCapitalZ]": "Integers",
-    # Pattern matching
+    r"\[SpanFromAbove]": "",
+    r"\[SpanFromLeft]": "",
     r"\[Blank]": "_",
     r"\[BlankSequence]": "__",
     r"\[BlankNullSequence]": "___",
@@ -283,41 +269,46 @@ def convert_special_chars(text: str) -> str:
     for pattern, replacement in SPECIAL_CHARS.items():
         result = result.replace(pattern, replacement)
 
+    # Fallback for any remaining [Name]
     remaining = re.findall(r"\\\\?\[([A-Z][A-Za-z]+)\]", result)
     for name in remaining:
+        # Keep name but strip brackets for readability
         result = result.replace(f"\\[{name}]", name)
         result = result.replace(f"[{name}]", name)
 
     return result
 
 
+def clean_commutators(text: str) -> str:
+    """Normalize commutator notation Cmt[a,b] -> [a, b]."""
+    # Placeholder for future commutator normalization implementation
+    return text
+
+
 class BoxDataParser:
     """
     Parser for Mathematica BoxData structures.
 
-    Converts nested box expressions like:
-        RowBox[{RowBox[{"Clear", "[", "R", "]"}], ";"}]
-
-    Into readable Wolfram code:
-        Clear[R];
+    Modes:
+    - "wolfram": Generate valid Wolfram Language code (Subscript[a,b])
+    - "readable": Generate readable text/Markdown (a_b, tables)
     """
 
-    def __init__(self):
+    def __init__(self, mode: str = "wolfram"):
         self.depth = 0
-        self.max_depth = 100  # Prevent infinite recursion
+        self.max_depth = 100
+        self.mode = mode  # "wolfram" or "readable"
 
     def parse(self, content: str) -> str:
-        """Parse BoxData content and return clean Wolfram code."""
+        """Parse BoxData content."""
         self.depth = 0
-
-        # Handle empty content
         if not content or content.strip() == "":
             return ""
 
-        # If it's already clean text (no BoxData), return as-is
+        # Check if already clean
         if not any(
-            box in content
-            for box in [
+            x in content
+            for x in [
                 "BoxData",
                 "RowBox",
                 "FractionBox",
@@ -325,10 +316,12 @@ class BoxDataParser:
                 "SubscriptBox",
                 "SqrtBox",
                 "GridBox",
-                "Cell[",
+                "TemplateBox",
+                "FormBox",
             ]
         ):
-            return convert_special_chars(content)
+            if "Cell[" not in content:
+                return convert_special_chars(content)
 
         try:
             if "BoxData[" in content:
@@ -337,6 +330,8 @@ class BoxDataParser:
                     content = match.group(1)
 
             content = content.strip()
+
+            # Handle top-level list
             if content.startswith("{") and content.endswith("}"):
                 inner = content[1:-1].strip()
                 if inner.startswith("RowBox[") or inner.startswith('"'):
@@ -346,25 +341,29 @@ class BoxDataParser:
                         parsed = self._parse_expression(elem.strip())
                         if parsed:
                             parsed_elements.append(parsed)
-                    result = "\n".join(parsed_elements)
-                    return convert_special_chars(result)
+                    # Join with newlines for code blocks
+                    return "\n".join(parsed_elements)
 
             result = self._parse_expression(content)
-            return convert_special_chars(result)
+            result = convert_special_chars(result)
+            return result
         except Exception as e:
-            # If parsing fails, try basic cleanup
+            try:
+                with open("/tmp/parser_error.log", "a") as f:
+                    f.write(
+                        f"Parsing error in mode {self.mode}: {str(e)}\nContext: {content[:200]}...\n"
+                    )
+            except:
+                pass
             return self._basic_cleanup(content)
 
     def _parse_expression(self, expr: str) -> str:
-        """Recursively parse a Mathematica expression."""
         self.depth += 1
         if self.depth > self.max_depth:
             return expr
 
         expr = expr.strip()
-
         try:
-            # Handle different box types
             if expr.startswith("RowBox["):
                 return self._parse_row_box(expr)
             elif expr.startswith("FractionBox["):
@@ -398,10 +397,8 @@ class BoxDataParser:
             elif expr.startswith("UnderoverscriptBox["):
                 return self._parse_underoverscript_box(expr)
             elif expr.startswith('"') and expr.endswith('"'):
-                # String literal
                 return expr[1:-1]
             elif expr.startswith("{") and expr.endswith("}"):
-                # List
                 return self._parse_list(expr)
             else:
                 return expr
@@ -409,12 +406,9 @@ class BoxDataParser:
             self.depth -= 1
 
     def _extract_box_content(self, expr: str, box_type: str) -> str:
-        """Extract the content inside a box expression."""
         prefix = f"{box_type}["
         if not expr.startswith(prefix):
             return expr
-
-        # Find matching bracket
         depth = 0
         start = len(prefix)
         for i, char in enumerate(expr):
@@ -424,37 +418,30 @@ class BoxDataParser:
                 depth -= 1
                 if depth == 0:
                     return expr[start:i]
-
         return expr[start:-1] if expr.endswith("]") else expr[start:]
 
     def _parse_list_elements(self, content: str) -> list[str]:
-        """Parse comma-separated elements from a list, respecting nesting."""
         elements = []
         current = []
         depth = 0
         in_string = False
         escape_next = False
-
-        for i, char in enumerate(content):
+        for char in content:
             if escape_next:
                 current.append(char)
                 escape_next = False
                 continue
-
             if char == "\\":
                 current.append(char)
                 escape_next = True
                 continue
-
             if char == '"' and not escape_next:
                 in_string = not in_string
                 current.append(char)
                 continue
-
             if in_string:
                 current.append(char)
                 continue
-
             if char in "[{(":
                 depth += 1
                 current.append(char)
@@ -466,756 +453,627 @@ class BoxDataParser:
                 current = []
             else:
                 current.append(char)
-
         if current:
             elements.append("".join(current).strip())
-
         return elements
 
-    def _parse_row_box(self, expr: str) -> str:
-        """Parse RowBox[{elem1, elem2, ...}]."""
-        content = self._extract_box_content(expr, "RowBox")
+    # --- Box Handlers ---
 
+    def _parse_row_box(self, expr: str) -> str:
+        content = self._extract_box_content(expr, "RowBox")
         if content.startswith("{") and content.endswith("}"):
             content = content[1:-1]
-
         elements = self._parse_list_elements(content)
-        result_parts = []
-
-        for elem in elements:
-            elem = elem.strip()
-            parsed = self._parse_expression(elem)
-            result_parts.append(parsed)
-
-        result = "".join(result_parts)
-
-        result = result.replace("\\n", "\n")
-
-        return result
+        parsed = [self._parse_expression(e) for e in elements]
+        return "".join(parsed).replace("\\n", "\n")
 
     def _parse_fraction_box(self, expr: str) -> str:
-        """Parse FractionBox[num, denom]."""
         content = self._extract_box_content(expr, "FractionBox")
         elements = self._parse_list_elements(content)
-
         if len(elements) >= 2:
             num = self._parse_expression(elements[0])
             denom = self._parse_expression(elements[1])
-            # Add parentheses if needed
-            if " " in num or "+" in num or "-" in num:
-                num = f"({num})"
-            if " " in denom or "+" in denom or "-" in denom:
-                denom = f"({denom})"
-            return f"{num}/{denom}"
+            if self.mode == "readable":
+                return f"\\frac{{{num}}}{{{denom}}}"
+            else:
+                if any(x in num for x in " +-"):
+                    num = f"({num})"
+                if any(x in denom for x in " +-"):
+                    denom = f"({denom})"
+                return f"{num}/{denom}"
         return content
 
     def _parse_superscript_box(self, expr: str) -> str:
-        """Parse SuperscriptBox[base, exp]."""
         content = self._extract_box_content(expr, "SuperscriptBox")
         elements = self._parse_list_elements(content)
-
         if len(elements) >= 2:
             base = self._parse_expression(elements[0])
             exp = self._parse_expression(elements[1])
-            # Handle special cases
-            if exp == "T":  # Transpose
+            if self.mode == "readable":
+                return f"{{{base}}}^{{{exp}}}"
+
+            # Wolfram mode
+            if exp == "T":
                 return f"Transpose[{base}]"
-            elif exp == "-1":  # Inverse
+            elif exp == "-1":
                 return f"Inverse[{base}]"
-            elif exp == "*":  # Conjugate
+            elif exp == "*":
                 return f"Conjugate[{base}]"
             else:
                 if len(base) > 1 and not (base.startswith("(") and base.endswith(")")):
-                    if not base[0].isupper():  # Don't parenthesize function names
+                    if not base[0].isupper():
                         base = f"({base})"
                 return f"{base}^{exp}"
         return content
 
     def _parse_subscript_box(self, expr: str) -> str:
-        """Parse SubscriptBox[base, sub]."""
         content = self._extract_box_content(expr, "SubscriptBox")
         elements = self._parse_list_elements(content)
-
         if len(elements) >= 2:
             base = self._parse_expression(elements[0])
             sub = self._parse_expression(elements[1])
+            if self.mode == "readable":
+                return f"{{{base}}}_{{{sub}}}"
             return f"Subscript[{base}, {sub}]"
         return content
 
     def _parse_subsuperscript_box(self, expr: str) -> str:
-        """Parse SubsuperscriptBox[base, sub, super]."""
         content = self._extract_box_content(expr, "SubsuperscriptBox")
         elements = self._parse_list_elements(content)
-
         if len(elements) >= 3:
             base = self._parse_expression(elements[0])
             sub = self._parse_expression(elements[1])
             sup = self._parse_expression(elements[2])
+            if self.mode == "readable":
+                return f"{{{base}}}_{{{sub}}}^{{{sup}}}"
             return f"Subsuperscript[{base}, {sub}, {sup}]"
         return content
 
     def _parse_sqrt_box(self, expr: str) -> str:
-        """Parse SqrtBox[content]."""
         content = self._extract_box_content(expr, "SqrtBox")
         inner = self._parse_expression(content)
+        if self.mode == "readable":
+            return f"\\sqrt{{{inner}}}"
         return f"Sqrt[{inner}]"
 
     def _parse_radical_box(self, expr: str) -> str:
-        """Parse RadicalBox[content, n] for n-th root."""
         content = self._extract_box_content(expr, "RadicalBox")
         elements = self._parse_list_elements(content)
-
         if len(elements) >= 2:
             inner = self._parse_expression(elements[0])
             n = self._parse_expression(elements[1])
+            if self.mode == "readable":
+                return f"\\sqrt[{n}]{{{inner}}}"
             return f"Power[{inner}, 1/{n}]"
-        elif len(elements) == 1:
-            inner = self._parse_expression(elements[0])
-            return f"Sqrt[{inner}]"
         return content
 
     def _parse_grid_box(self, expr: str) -> str:
-        """Parse GridBox[{{...}, {...}}] as matrix."""
+        try:
+            with open("/tmp/parser_debug.log", "a") as f:
+                f.write(f"Parsing GridBox in mode: {self.mode}\n")
+        except:
+            pass
+
         content = self._extract_box_content(expr, "GridBox")
 
-        # Find the first list argument (the matrix data)
+        # Extract matrix content
+        matrix_content = content
         if content.startswith("{"):
+            # Find the closing brace for the list
             depth = 0
-            end = 0
             for i, char in enumerate(content):
                 if char == "{":
                     depth += 1
                 elif char == "}":
                     depth -= 1
                     if depth == 0:
-                        end = i + 1
+                        matrix_content = content[: i + 1]
                         break
 
-            matrix_content = content[:end]
-            return self._parse_matrix(matrix_content)
+        parsed_rows = self._parse_matrix_rows(matrix_content)
 
-        return content
+        if self.mode == "readable":
+            # Convert to Markdown Table
+            if not parsed_rows:
+                return ""
 
-    def _parse_matrix(self, content: str) -> str:
-        """Parse a matrix {{a, b}, {c, d}}."""
+            md_lines = []
+
+            # Format rows
+            fmt_rows = []
+            for row in parsed_rows:
+                fmt_row = []
+                for cell in row:
+                    # Clean up quotes for strings
+                    cell_text = cell.strip()
+
+                    # Handle Mathematica \<"..."\> string wrapper
+                    if cell_text.startswith(r"\<") and cell_text.endswith(r"\>"):
+                        cell_text = cell_text[2:-2]
+
+                    if cell_text.startswith('"') and cell_text.endswith('"'):
+                        cell_text = cell_text[1:-1]
+                        # Unescape quotes
+                        cell_text = cell_text.replace('\\"', '"')
+
+                    # Handle \" escapes that might remain
+                    cell_text = cell_text.replace('\\"', '"')
+
+                    # Escape pipes for Markdown
+                    cell_text = cell_text.replace("|", "\\|")
+                    fmt_row.append(cell_text)
+                fmt_rows.append(fmt_row)
+
+            # Determine columns
+            max_cols = max(len(r) for r in fmt_rows) if fmt_rows else 0
+
+            # Construct Header
+            header = fmt_rows[0]
+            # Pad header if needed
+            while len(header) < max_cols:
+                header.append("")
+
+            md_lines.append("| " + " | ".join(header) + " |")
+            md_lines.append("| " + " | ".join(["---"] * max_cols) + " |")
+
+            for row in fmt_rows[1:]:
+                while len(row) < max_cols:
+                    row.append("")
+                md_lines.append("| " + " | ".join(row) + " |")
+
+            return "\n" + "\n".join(md_lines) + "\n"
+
+        else:
+            # Wolfram format: {{a,b},{c,d}}
+            rows_str = []
+            for row in parsed_rows:
+                rows_str.append("{" + ", ".join(row) + "}")
+            return "{" + ", ".join(rows_str) + "}"
+
+    def _parse_matrix_rows(self, content: str) -> list[list[str]]:
         if not (content.startswith("{") and content.endswith("}")):
-            return content
-
-        # Remove outer braces
+            return []
         inner = content[1:-1].strip()
-
-        # Parse rows
         rows = []
         depth = 0
-        current_row = []
+        bracket_depth = 0
         current_elem = []
+        current_row = []
+        in_string = False
+        escape_next = False
 
         for char in inner:
+            if escape_next:
+                if depth > 0:
+                    current_elem.append(char)
+                escape_next = False
+                continue
+
+            if char == "\\":
+                if depth > 0:
+                    current_elem.append(char)
+                escape_next = True
+                continue
+
+            if char == '"' and not escape_next:
+                in_string = not in_string
+                if depth > 0:
+                    current_elem.append(char)
+                continue
+
+            if in_string:
+                if depth > 0:
+                    current_elem.append(char)
+                continue
+
             if char == "{":
                 if depth == 0:
-                    depth = 1
+                    depth = 1  # Start row
                 else:
                     depth += 1
                     current_elem.append(char)
             elif char == "}":
                 depth -= 1
-                if depth == 0:
+                if depth == 0:  # End row
                     if current_elem:
                         current_row.append("".join(current_elem).strip())
-                    if current_row:
-                        rows.append(current_row)
+                    rows.append(current_row)
                     current_row = []
                     current_elem = []
                 else:
                     current_elem.append(char)
-            elif char == "," and depth == 1:
+            elif char == "[":
+                bracket_depth += 1
+                if depth > 0:
+                    current_elem.append(char)
+            elif char == "]":
+                bracket_depth -= 1
+                if depth > 0:
+                    current_elem.append(char)
+            elif char == "," and depth == 1 and bracket_depth == 0:
+                # Only split if we are in a row and NOT inside brackets
                 if current_elem:
                     current_row.append("".join(current_elem).strip())
                 current_elem = []
             elif depth > 0:
                 current_elem.append(char)
 
-        # Format as Mathematica list
-        formatted_rows = []
+        # Now parse elements recursively
+        parsed_rows = []
         for row in rows:
-            parsed_elems = [self._parse_expression(e) for e in row]
-            formatted_rows.append("{" + ", ".join(parsed_elems) + "}")
-
-        return "{" + ", ".join(formatted_rows) + "}"
+            parsed_rows.append([self._parse_expression(e) for e in row])
+        return parsed_rows
 
     def _parse_form_box(self, expr: str) -> str:
-        """Parse FormBox[content, form]."""
         content = self._extract_box_content(expr, "FormBox")
         elements = self._parse_list_elements(content)
-
         if elements:
             return self._parse_expression(elements[0])
         return content
 
     def _parse_tag_box(self, expr: str) -> str:
-        """Parse TagBox[content, tag]."""
         content = self._extract_box_content(expr, "TagBox")
         elements = self._parse_list_elements(content)
-
         if elements:
             return self._parse_expression(elements[0])
         return content
 
     def _parse_style_box(self, expr: str) -> str:
-        """Parse StyleBox[content, styles...]."""
         content = self._extract_box_content(expr, "StyleBox")
         elements = self._parse_list_elements(content)
-
         if elements:
             return self._parse_expression(elements[0])
         return content
 
     def _parse_interpretation_box(self, expr: str) -> str:
-        """Parse InterpretationBox[display, interpretation]."""
         content = self._extract_box_content(expr, "InterpretationBox")
         elements = self._parse_list_elements(content)
-
-        # Prefer the interpretation (second element) over display
-        if len(elements) >= 2:
-            return self._parse_expression(elements[1])
-        elif elements:
-            return self._parse_expression(elements[0])
+        if self.mode == "readable":
+            if elements:
+                return self._parse_expression(elements[0])
+        else:
+            if len(elements) >= 2:
+                return self._parse_expression(elements[1])
+            elif elements:
+                return self._parse_expression(elements[0])
         return content
 
     def _parse_template_box(self, expr: str) -> str:
-        """Parse TemplateBox[{args...}, template_name]."""
         content = self._extract_box_content(expr, "TemplateBox")
         elements = self._parse_list_elements(content)
-
         if len(elements) >= 2:
             args_str = elements[0]
             template = elements[1].strip('"')
-
-            # Parse arguments
             if args_str.startswith("{") and args_str.endswith("}"):
                 args = self._parse_list_elements(args_str[1:-1])
                 parsed_args = [self._parse_expression(a) for a in args]
-
-                # Common templates
                 if template == "Times":
-                    return " * ".join(parsed_args)
+                    return " ".join(parsed_args)
                 elif template == "Divide":
-                    if len(parsed_args) >= 2:
-                        return f"({parsed_args[0]})/({parsed_args[1]})"
+                    if self.mode == "readable":
+                        return f"\\frac{{{parsed_args[0]}}}{{{parsed_args[1]}}}"
+                    return f"({parsed_args[0]})/({parsed_args[1]})"
+                elif template == "RowDefault":
+                    return ",".join(parsed_args)
 
-                return ", ".join(parsed_args)
-
+                return f"{template}[{', '.join(parsed_args)}]"
         if elements:
             return self._parse_expression(elements[0])
         return content
 
     def _parse_underscript_box(self, expr: str) -> str:
-        """Parse UnderscriptBox[base, under]."""
         content = self._extract_box_content(expr, "UnderscriptBox")
         elements = self._parse_list_elements(content)
-
         if len(elements) >= 2:
             base = self._parse_expression(elements[0])
             under = self._parse_expression(elements[1])
+            if self.mode == "readable":
+                return f"\\underset{{{under}}}{{{base}}}"
             return f"Underscript[{base}, {under}]"
         return content
 
     def _parse_overscript_box(self, expr: str) -> str:
-        """Parse OverscriptBox[base, over]."""
         content = self._extract_box_content(expr, "OverscriptBox")
         elements = self._parse_list_elements(content)
-
         if len(elements) >= 2:
             base = self._parse_expression(elements[0])
             over = self._parse_expression(elements[1])
+            if self.mode == "readable":
+                return f"\\overset{{{over}}}{{{base}}}"
             return f"Overscript[{base}, {over}]"
         return content
 
     def _parse_underoverscript_box(self, expr: str) -> str:
-        """Parse UnderoverscriptBox[base, under, over]."""
         content = self._extract_box_content(expr, "UnderoverscriptBox")
         elements = self._parse_list_elements(content)
-
         if len(elements) >= 3:
             base = self._parse_expression(elements[0])
             under = self._parse_expression(elements[1])
             over = self._parse_expression(elements[2])
+            if self.mode == "readable":
+                return f"\\overset{{{over}}}{{\\underset{{{under}}}{{{base}}}}}"
             return f"Underoverscript[{base}, {under}, {over}]"
         return content
 
     def _parse_list(self, expr: str) -> str:
-        """Parse a list {...}."""
-        if not (expr.startswith("{") and expr.endswith("}")):
-            return expr
-
         content = expr[1:-1]
         elements = self._parse_list_elements(content)
         parsed = [self._parse_expression(e) for e in elements]
+        if self.mode == "readable":
+            return "\\{" + ", ".join(parsed) + "\\}"
         return "{" + ", ".join(parsed) + "}"
 
     def _basic_cleanup(self, content: str) -> str:
-        """Fallback cleanup when parsing fails."""
-        # Remove box type wrappers
         result = content
-        for box_type in [
-            "BoxData",
-            "RowBox",
-            "Cell",
-            "FormBox",
-            "TagBox",
-            "StyleBox",
-            "InterpretationBox",
-        ]:
+        for box_type in ["BoxData", "RowBox", "Cell", "FormBox"]:
             result = re.sub(rf"{box_type}\[", "", result)
-
-        # Balance brackets
-        open_brackets = result.count("[") - result.count("]")
-        if open_brackets > 0:
-            result += "]" * open_brackets
-
-        open_braces = result.count("{") - result.count("}")
-        if open_braces > 0:
-            result += "}" * open_braces
-
-        # Clean up quotes and whitespace
-        result = result.replace('", "', ", ")
-        result = result.replace('","', ", ")
-        result = re.sub(r'"\s*,\s*"', ", ", result)
-
         return convert_special_chars(result)
 
 
 class NotebookParser:
     """
     Parser for Mathematica notebook (.nb) files.
-
-    Usage:
-        parser = NotebookParser()
-        notebook = parser.parse_file("path/to/notebook.nb")
-
-        # Get all code
-        code = notebook.get_code_cells()
-
-        # Get outline
-        outline = notebook.get_outline()
     """
 
     def __init__(self, truncation_threshold: int = TRUNCATION_THRESHOLD):
-        self.box_parser = BoxDataParser()
+        self.wolfram_parser = BoxDataParser(mode="wolfram")
+        self.readable_parser = BoxDataParser(mode="readable")
         self.truncation_threshold = truncation_threshold
 
     def parse_file(self, path: str | Path) -> NotebookStructure:
-        """Parse a notebook file and return structured content."""
         path = Path(path)
-
         if not path.exists():
             raise FileNotFoundError(f"Notebook not found: {path}")
-
         content = path.read_text(encoding="utf-8", errors="replace")
         return self.parse_content(content, str(path))
 
     def parse_content(self, content: str, path: str = "") -> NotebookStructure:
-        """Parse notebook content string."""
         notebook = NotebookStructure(path=path)
-
-        # Extract title if present
         title_match = re.search(r'Cell\["([^"]+)",\s*"Title"', content)
         if title_match:
             notebook.title = title_match.group(1)
-
-        # Find all cells
-        cells = self._extract_cells(content)
-        notebook.cells = cells
-
+        notebook.cells = self._extract_cells(content)
         return notebook
 
     def _extract_cells(self, content: str) -> list[Cell]:
-        """Extract all cells from notebook content."""
         cells = []
         cell_index = 0
-
         i = 0
         while i < len(content):
             cell_start = content.find("Cell[", i)
             if cell_start == -1:
                 break
 
-            next_after_cell = cell_start + 5
-
-            if content[next_after_cell:].startswith("CellGroupData"):
-                i = next_after_cell
-                continue
-
             depth = 0
             j = cell_start
             in_string = False
             escape_next = False
+            found_end = False
 
             while j < len(content):
                 char = content[j]
-
                 if escape_next:
                     escape_next = False
                     j += 1
                     continue
-
-                if char == "\\" and in_string:
+                if char == "\\":
                     escape_next = True
                     j += 1
                     continue
-
                 if char == '"' and not escape_next:
                     in_string = not in_string
-                    j += 1
-                    continue
-
                 if not in_string:
                     if char == "[":
                         depth += 1
                     elif char == "]":
                         depth -= 1
                         if depth == 0:
+                            found_end = True
                             break
                 j += 1
 
-            if j >= len(content):
+            if not found_end:
                 break
 
             cell_text = content[cell_start : j + 1]
-            cell = self._parse_cell(cell_text, cell_index)
 
+            # Check for CellGroupData and flatten structure
+            if re.match(r"Cell\[\s*CellGroupData", cell_text):
+                cell_content = self._extract_cell_content(cell_text)
+
+                # Extract CellGroupData content manually since we can't access BoxDataParser here easily
+                # CellGroupData[...]
+                prefix = "CellGroupData["
+                group_content = cell_content
+                if cell_content.startswith(prefix):
+                    depth_grp = 0
+                    start_grp = len(prefix)
+                    for k, char_grp in enumerate(cell_content):
+                        if char_grp == "[":
+                            depth_grp += 1
+                        elif char_grp == "]":
+                            depth_grp -= 1
+                            if depth_grp == 0:
+                                group_content = cell_content[start_grp:k]
+                                break
+
+                if group_content.strip().startswith("{"):
+                    list_depth = 0
+                    list_end = 0
+                    in_s = False
+                    esc = False
+                    for k, c in enumerate(group_content):
+                        if esc:
+                            esc = False
+                            continue
+                        if c == "\\":
+                            esc = True
+                            continue
+                        if c == '"' and not esc:
+                            in_s = not in_s
+                        if not in_s:
+                            if c == "{":
+                                list_depth += 1
+                            elif c == "}":
+                                list_depth -= 1
+                                if list_depth == 0:
+                                    list_end = k + 1
+                                    break
+
+                    if list_end > 0:
+                        inner_cells_text = group_content[0:list_end]
+                        inner_cells_text = inner_cells_text[1:-1]
+                        group_cells = self._extract_cells(inner_cells_text)
+                        for gc in group_cells:
+                            gc.cell_index = cell_index
+                            cell_index += 1
+                        cells.extend(group_cells)
+
+                i = j + 1
+                continue
+
+            cell = self._parse_cell(cell_text, cell_index)
             if cell:
                 cells.append(cell)
                 cell_index += 1
-
             i = j + 1
-
         return cells
 
     def _parse_cell(self, cell_text: str, index: int) -> Cell | None:
-        """Parse a single Cell[...] construct."""
-        # Skip CellGroupData, CellChangeTimes, etc.
-        if cell_text.startswith("Cell[CellGroupData"):
-            return None
         if not cell_text.startswith("Cell["):
             return None
 
-        # Determine cell style
         style = self._detect_style(cell_text)
         if style == CellStyle.UNKNOWN:
-            # Skip unknown cell types
             return None
 
-        # Extract cell label if present
         label = ""
         label_match = re.search(r'CellLabel\s*->\s*"([^"]+)"', cell_text)
         if label_match:
             label = label_match.group(1)
 
-        # Extract content
         raw_content = self._extract_cell_content(cell_text)
 
-        # Parse BoxData if present
-        if "BoxData[" in raw_content:
-            parsed_content = self.box_parser.parse(raw_content)
-        elif style in (
-            CellStyle.TEXT,
-            CellStyle.TITLE,
-            CellStyle.SECTION,
-            CellStyle.SUBSECTION,
-            CellStyle.SUBSUBSECTION,
-            CellStyle.CHAPTER,
-        ):
-            parsed_content = self._extract_text_content(raw_content)
+        if style == CellStyle.INPUT or style == CellStyle.CODE:
+            if "BoxData[" in raw_content:
+                parsed_content = self.wolfram_parser.parse(raw_content)
+            else:
+                parsed_content = convert_special_chars(raw_content)
         else:
-            parsed_content = convert_special_chars(raw_content)
+            if "BoxData[" in raw_content:
+                parsed_content = self.readable_parser.parse(raw_content)
+            elif style in (
+                CellStyle.TEXT,
+                CellStyle.TITLE,
+                CellStyle.SECTION,
+                CellStyle.SUBSECTION,
+            ):
+                parsed_content = self._extract_text_content(raw_content)
+            else:
+                parsed_content = convert_special_chars(raw_content)
 
-        truncated_content, was_truncated, original_length = truncate_large_expression(
+        trunc, was_trunc, orig_len = truncate_large_expression(
             parsed_content, self.truncation_threshold
         )
 
-        return Cell(
-            style=style,
-            content=truncated_content,
-            raw_content=raw_content,
-            cell_label=label,
-            cell_index=index,
-            was_truncated=was_truncated,
-            original_length=original_length,
-        )
+        return Cell(style, trunc, raw_content, label, index, was_trunc, orig_len)
 
     def _detect_style(self, cell_text: str) -> CellStyle:
-        """Detect the style of a cell."""
-        # Look for style specification after content
-        # Cell[content, "StyleName", ...]
-
-        style_patterns = [
-            (r',\s*"Title"[,\]]', CellStyle.TITLE),
-            (r',\s*"Chapter"[,\]]', CellStyle.CHAPTER),
-            (r',\s*"Section"[,\]]', CellStyle.SECTION),
-            (r',\s*"Subsection"[,\]]', CellStyle.SUBSECTION),
-            (r',\s*"Subsubsection"[,\]]', CellStyle.SUBSUBSECTION),
-            (r',\s*"Text"[,\]]', CellStyle.TEXT),
-            (r',\s*"Input"[,\]]', CellStyle.INPUT),
-            (r',\s*"Output"[,\]]', CellStyle.OUTPUT),
-            (r',\s*"Code"[,\]]', CellStyle.CODE),
-            (r',\s*"Message"[,\]]', CellStyle.MESSAGE),
-            (r',\s*"Print"[,\]]', CellStyle.PRINT),
-            (r',\s*"Item"[,\]]', CellStyle.ITEM),
-            (r',\s*"ItemNumbered"[,\]]', CellStyle.ITEM_NUMBERED),
-        ]
-
-        for pattern, style in style_patterns:
-            if re.search(pattern, cell_text):
-                return style
-
+        style_map = {
+            "Title": CellStyle.TITLE,
+            "Chapter": CellStyle.CHAPTER,
+            "Section": CellStyle.SECTION,
+            "Subsection": CellStyle.SUBSECTION,
+            "Subsubsection": CellStyle.SUBSUBSECTION,
+            "Text": CellStyle.TEXT,
+            "Input": CellStyle.INPUT,
+            "Output": CellStyle.OUTPUT,
+            "Code": CellStyle.CODE,
+            "Message": CellStyle.MESSAGE,
+            "Print": CellStyle.PRINT,
+            "Item": CellStyle.ITEM,
+            "ItemNumbered": CellStyle.ITEM_NUMBERED,
+        }
+        try:
+            for name, style in style_map.items():
+                if re.search(rf', \s*"{name}"', cell_text):
+                    return style
+        except Exception:
+            pass
         return CellStyle.UNKNOWN
 
     def _extract_cell_content(self, cell_text: str) -> str:
-        """Extract the content portion of a Cell[content, style, ...]."""
-        # Cell[content, "Style", ...]
-        # We need to find where content ends
-
-        if not cell_text.startswith("Cell["):
-            return cell_text
-
-        # Start after "Cell["
-        start = 5
+        start = 5  # Cell[
         depth = 0
         in_string = False
-        escape_next = False
-
+        escape = False
         for i in range(start, len(cell_text)):
-            char = cell_text[i]
-
-            if escape_next:
-                escape_next = False
+            c = cell_text[i]
+            if escape:
+                escape = False
                 continue
-
-            if char == "\\":
-                escape_next = True
+            if c == "\\":
+                escape = True
                 continue
-
-            if char == '"' and not escape_next:
+            if c == '"' and not escape:
                 in_string = not in_string
-                continue
-
-            if in_string:
-                continue
-
-            if char in "[{(":
-                depth += 1
-            elif char in "]})":
-                depth -= 1
-            elif char == "," and depth == 0:
-                # Found the end of content
-                return cell_text[start:i].strip()
-
-        # If no comma found, take everything except the closing bracket
-        return (
-            cell_text[start:-1].strip()
-            if cell_text.endswith("]")
-            else cell_text[start:]
-        )
+            if not in_string:
+                if c == "[":
+                    depth += 1
+                elif c == "]":
+                    depth -= 1
+                elif c == "," and depth == 0:
+                    return cell_text[start:i].strip()
+        return cell_text[start:-1].strip()
 
     def _extract_text_content(self, content: str) -> str:
-        """Extract plain text from a text cell content."""
-        # Text cells often have format: "Some text here"
         if content.startswith('"') and content.endswith('"'):
             return content[1:-1]
-
-        # Or TextData[{...}]
         if content.startswith("TextData["):
-            inner = self._extract_box_like_content(content, "TextData")
-            return self._parse_text_data(inner)
-
+            return "".join(re.findall(r'"([^"]*)"', content))
         return convert_special_chars(content)
 
-    def _extract_box_like_content(self, content: str, box_type: str) -> str:
-        """Extract content from BoxType[content]."""
-        prefix = f"{box_type}["
-        if not content.startswith(prefix):
-            return content
-
-        depth = 0
-        for i, char in enumerate(content):
-            if char == "[":
-                depth += 1
-            elif char == "]":
-                depth -= 1
-                if depth == 0:
-                    return content[len(prefix) : i]
-
-        return (
-            content[len(prefix) : -1]
-            if content.endswith("]")
-            else content[len(prefix) :]
-        )
-
-    def _parse_text_data(self, content: str) -> str:
-        """Parse TextData content."""
-        # TextData is usually a list of strings and StyleBox elements
-        result = []
-
-        # Simple extraction: find all quoted strings
-        strings = re.findall(r'"([^"]*)"', content)
-        for s in strings:
-            result.append(s)
-
-        return "".join(result)
-
     def to_markdown(self, notebook: NotebookStructure) -> str:
-        """Convert notebook structure to Markdown."""
         lines = []
-
         if notebook.title:
             lines.append(f"# {notebook.title}\n")
 
         for cell in notebook.cells:
+            c = cell.content
             if cell.style == CellStyle.TITLE:
-                lines.append(f"# {cell.content}\n")
-            elif cell.style == CellStyle.CHAPTER:
-                lines.append(f"# {cell.content}\n")
+                lines.append(f"# {c}\n")
             elif cell.style == CellStyle.SECTION:
-                lines.append(f"## {cell.content}\n")
+                lines.append(f"## {c}\n")
             elif cell.style == CellStyle.SUBSECTION:
-                lines.append(f"### {cell.content}\n")
+                lines.append(f"### {c}\n")
             elif cell.style == CellStyle.SUBSUBSECTION:
-                lines.append(f"#### {cell.content}\n")
+                lines.append(f"#### {c}\n")
             elif cell.style == CellStyle.TEXT:
-                lines.append(f"{cell.content}\n")
-            elif cell.style == CellStyle.ITEM:
-                lines.append(f"- {cell.content}\n")
-            elif cell.style == CellStyle.ITEM_NUMBERED:
-                lines.append(f"1. {cell.content}\n")
-            elif cell.style in (CellStyle.INPUT, CellStyle.CODE):
-                label = f"  (* {cell.cell_label} *)" if cell.cell_label else ""
-                truncation_notice = ""
-                if cell.was_truncated:
-                    truncation_notice = f"\n> **Note**: Cell {cell.cell_index} was truncated ({cell.original_length:,} chars). Use `get_notebook_cell(index={cell.cell_index}, full=True)` for complete content.\n"
-                lines.append(
-                    f"```wolfram{label}\n{cell.content}\n```{truncation_notice}\n"
-                )
+                lines.append(f"{c}\n")
+            elif cell.style == CellStyle.INPUT:
+                lbl = f" (* {cell.cell_label} *)" if cell.cell_label else ""
+                lines.append(f"```wolfram{lbl}\n{c}\n```\n")
             elif cell.style == CellStyle.OUTPUT:
-                truncation_notice = ""
-                if cell.was_truncated:
-                    truncation_notice = f"\n> **Note**: Output was truncated ({cell.original_length:,} chars). Use `get_notebook_cell(index={cell.cell_index}, full=True)` for complete content.\n"
-                lines.append(
-                    f"```\n(* Output *)\n{cell.content}\n```{truncation_notice}\n"
-                )
+                if c.strip().startswith("|"):
+                    lines.append(f"{c}\n")
+                else:
+                    if "\\" in c and not c.startswith("```"):
+                        lines.append(f"$$\n{c}\n$$\n")
+                    else:
+                        lines.append(f"```\n(* Output *)\n{c}\n```\n")
+
+            if cell.was_truncated:
+                lines.append(f"> *(Truncated {cell.original_length} chars)*\n")
 
         return "\n".join(lines)
 
-    def to_wolfram_code(self, notebook: NotebookStructure) -> str:
-        """Extract only executable Wolfram code from notebook."""
-        code_parts = []
 
-        for cell in notebook.cells:
-            if cell.is_code():
-                # Add cell label as comment
-                if cell.cell_label:
-                    code_parts.append(f"(* {cell.cell_label} *)")
-                code_parts.append(cell.content)
-                code_parts.append("")  # Blank line between cells
-
-        return "\n".join(code_parts)
-
-    def to_latex(self, notebook: NotebookStructure) -> str:
-        """Convert notebook to LaTeX format."""
-        lines = [
-            r"\documentclass{article}",
-            r"\usepackage{amsmath,amssymb}",
-            r"\usepackage{listings}",
-            r"\lstset{language=Mathematica,basicstyle=\ttfamily\small}",
-            r"\begin{document}",
-            "",
-        ]
-
-        if notebook.title:
-            lines.append(f"\\title{{{notebook.title}}}")
-            lines.append(r"\maketitle")
-            lines.append("")
-
-        for cell in notebook.cells:
-            if cell.style == CellStyle.TITLE:
-                lines.append(f"\\title{{{cell.content}}}")
-            elif cell.style == CellStyle.SECTION:
-                lines.append(f"\\section{{{cell.content}}}")
-            elif cell.style == CellStyle.SUBSECTION:
-                lines.append(f"\\subsection{{{cell.content}}}")
-            elif cell.style == CellStyle.SUBSUBSECTION:
-                lines.append(f"\\subsubsection{{{cell.content}}}")
-            elif cell.style == CellStyle.TEXT:
-                lines.append(f"{cell.content}\n")
-            elif cell.style in (CellStyle.INPUT, CellStyle.CODE):
-                lines.append(r"\begin{lstlisting}")
-                lines.append(cell.content)
-                lines.append(r"\end{lstlisting}")
-                lines.append("")
-
-        lines.append(r"\end{document}")
-        return "\n".join(lines)
-
-
-# Convenience functions
 def parse_notebook(path: str | Path) -> NotebookStructure:
-    """Parse a notebook file and return its structure."""
-    parser = NotebookParser()
-    return parser.parse_file(path)
-
-
-def notebook_to_markdown(path: str | Path) -> str:
-    """Convert a notebook to Markdown."""
-    parser = NotebookParser()
-    notebook = parser.parse_file(path)
-    return parser.to_markdown(notebook)
-
-
-def notebook_to_wolfram(path: str | Path) -> str:
-    """Extract Wolfram code from a notebook."""
-    parser = NotebookParser()
-    notebook = parser.parse_file(path)
-    return parser.to_wolfram_code(notebook)
-
-
-def parse_boxdata(content: str) -> str:
-    """Parse BoxData content and return clean Wolfram code."""
-    parser = BoxDataParser()
-    return parser.parse(content)
+    return NotebookParser().parse_file(path)
 
 
 if __name__ == "__main__":
-    # Test with command line argument
     import sys
 
     if len(sys.argv) > 1:
-        path = sys.argv[1]
-        print(f"Parsing: {path}")
-        print("-" * 60)
-
-        notebook = parse_notebook(path)
-
-        print(f"Title: {notebook.title}")
-        print(f"Total cells: {len(notebook.cells)}")
-        print(f"Code cells: {len(notebook.get_code_cells())}")
-        print(f"Doc cells: {len(notebook.get_documentation_cells())}")
-        print()
-        print("Outline:")
-        for item in notebook.get_outline():
-            indent = "  " * (
-                ["Title", "Chapter", "Section", "Subsection", "Subsubsection"].index(
-                    item["level"]
-                )
-                if item["level"]
-                in ["Title", "Chapter", "Section", "Subsection", "Subsubsection"]
-                else 0
-            )
-            print(f"{indent}{item['level']}: {item['title']}")
-        print()
-        print("=" * 60)
-        print("MARKDOWN OUTPUT:")
-        print("=" * 60)
-        parser = NotebookParser()
-        print(parser.to_markdown(notebook))
-    else:
-        print("Usage: python notebook_parser.py <path-to-notebook.nb>")
+        print(NotebookParser().to_markdown(parse_notebook(sys.argv[1])))

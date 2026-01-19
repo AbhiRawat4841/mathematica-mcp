@@ -14,6 +14,11 @@ Begin["`Private`"];
 $MCPPort = 9881;
 $MCPListener = None;
 $MCPDebug = False;
+$MCPHost = "127.0.0.1";
+$MCPAuthToken = Quiet[Check[Environment["MATHEMATICA_MCP_TOKEN"], ""]];
+$MCPMaxMessageBytes = 5*1024*1024; (* 5MB max request *)
+$MCPMaxResponseBytes = 5*1024*1024; (* 5MB max response *)
+$MCPBuffers = <||>; (* per-socket input buffers *)
 
 debugLog[msg_] := If[$MCPDebug, Print["[MCP Debug] ", msg]];
 
@@ -27,7 +32,7 @@ StartMCPServer[] := Module[{},
     Return[$MCPListener]
   ];
   
-  $MCPListener = SocketListen[$MCPPort,
+  $MCPListener = SocketListen[{ $MCPHost, $MCPPort },
     handleConnection,
     HandlerFunctionsKeys -> {"SourceSocket", "DataBytes"}
   ];
@@ -47,6 +52,7 @@ StopMCPServer[] := Module[{},
     Close[$MCPListener["Socket"]];
     DeleteObject[$MCPListener];
     $MCPListener = None;
+    $MCPBuffers = <||>;
     Print["[MathematicaMCP] Server stopped"];
   ];
 ];
@@ -64,10 +70,11 @@ MCPServerStatus[] := <|
 (* ============================================================================ *)
 
 handleConnection[assoc_Association] := Module[
-  {socket, dataBytes, requestStr, request, response, responseStr},
+  {socket, dataBytes, bufferKey, existing, newChunk, combined, messages, responseStrs},
   
   socket = assoc["SourceSocket"];
   dataBytes = assoc["DataBytes"];
+  bufferKey = ToString[socket, InputForm];
   
   (* Debug: show raw bytes *)
   If[$MCPDebug,
@@ -77,41 +84,63 @@ handleConnection[assoc_Association] := Module[
   
   If[Length[dataBytes] == 0, Return[]];
   
-  (* Convert bytes to string - handle both ByteArray and List of integers *)
-  requestStr = If[ByteArrayQ[dataBytes],
-    ByteArrayToString[dataBytes],
-    FromCharacterCode[dataBytes]  (* Fallback for list of integers *)
+  newChunk = If[ByteArrayQ[dataBytes],
+    ByteArrayToString[dataBytes, "UTF-8"],
+    FromCharacterCode[dataBytes, "UTF-8"]
   ];
   
-  debugLog["Received string: " <> StringTake[requestStr, UpTo[200]]];
+  existing = Lookup[$MCPBuffers, bufferKey, ""];
+  combined = existing <> newChunk;
   
-  (* Try parsing *)
-  request = Quiet[ImportString[requestStr, "RawJSON"]];
-  
-  If[$MCPDebug,
-    Print["[MCP Debug] Parsed result: ", request];
-    Print["[MCP Debug] Is Association: ", AssociationQ[request]];
+  If[StringLength[combined] > $MCPMaxMessageBytes,
+    responseStrs = {"{\"status\":\"error\",\"message\":\"Request too large\"}\n"};
+    BinaryWrite[socket, StringToByteArray[StringJoin[responseStrs]]];
+    $MCPBuffers = KeyDrop[$MCPBuffers, bufferKey];
+    Return[];
   ];
   
-  response = If[!AssociationQ[request],
-    <|"status" -> "error", "message" -> "Invalid JSON request", 
-      "debug_received" -> StringTake[requestStr, UpTo[100]],
-      "debug_bytes" -> Length[dataBytes]|>,
-    processCommand[request]
+  messages = Select[StringSplit[combined, "\n"], StringLength[#] > 0 &];
+  If[!StringEndsQ[combined, "\n"],
+    $MCPBuffers[bufferKey] = Last[messages];
+    messages = Most[messages],
+    $MCPBuffers[bufferKey] = "";
   ];
   
-  (* Safely convert response to JSON *)
-  responseStr = Quiet[Check[ExportString[response, "RawJSON"], None]];
-  
-  If[responseStr === None || !StringQ[responseStr],
-    (* Fallback: create simple error response *)
-    responseStr = "{\"status\":\"error\",\"message\":\"Failed to serialize response\"}";
-    If[$MCPDebug, Print["[MCP Debug] ExportString failed, using fallback"]];
+  responseStrs = Map[
+    Function[msg,
+      Module[{request, response, responseStr},
+        debugLog["Received message: " <> StringTake[msg, UpTo[200]]];
+        request = Quiet[ImportString[msg, "RawJSON"]];
+        
+        If[$MCPDebug,
+          Print["[MCP Debug] Parsed result: ", request];
+          Print["[MCP Debug] Is Association: ", AssociationQ[request]];
+        ];
+        
+        response = If[!AssociationQ[request],
+          <|"status" -> "error", "message" -> "Invalid JSON request"|>,
+          processCommand[request]
+        ];
+        
+        responseStr = Quiet[Check[ExportString[response, "RawJSON"], None]];
+        If[responseStr === None || !StringQ[responseStr],
+          responseStr = "{\"status\":\"error\",\"message\":\"Failed to serialize response\"}";
+          If[$MCPDebug, Print["[MCP Debug] ExportString failed, using fallback"]];
+        ];
+        
+        If[StringLength[responseStr] > $MCPMaxResponseBytes,
+          responseStr = "{\"status\":\"error\",\"message\":\"Response too large\"}";
+        ];
+        responseStr <> "\n"
+      ]
+    ],
+    messages
   ];
   
-  debugLog["Sending: " <> StringTake[responseStr, UpTo[200]]];
-  
-  BinaryWrite[socket, StringToByteArray[responseStr]];
+  If[Length[responseStrs] > 0,
+    debugLog["Sending: " <> StringTake[StringJoin[responseStrs], UpTo[200]]];
+    BinaryWrite[socket, StringToByteArray[StringJoin[responseStrs]]];
+  ];
 ];
 
 (* ============================================================================ *)
@@ -119,13 +148,18 @@ handleConnection[assoc_Association] := Module[
 (* ============================================================================ *)
 
 processCommand[request_Association] := Module[
-  {id, command, params, result},
+  {id, command, params, token, result},
   
   id = Lookup[request, "id", CreateUUID[]];
   command = Lookup[request, "command", "unknown"];
   params = Lookup[request, "params", <||>];
+  token = Lookup[request, "token", ""];
   
   debugLog["Processing command: " <> command];
+  
+  If[StringLength[$MCPAuthToken] > 0 && token =!= $MCPAuthToken,
+    Return[<|"id" -> id, "status" -> "error", "message" -> "Unauthorized"|>]
+  ];
   
   result = Quiet @ Check[
     Switch[command,
@@ -201,20 +235,27 @@ processCommand[request_Association] := Module[
 resolveNotebook[spec_] := Which[
   spec === None || spec === Null || spec === "",
     InputNotebook[],
-  StringQ[spec] && StringContainsQ[spec, "NotebookObject"],
-    ToExpression[spec],
   StringQ[spec],
-    SelectFirst[Notebooks[], 
-      StringContainsQ[ToString[NotebookFileName[#] /. $Failed -> ""], spec, IgnoreCase -> True] &,
-      InputNotebook[]
+    Module[{held},
+      held = Quiet[Check[ToExpression[spec, InputForm, HoldComplete], $Failed]];
+      If[MatchQ[held, HoldComplete[_NotebookObject]],
+        ReleaseHold[held],
+        SelectFirst[Notebooks[], 
+          StringContainsQ[ToString[NotebookFileName[#] /. $Failed -> ""], spec, IgnoreCase -> True] &,
+          InputNotebook[]
+        ]
+      ]
     ],
   True,
     InputNotebook[]
 ];
 
 resolveCellObject[spec_] := Which[
-  StringQ[spec] && StringContainsQ[spec, "CellObject"],
-    ToExpression[spec],
+  StringQ[spec],
+    Module[{held},
+      held = Quiet[Check[ToExpression[spec, InputForm, HoldComplete], $Failed]];
+      If[MatchQ[held, HoldComplete[_CellObject]], ReleaseHold[held], spec]
+    ],
   True,
     spec
 ];
@@ -705,7 +746,7 @@ cmdGetExpressionInfo[params_] := Module[{expr, exprStr, result, head, depth, lea
   
   result = Quiet[Check[ToExpression[exprStr], $Failed]];
   
-  If[result === $Failed,
+  If(result === $Failed,
     Return[<|"error" -> "Failed to evaluate expression"|>]
   ];
   
@@ -750,8 +791,8 @@ cmdGetMessages[params_] := Module[{count, messages},
   
   <|
     "success" -> True,
-    "count" -> Length[messages],
-    "total_captured" -> Length[$MCPMessageLog],
+    "count" -> Length(messages),
+    "total_captured" -> Length($MCPMessageLog),
     "messages" -> Reverse[messages]
   |>
 ];
@@ -796,7 +837,7 @@ cmdOpenNotebookFile[params_] := Module[{path, expandedPath, nb},
 cmdRunScript[params_] := Module[{path, expandedPath, result, startTime, timing},
   path = Lookup[params, "path", None];
   
-  If[path === None,
+  If(path === None,
     Return[<|"error" -> "No path specified"|>]
   ];
   
@@ -805,7 +846,7 @@ cmdRunScript[params_] := Module[{path, expandedPath, result, startTime, timing},
     path
   ];
   
-  If[!FileExistsQ[expandedPath],
+  If(!FileExistsQ[expandedPath],
     Return[<|"error" -> ("File not found: " <> expandedPath)|>]
   ];
   
@@ -813,7 +854,7 @@ cmdRunScript[params_] := Module[{path, expandedPath, result, startTime, timing},
   result = Quiet[Check[Get[expandedPath], $Failed]];
   timing = Round[(AbsoluteTime[] - startTime) * 1000];
   
-  If[result === $Failed,
+  If(result === $Failed,
     Return[<|
       "success" -> False,
       "error" -> "Script execution failed",
@@ -838,7 +879,7 @@ cmdTraceEvaluation[params_] := Module[{expr, maxDepth, trace, result},
   expr = Lookup[params, "expression", None];
   maxDepth = Lookup[params, "max_depth", 5];
   
-  If[expr === None,
+  If(expr === None,
     Return[<|"error" -> "No expression specified"|>]
   ];
   
@@ -855,7 +896,7 @@ cmdTraceEvaluation[params_] := Module[{expr, maxDepth, trace, result},
     $Failed
   ]];
   
-  If[result === $Failed,
+  If(result === $Failed,
     Return[<|"error" -> "Trace failed"|>]
   ];
   
@@ -871,7 +912,7 @@ cmdTraceEvaluation[params_] := Module[{expr, maxDepth, trace, result},
 cmdTimeExpression[params_] := Module[{expr, result, timing, memBefore, memAfter},
   expr = Lookup[params, "expression", None];
   
-  If[expr === None,
+  If(expr === None,
     Return[<|"error" -> "No expression specified"|>]
   ];
   
@@ -896,7 +937,7 @@ cmdTimeExpression[params_] := Module[{expr, result, timing, memBefore, memAfter}
 cmdCheckSyntax[params_] := Module[{code, check},
   code = Lookup[params, "code", None];
   
-  If[code === None,
+  If(code === None,
     Return[<|"error" -> "No code specified"|>]
   ];
   

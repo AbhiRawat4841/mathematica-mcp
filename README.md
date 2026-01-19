@@ -91,7 +91,11 @@ StartMCPServer[]
 
 ### Step 3: Configure Your LLM Client
 
-**For Claude Code (`.mcp.json` in project root):**
+Use the same MCP server definition across clients; only the config file location differs.
+
+**Claude app (Claude Desktop)**
+
+Config file (macOS): `~/Library/Application Support/Claude/claude_desktop_config.json`
 
 ```json
 {
@@ -102,6 +106,80 @@ StartMCPServer[]
     }
   }
 }
+```
+
+**Claude Code (`.mcp.json` in project root)**
+
+```json
+{
+  "mcpServers": {
+    "mathematica": {
+      "command": "uv",
+      "args": ["--directory", "/path/to/mathematica-mcp", "run", "mathematica-mcp"]
+    }
+  }
+}
+```
+
+**Cursor**
+
+Add the same JSON to your Cursor MCP config (typically `~/.cursor/mcp.json`).
+
+**VSCode**
+
+If you are using an MCP-capable extension (e.g., Continue), add the same MCP server definition in the extension settings.
+
+**OpenCode**
+
+Add the same MCP server definition in your OpenCode MCP config (project or global config). Refer to your OpenCode config location and include `mathematica` under `mcpServers`.
+
+### Make the AI Use It Naturally
+
+To nudge assistants to reach for this MCP without explicit tool calls:
+
+- Add an `agents.md` entry with triggers and example prompts.
+- Include a few concrete task examples in your README (below).
+- Mention the keywords users are likely to say: Mathematica, Wolfram Language, WolframScript, Wolfram Engine, Wolfram|Alpha, Wolfram Cloud, notebooks, .nb, notebook programming, symbolic computation, algebra, calculus, integrals, derivatives, equation solving, optimization, linear algebra, matrices, plots/graphics/visualization, data import/export, datasets, time series, image processing, signal processing, geodata, units, entities, machine learning, neural networks, graphs, plus action verbs like integrate, differentiate, expand, simplify, factor, solve, plot, calculate, evaluate, optimize, minimize, maximize, sum, series, limit.
+- Add intent gating: only activate the MCP when the user asks to compute/evaluate/plot/export/solve or references a concrete target (expression, dataset, notebook file). If it is just casual mention, ask a quick confirmation.
+
+**Suggested prompts (copy/paste for users):**
+
+- "Open this notebook and summarize the methods section."
+- "Compute this integral and plot the result in Mathematica."
+- "Parse the .nb file and extract only the code."
+- "Use Wolfram Alpha to look up the GDP of Japan and convert to USD." 
+- "Generate a 3D plot and export it as PNG."
+- "Check the steps of this derivation for correctness."
+
+**agents.md template (if your AI tool supports skills/agents metadata):**
+
+```md
+## Mathematica MCP
+
+**Purpose**: Use Mathematica for symbolic math, notebooks, plots, and Wolfram knowledge queries.
+
+**Triggers**:
+- Mathematica, Wolfram Language, WolframScript, Wolfram Engine
+- Wolfram|Alpha, Wolfram Cloud
+- notebooks, .nb, notebook programming, notebook parsing, export to Markdown/LaTeX
+- symbolic computation, algebra, calculus, integrals, derivatives, limits, equation solving, optimization
+- integrate, differentiate, expand, simplify, factor, solve, plot, calculate, evaluate, optimize, minimize, maximize, sum, series, limit
+- linear algebra, matrices, tensors
+- plots, graphics, visualization, animations
+- data import/export, datasets, time series
+- image processing, signal processing, geodata
+- units, entities, knowledgebase
+- machine learning, neural networks, graphs
+- BCH, commutators, Lie algebra
+
+**Intent gating**:
+- Only activate when the user expresses action intent (compute/evaluate/plot/export/solve) or provides a concrete target (expression, dataset, notebook file).
+- If a trigger word appears in casual chat, do not activate the tool; ask for confirmation.
+
+**Example prompts**:
+- "Convert this Mathematica notebook to Markdown and summarize key results."
+- "Evaluate this Wolfram expression and show the output."
+- "Find all cells in the notebook that contain plots."
 ```
 
 ---
