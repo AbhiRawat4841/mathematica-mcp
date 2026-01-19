@@ -54,14 +54,41 @@ def _parse_association_output(output: str) -> dict[str, Any]:
     Fallback for older Mathematica versions that don't support RawJSON export.
     Uses a regex that properly handles escaped sequences.
     """
-    result: dict[str, Any] = {"output": output, "messages": "", "timing_ms": 0, "failed": False}
+    result: dict[str, Any] = {
+        "output": output,
+        "output_inputform": output,
+        "output_fullform": "",
+        "messages": "",
+        "timing_ms": 0,
+        "failed": False,
+    }
 
     # Pattern: (?:[^"\\]|\\.)* handles escaped sequences properly
     out_match = re.search(r'"output"\s*->\s*"((?:[^"\\]|\\.)*)"', output)
     if out_match:
-        result["output"] = out_match.group(1).replace('\\"', '"').replace('\\\\', '\\')
+        result["output"] = out_match.group(1).replace('\\"', '"').replace("\\\\", "\\")
+        result["output_inputform"] = result["output"]
+
+    input_match = re.search(r'"output_inputform"\s*->\s*"((?:[^"\\]|\\.)*)"', output)
+    if input_match:
+        result["output_inputform"] = (
+            input_match.group(1).replace('\\"', '"').replace("\\\\", "\\")
+        )
+
+    full_match = re.search(r'"output_fullform"\s*->\s*"((?:[^"\\]|\\.)*)"', output)
+    if full_match:
+        result["output_fullform"] = (
+            full_match.group(1).replace('\\"', '"').replace("\\\\", "\\")
+        )
+
+    tex_match = re.search(r'"output_tex"\s*->\s*"((?:[^"\\]|\\.)*)"', output)
+    if tex_match:
+        result["output_tex"] = (
+            tex_match.group(1).replace('\\"', '"').replace("\\\\", "\\")
+        )
 
     msg_match = re.search(r'"messages"\s*->\s*"((?:[^"\\]|\\.)*)"', output)
+
     if msg_match:
         result["messages"] = msg_match.group(1)
 
@@ -101,6 +128,9 @@ Module[{{startTime, result, messages, timing, response}},
   timing = Round[(AbsoluteTime[] - startTime) * 1000];
   response = <|
     "output" -> ToString[result, InputForm],
+    "output_inputform" -> ToString[result, InputForm],
+    "output_fullform" -> ToString[result, FullForm],
+    "output_tex" -> ToString[TeXForm[result]],
     "messages" -> ToString[messages],
     "timing_ms" -> timing,
     "failed" -> (result === $Failed)
@@ -137,37 +167,36 @@ Module[{{startTime, result, messages, timing, response}},
         try:
             parsed = json.loads(output)
             clean_output = parsed.get("output", output)
+            output_inputform = parsed.get("output_inputform", clean_output)
+            output_fullform = parsed.get("output_fullform", "")
+            output_tex = parsed.get("output_tex", "")
             messages_str = parsed.get("messages", "")
-            warnings_list = [messages_str] if messages_str and messages_str != "{}" else []
+            warnings_list = (
+                [messages_str] if messages_str and messages_str != "{}" else []
+            )
         except json.JSONDecodeError:
             # Fallback to robust Association parser for older Mathematica
             parsed = _parse_association_output(output)
             clean_output = parsed["output"]
+            output_inputform = parsed.get("output_inputform", clean_output)
+            output_fullform = parsed.get("output_fullform", "")
+            output_tex = parsed.get("output_tex", "")
             messages_str = parsed.get("messages", "")
-            warnings_list = [messages_str] if messages_str and messages_str != "{}" else []
-
-        tex_output = ""
-        if output_format == "latex":
-            try:
-                tex_result = subprocess.run(
-                    [wolframscript, "-code", f"ToString[TeXForm[{code}]]"],
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
-                )
-                tex_output = tex_result.stdout.strip()
-            except Exception:
-                pass
+            warnings_list = (
+                [messages_str] if messages_str and messages_str != "{}" else []
+            )
 
         return {
             "success": True,
-            "output": clean_output,
-            "output_tex": tex_output,
-            "output_inputform": clean_output,
+            "output": output_inputform,
+            "output_tex": output_tex,
+            "output_inputform": output_inputform,
+            "output_fullform": output_fullform,
             "warnings": warnings_list,
             "timing_ms": python_timing,
             "execution_method": "wolframscript",
         }
+
     except subprocess.TimeoutExpired:
         return {
             "success": False,
@@ -252,20 +281,28 @@ def execute_in_kernel(code: str, output_format: str = "text") -> dict[str, Any]:
         result = session.evaluate(wlexpr(code))
         timing_ms = int((time.time() - start_time) * 1000)
 
-        output = str(result)
-        tex_output = ""
+        output_fullform = str(result)
+        output_inputform = ""
+        output_tex = ""
+
+        try:
+            input_result = session.evaluate(wlexpr(f"ToString[InputForm[{code}]]"))
+            output_inputform = str(input_result)
+        except Exception:
+            output_inputform = output_fullform
 
         try:
             tex_result = session.evaluate(wlexpr(f"ToString[TeXForm[{code}]]"))
-            tex_output = str(tex_result)
+            output_tex = str(tex_result)
         except Exception:
             pass
 
         return {
             "success": True,
-            "output": output,
-            "output_tex": tex_output,
-            "output_inputform": str(result),
+            "output": output_inputform,
+            "output_tex": output_tex,
+            "output_inputform": output_inputform,
+            "output_fullform": output_fullform,
             "warnings": [],
             "timing_ms": timing_ms,
             "execution_method": "wolframclient",

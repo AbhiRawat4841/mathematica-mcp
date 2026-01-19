@@ -13,14 +13,21 @@ Begin["`Private`"];
 
 $MCPPort = 9881;
 $MCPListener = None;
-$MCPDebug = False;
+$MCPDebug = True;
 $MCPHost = "127.0.0.1";
 $MCPAuthToken = Quiet[Check[Environment["MATHEMATICA_MCP_TOKEN"], ""]];
 $MCPMaxMessageBytes = 5*1024*1024; (* 5MB max request *)
 $MCPMaxResponseBytes = 5*1024*1024; (* 5MB max response *)
 $MCPBuffers = <||>; (* per-socket input buffers *)
 
-debugLog[msg_] := If[$MCPDebug, Print["[MCP Debug] ", msg]];
+debugLog[msg_] := Module[{},
+  If[$MCPDebug,
+    PutAppend[
+      ToString[DateString["ISODateTime"]] <> ": " <> ToString[msg],
+      "/tmp/mcp_debug.log"
+    ]
+  ]
+];
 
 (* ============================================================================ *)
 (* SERVER MANAGEMENT                                                            *)
@@ -122,7 +129,7 @@ handleConnection[assoc_Association] := Module[
           processCommand[request]
         ];
         
-        responseStr = Quiet[Check[ExportString[response, "RawJSON"], None]];
+        responseStr = Quiet[Check[ExportString[response, "RawJSON", "Compact" -> True], None]];
         If[responseStr === None || !StringQ[responseStr],
           responseStr = "{\"status\":\"error\",\"message\":\"Failed to serialize response\"}";
           If[$MCPDebug, Print["[MCP Debug] ExportString failed, using fallback"]];
@@ -746,7 +753,7 @@ cmdGetExpressionInfo[params_] := Module[{expr, exprStr, result, head, depth, lea
   
   result = Quiet[Check[ToExpression[exprStr], $Failed]];
   
-  If(result === $Failed,
+  If[result === $Failed,
     Return[<|"error" -> "Failed to evaluate expression"|>]
   ];
   
@@ -837,7 +844,7 @@ cmdOpenNotebookFile[params_] := Module[{path, expandedPath, nb},
 cmdRunScript[params_] := Module[{path, expandedPath, result, startTime, timing},
   path = Lookup[params, "path", None];
   
-  If(path === None,
+  If[path === None,
     Return[<|"error" -> "No path specified"|>]
   ];
   
@@ -846,7 +853,7 @@ cmdRunScript[params_] := Module[{path, expandedPath, result, startTime, timing},
     path
   ];
   
-  If(!FileExistsQ[expandedPath],
+  If[!FileExistsQ[expandedPath],
     Return[<|"error" -> ("File not found: " <> expandedPath)|>]
   ];
   
@@ -854,7 +861,7 @@ cmdRunScript[params_] := Module[{path, expandedPath, result, startTime, timing},
   result = Quiet[Check[Get[expandedPath], $Failed]];
   timing = Round[(AbsoluteTime[] - startTime) * 1000];
   
-  If(result === $Failed,
+  If[result === $Failed,
     Return[<|
       "success" -> False,
       "error" -> "Script execution failed",
@@ -879,7 +886,7 @@ cmdTraceEvaluation[params_] := Module[{expr, maxDepth, trace, result},
   expr = Lookup[params, "expression", None];
   maxDepth = Lookup[params, "max_depth", 5];
   
-  If(expr === None,
+  If[expr === None,
     Return[<|"error" -> "No expression specified"|>]
   ];
   
@@ -896,7 +903,7 @@ cmdTraceEvaluation[params_] := Module[{expr, maxDepth, trace, result},
     $Failed
   ]];
   
-  If(result === $Failed,
+  If[result === $Failed,
     Return[<|"error" -> "Trace failed"|>]
   ];
   
@@ -912,8 +919,16 @@ cmdTraceEvaluation[params_] := Module[{expr, maxDepth, trace, result},
 cmdTimeExpression[params_] := Module[{expr, result, timing, memBefore, memAfter},
   expr = Lookup[params, "expression", None];
   
-  If(expr === None,
+  If[expr === None,
     Return[<|"error" -> "No expression specified"|>]
+  ];
+  
+  memBefore = MemoryInUse[];
+  timing = Quiet[Check[AbsoluteTiming[ToExpression[expr]], $Failed]];
+  memAfter = MemoryInUse[];
+  
+  If[timing === $Failed,
+    Return[<|"error" -> "Timing failed"|>]
   ];
   
   memBefore = MemoryInUse[];
@@ -937,7 +952,7 @@ cmdTimeExpression[params_] := Module[{expr, result, timing, memBefore, memAfter}
 cmdCheckSyntax[params_] := Module[{code, check},
   code = Lookup[params, "code", None];
   
-  If(code === None,
+  If[code === None,
     Return[<|"error" -> "No code specified"|>]
   ];
   

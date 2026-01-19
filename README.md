@@ -195,6 +195,15 @@ To nudge assistants to reach for this MCP without explicit tool calls:
 
 ## Complete Tool Reference
 
+### Execution Output Fields
+
+`execute_code` and kernel fallbacks return a structured payload with multiple output representations so clients can choose a stable format for parsing:
+
+- `output`: defaults to InputForm (stable, human-readable)
+- `output_inputform`: explicit InputForm string
+- `output_fullform`: explicit FullForm string (lossless, machine-friendly)
+- `output_tex`: TeXForm string (for rendering)
+
 ### TIER 1: Session State & Variable Introspection
 
 *Like Python's `dir()`, `type()`, and `del` - but for Mathematica*

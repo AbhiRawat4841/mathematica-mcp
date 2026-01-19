@@ -20,7 +20,7 @@ class TestDerivationVerification:
 
         result = execute_in_kernel(f"Simplify[{step1} - ({step2})]")
         assert result["success"] is True
-        assert result["output"] == "0"
+        assert result["output_inputform"] == "0"
 
     def test_trigonometric_identity_valid(self):
         """Test that valid trig identity steps are recognized."""
@@ -30,7 +30,7 @@ class TestDerivationVerification:
 
         result = execute_in_kernel(f"Simplify[{step1} - ({step2})]")
         assert result["success"] is True
-        assert result["output"] == "0"
+        assert result["output_inputform"] == "0"
 
     def test_factorization_valid(self):
         """Test that valid factorization is recognized."""
@@ -40,7 +40,7 @@ class TestDerivationVerification:
 
         result = execute_in_kernel(f"Simplify[{step1} - ({step2})]")
         assert result["success"] is True
-        assert result["output"] == "0"
+        assert result["output_inputform"] == "0"
 
     def test_invalid_step_detected(self):
         """Test that invalid derivation steps are detected."""
@@ -50,8 +50,8 @@ class TestDerivationVerification:
 
         result = execute_in_kernel(f"Simplify[{step1} - ({step2})]")
         assert result["success"] is True
-        assert result["output"] != "0"
-        assert "2" in result["output"]  # Difference should be 2
+        assert result["output_inputform"] != "0"
+        assert "2" in result["output_inputform"]  # Difference should be 2
 
     def test_double_angle_formula(self):
         """Test double angle formula derivation."""
@@ -61,7 +61,7 @@ class TestDerivationVerification:
 
         result = execute_in_kernel(f"Simplify[{step1} - ({step2})]")
         assert result["success"] is True
-        assert result["output"] == "0"
+        assert result["output_inputform"] == "0"
 
     def test_logarithm_laws(self):
         """Test logarithm laws."""
@@ -70,7 +70,7 @@ class TestDerivationVerification:
             "Simplify[Log[a*b] - (Log[a] + Log[b]), Assumptions -> {a > 0, b > 0}]"
         )
         assert result["success"] is True
-        assert result["output"] == "0"
+        assert result["output_inputform"] == "0"
 
     def test_exponential_laws(self):
         """Test exponential laws."""
@@ -80,21 +80,21 @@ class TestDerivationVerification:
 
         result = execute_in_kernel(f"Simplify[{step1} - ({step2})]")
         assert result["success"] is True
-        assert result["output"] == "0"
+        assert result["output_inputform"] == "0"
 
     def test_derivative_verification(self):
         """Test that derivative calculations are correct."""
         # d/dx(x^3) = 3x^2
         result = execute_in_kernel("Simplify[D[x^3, x] - 3*x^2]")
         assert result["success"] is True
-        assert result["output"] == "0"
+        assert result["output_inputform"] == "0"
 
     def test_integral_verification(self):
         """Test that integral calculations are correct."""
         # integral of 3x^2 = x^3 (ignoring constant)
         result = execute_in_kernel("Simplify[D[Integrate[3*x^2, x], x] - 3*x^2]")
         assert result["success"] is True
-        assert result["output"] == "0"
+        assert result["output_inputform"] == "0"
 
     def test_multi_step_derivation(self):
         """Test a multi-step derivation."""
@@ -106,15 +106,17 @@ class TestDerivationVerification:
         ]
 
         for i in range(len(steps) - 1):
-            result = execute_in_kernel(f"Simplify[({steps[i]}) - ({steps[i+1]})]")
-            assert result["success"] is True, f"Step {i+1} failed"
-            assert result["output"] == "0", f"Step {i+1} -> {i+2} is not valid: {result['output']}"
+            result = execute_in_kernel(f"Simplify[({steps[i]}) - ({steps[i + 1]})]")
+            assert result["success"] is True, f"Step {i + 1} failed"
+            assert result["output_inputform"] == "0", (
+                f"Step {i + 1} -> {i + 2} is not valid: {result['output']}"
+            )
 
     def test_euler_identity(self):
         """Test Euler's identity: e^(i*pi) + 1 = 0."""
         result = execute_in_kernel("Simplify[Exp[I*Pi] + 1]")
         assert result["success"] is True
-        assert result["output"] == "0"
+        assert result["output_inputform"] == "0"
 
     def test_de_moivre_theorem(self):
         """Test De Moivre's theorem."""
@@ -125,7 +127,7 @@ class TestDerivationVerification:
 
         result = execute_in_kernel(f"ComplexExpand[Simplify[{step1} - ({step2})]]")
         assert result["success"] is True
-        assert result["output"] == "0"
+        assert result["output_inputform"] == "0"
 
 
 class TestSymbolicEquivalence:
@@ -144,7 +146,9 @@ class TestSymbolicEquivalence:
         for expr1, expr2 in pairs:
             result = execute_in_kernel(f"Simplify[{expr1} - ({expr2})]")
             assert result["success"] is True
-            assert result["output"] == "0", f"{expr1} != {expr2}: got {result['output']}"
+            assert result["output_inputform"] == "0", (
+                f"{expr1} != {expr2}: got {result['output']}"
+            )
 
     def test_non_equivalent_expressions(self):
         """Test that non-equivalent expressions are not equal."""
@@ -157,7 +161,9 @@ class TestSymbolicEquivalence:
         for expr1, expr2 in pairs:
             result = execute_in_kernel(f"Simplify[{expr1} - ({expr2})]")
             assert result["success"] is True
-            assert result["output"] != "0", f"{expr1} should not equal {expr2}"
+            assert result["output_inputform"] != "0", (
+                f"{expr1} should not equal {expr2}"
+            )
 
 
 if __name__ == "__main__":

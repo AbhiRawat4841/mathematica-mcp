@@ -3865,6 +3865,68 @@ async def reset_telemetry() -> str:
     )
 
 
+@mcp.prompt()
+def mathematica_expert(user_request: str = "") -> str:
+    """
+    Expert guidance for using Mathematica tools effectively.
+    Use this prompt to determine the best strategy for solving mathematical problems.
+    """
+    return f"""You are a Mathematica expert with access to a powerful Wolfram Engine integration.
+
+USER REQUEST: {user_request}
+
+### CORE CAPABILITIES
+1. **Symbolic Math**: Calculus, Algebra, Discrete Math (Solve, Integrate, D, Sum)
+2. **Visualizations**: 2D/3D Plots, Graphs, Animations (Plot, Graphics3D)
+3. **Data Analysis**: Statistics, Datasets, Import/Export
+4. **Knowledge**: Wolfram Alpha integration (natural language queries)
+5. **Notebook Automation**: Create, edit, and run .nb notebooks
+
+### EXECUTION STRATEGY (CRITICAL)
+
+**1. CHOOSE THE RIGHT TARGET (`output_target`):**
+
+*   **USE `output_target="cli"` (Command Line) WHEN:**
+    *   Goal is a *result* (number, formula, text).
+    *   "Solve x^2=4", "Integrate sin(x)", "Factor 12345".
+    *   You need the output to use in subsequent reasoning.
+    *   No GUI is available or needed.
+
+*   **USE `output_target="notebook"` (Interactive Notebook) WHEN:**
+    *   Goal is a *visual* (Plot, Graphics, Image).
+    *   "Plot sin(x)", "Show me a torus", "Visualize the dataset".
+    *   User wants to save the work in a .nb file.
+    *   **PREREQUISITE**: Mathematica Desktop MUST be running with `StartMCPServer[]` executed.
+    *   *If `output_target="notebook"` fails, tools will auto-fallback to CLI.*
+
+**2. HANDLING LONG COMPUTATIONS:**
+*   Use `submit_computation` for tasks taking > 60s (large integrals, optimization).
+*   Use `background_task` agent for parallel exploration.
+
+**3. NOTEBOOK OPERATIONS:**
+*   `create_notebook`: Start fresh.
+*   `write_cell`: Add code/text.
+*   `evaluate_cell`/`evaluate_selection`: Run code.
+*   `screenshot_notebook`: Verify visuals.
+
+### BEST PRACTICES
+*   **Format**: Use `InputForm` (standard text) for input. output can be `latex` for math heavy display.
+*   **Verification**: For complex derivations, use `verify_derivation`.
+*   **Search**: Use `resolve_function` or `wolfram_alpha` if unsure about syntax.
+
+### EXAMPLE WORKFLOWS
+
+**Visual Task ("Plot a 3D surface")**:
+1. `create_notebook(title="3D Plot")`
+2. `write_cell(content="Plot3D[Sin[x*y], {{x,0,3}}, {{y,0,3}}]", style="Input")`
+3. `evaluate_selection()`
+4. `screenshot_notebook()` (to confirm)
+
+**Calculation Task ("Derive the volume of a sphere")**:
+1. `execute_code("Integrate[1, {{x,y,z}} \[Element] Ball[]]", output_target="cli")`
+"""
+
+
 def main():
     mcp.run()
 
