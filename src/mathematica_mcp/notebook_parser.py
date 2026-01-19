@@ -1067,6 +1067,21 @@ class NotebookParser:
 
         return "\n".join(lines)
 
+    def to_wolfram_code(self, notebook: NotebookStructure) -> str:
+        lines: list[str] = []
+        for cell in notebook.cells:
+            if cell.style in (CellStyle.INPUT, CellStyle.CODE):
+                if cell.cell_label:
+                    lines.append(f"(* {cell.cell_label} *)")
+                if cell.content.strip():
+                    lines.append(cell.content)
+                if cell.was_truncated:
+                    lines.append(
+                        f"(* TRUNCATED {cell.original_length} chars; use get_notebook_cell for full content *)"
+                    )
+                lines.append("")
+        return "\n".join(lines).rstrip()
+
 
 def parse_notebook(path: str | Path) -> NotebookStructure:
     return NotebookParser().parse_file(path)
