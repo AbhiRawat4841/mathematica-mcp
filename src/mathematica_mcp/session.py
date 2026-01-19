@@ -118,19 +118,33 @@ def _execute_via_wolframscript(
             "execution_method": "wolframscript",
         }
 
+    # Only compute what's requested to save time and tokens
+    # By default we always get InputForm (text)
+    include_tex = "True" if output_format == "latex" else "False"
+    include_full = "True" if output_format == "mathematica" else "False"
+
     wrapped_code = f"""
-Module[{{startTime, result, messages, timing, response}},
+Module[{{startTime, result, messages, timing, response, outInput, outFull="", outTex=""}},
   startTime = AbsoluteTime[];
   Block[{{$MessageList = {{}}}},
     result = Quiet[Check[{code}, $Failed]];
     messages = $MessageList;
   ];
+  
+  (* Always compute InputForm as it is the standard text output *)
+  outInput = ToString[result, InputForm];
+  
+  (* Conditionally compute expensive forms *)
+  If[{include_full}, outFull = ToString[result, FullForm]];
+  If[{include_tex}, outTex = ToString[TeXForm[result]]];
+
   timing = Round[(AbsoluteTime[] - startTime) * 1000];
+  
   response = <|
-    "output" -> ToString[result, InputForm],
-    "output_inputform" -> ToString[result, InputForm],
-    "output_fullform" -> ToString[result, FullForm],
-    "output_tex" -> ToString[TeXForm[result]],
+    "output" -> outInput,
+    "output_inputform" -> outInput,
+    "output_fullform" -> outFull,
+    "output_tex" -> outTex,
     "messages" -> ToString[messages],
     "timing_ms" -> timing,
     "failed" -> (result === $Failed)
@@ -361,21 +375,28 @@ def execute_in_kernel(code: str, output_format: str = "text") -> dict[str, Any]:
         result = session.evaluate(wlexpr(code))
         timing_ms = int((time.time() - start_time) * 1000)
 
-        output_fullform = str(result)
-        output_inputform = ""
-        output_tex = ""
-
+        # Always get InputForm
         try:
             input_result = session.evaluate(wlexpr(f"ToString[InputForm[{code}]]"))
             output_inputform = str(input_result)
         except Exception:
-            output_inputform = output_fullform
+            output_inputform = str(result)
 
-        try:
-            tex_result = session.evaluate(wlexpr(f"ToString[TeXForm[{code}]]"))
-            output_tex = str(tex_result)
-        except Exception:
-            pass
+        output_fullform = ""
+        output_tex = ""
+
+        # Only compute expensive formats if specifically requested
+        if output_format == "mathematica":
+            output_fullform = str(
+                result
+            )  # Result object string representation is usually FullForm-like or close enough
+
+        if output_format == "latex":
+            try:
+                tex_result = session.evaluate(wlexpr(f"ToString[TeXForm[{code}]]"))
+                output_tex = str(tex_result)
+            except Exception:
+                pass
 
         response = {
             "success": True,
