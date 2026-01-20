@@ -1,43 +1,9 @@
-# Mathematica MCP
+# Mathematica MCP Technical Reference
 
-**The most comprehensive Model Context Protocol server for Mathematica** - giving LLMs the same power over Mathematica that they have over Python.
+**Advanced documentation for developers and power users.**
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![Mathematica 14+](https://img.shields.io/badge/Mathematica-14+-red.svg)](https://www.wolfram.com/mathematica/)
-
-> **New to MCP?**
-> **[Click here for the Beginner Quick Start Guide](quick-start.md)** to get up and running in 5 minutes!
-
----
-
-## Why This MCP?
-
-### The Problem
-
-Other Mathematica MCPs treat Mathematica as a **stateless calculator** - each command runs in isolation, variables don't persist, and there's no way to inspect session state. This is like trying to code Python without being able to see your variables or debug errors.
-
-### Our Solution
-
-This MCP gives LLMs **full session control** with persistent state, variable introspection, debugging tools, and natural language integration - making Mathematica as easy to work with as Python.
-
----
-
-## Key Advantages vs Other Mathematica MCPs
-
-**Why we’re different (at a glance):** Persistent state, full variable introspection, natural language to code, deep debugging, rich file I/O, knowledge/units, and graphics export. Think “Mathematica with Python-like ergonomics” instead of “stateless calculator.”
-
-- Persistent session state: variables/definitions survive across calls via the addon (not stateless evals)
-- Full visibility: list/get/clear variables, inspect expressions (Head, depth, size)
-- Natural language + Wolfram Alpha: NL→code, Alpha queries, entities, units, constants
-- Real debugging: trace evaluation, timing with memory, syntax check, fuzzy function search
-- **Error analysis**: Notebook errors are pattern-matched against 10+ error types with confidence-scored fix suggestions for the AI
-- File and notebooks: open/run .nb/.wl/.wlnb, read/convert notebooks (MD/LaTeX), outlines, scripts
-- **Offline notebook parsing**: Python-native parser extracts clean Wolfram code from complex BoxData without wolframscript
-- Data I/O: import/export 250+ formats (CSV/JSON/Excel/URLs), list supported formats
-- Knowledge/units: entity lookup (countries/chemicals/planets…), convert_units (thousands), get_constant
-- Graphics: export PNG/PDF/SVG/EPS, inspect graphics, compare plots, animations
-- GUI control: create/edit notebooks and cells, evaluate, screenshot/rasterize
+> **Just want to get started?**
+> **[Click here for the Beginner Quick Start Guide](quick-start.md)**.
 
 ---
 
@@ -55,7 +21,7 @@ This MCP gives LLMs **full session control** with persistent state, variable int
 ```
 
 **Two components:**
-1. **Python MCP Server** - Exposes 79 tools to LLMs via MCP protocol
+1. **Python MCP Server** - Exposes 98 tools to LLMs via MCP protocol
 2. **Mathematica Addon** - Runs inside Mathematica with persistent session state
 
 **Performance:** Notebook execution uses an atomic command that combines notebook lookup, cell creation, and evaluation into a single round-trip (vs. 4 separate calls), resulting in 3-4x faster plot rendering.
@@ -961,7 +927,7 @@ The MCP server uses `ExportString[..., "RawJSON"]` for reliable JSON output from
 ```
 mathematica-mcp/
 ├── src/mathematica_mcp/
-│   ├── server.py          # 79 MCP tools
+│   ├── server.py          # 98 MCP tools
 │   ├── notebook_parser.py # Python-native .nb parser (offline)
 │   ├── connection.py      # Socket connection to addon
 │   ├── session.py         # Kernel fallback (wolframscript)
