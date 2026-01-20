@@ -33,6 +33,40 @@ This tool connects AI models (like Claude, Cursor, or OpenCode) directly to your
 - Python 3.10+ installed
 - `wolframscript` available (Mathematica menu: Help -> Install wolframscript)
 
+### 🤖 For LLM Agents
+
+If you are an AI assistant (like Claude, Cursor, or OpenCode) installing this for a user, execute the following sequence:
+
+```bash
+# Fail fast on any error
+set -e
+
+# 1. Install Python dependencies (prefer uv)
+if command -v uv >/dev/null 2>&1; then 
+    echo "Installing with uv..."
+    uv sync
+else 
+    echo "Installing with pip..."
+    pip install -e .
+fi
+
+# 2. Install the Mathematica Addon (CRITICAL)
+if ! command -v wolframscript >/dev/null 2>&1; then
+    echo "Error: wolframscript not found. Please ask user to install it."
+    exit 1
+fi
+# Run without changing directory to maintain path safety
+wolframscript -file addon/install.wl
+
+# 3. Report Success
+echo "Installation complete. Server path: $(pwd)"
+```
+
+**Next Steps for Agent:**
+1.  Read the output path from step 3.
+2.  Generate the JSON config for the user (using `uv` or `python` as appropriate).
+3.  Ask the user to paste it into their client config.
+
 ### 1. Install the server and addon
 
 ```bash
