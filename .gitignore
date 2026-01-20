@@ -63,3 +63,13 @@ debug_parser.py
 
 # Keep uv.lock for reproducibility (comment out if you don't want it)
 # uv.lock
+readme_command_report.json
+
+# Local IDE/editor settings
+.claude/settings.local.json
+
+# Generated notebooks at root (keep addon/ and tests/ notebooks)
+/*.nb
+
+# Generated images at root
+/*.png

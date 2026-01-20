@@ -3,7 +3,7 @@
 **Advanced documentation for developers and power users.**
 
 > **Just want to get started?**
-> **[Click here for the Beginner Quick Start Guide](quick-start.md)**.
+> **Start with the installation steps in the main README.**
 
 ---
 

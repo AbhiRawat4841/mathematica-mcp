@@ -13,7 +13,7 @@ Begin["`Private`"];
 
 $MCPPort = 9881;
 $MCPListener = None;
-$MCPDebug = True;
+$MCPDebug = False;
 $MCPHost = "127.0.0.1";
 $MCPAuthToken = Quiet[Check[Environment["MATHEMATICA_MCP_TOKEN"], ""]];
 $MCPMaxMessageBytes = 5*1024*1024; (* 5MB max request *)
