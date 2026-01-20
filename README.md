@@ -27,121 +27,24 @@ This tool connects AI models (like Claude, Cursor, or OpenCode) directly to your
 
 ## Installation
 
-### 0. Prerequisites
+### For Humans
 
-- Mathematica 14.0+ installed
-- Python 3.10+ installed
-- `wolframscript` available (Mathematica menu: Help -> Install wolframscript)
+Copy and paste this prompt to your LLM agent (Claude Code, AmpCode, Cursor, etc.):
 
-### 🤖 For LLM Agents
+```
+Install and configure mathematica-mcp by following the instructions here:
+https://raw.githubusercontent.com/AbhiRawat4841/mathematica-mcp/main/docs/installation.md
+```
 
-If you are an AI assistant (like Claude, Cursor, or OpenCode) installing this for a user, execute the following sequence:
+Or read the [Installation Guide](docs/installation.md) directly.
+
+### For LLM Agents
+
+Fetch the installation guide and follow it:
 
 ```bash
-# Fail fast on any error
-set -e
-
-# 1. Install Python dependencies (prefer uv)
-if command -v uv >/dev/null 2>&1; then 
-    echo "Installing with uv..."
-    uv sync
-else 
-    echo "Installing with pip..."
-    pip install -e .
-fi
-
-# 2. Install the Mathematica Addon (CRITICAL)
-if ! command -v wolframscript >/dev/null 2>&1; then
-    echo "Error: wolframscript not found. Please ask user to install it."
-    exit 1
-fi
-# Run without changing directory to maintain path safety
-wolframscript -file addon/install.wl
-
-# 3. Report Success
-echo "Installation complete. Server path: $(pwd)"
+curl -s https://raw.githubusercontent.com/AbhiRawat4841/mathematica-mcp/main/docs/installation.md
 ```
-
-**Next Steps for Agent:**
-1.  Read the output path from step 3.
-2.  Generate the JSON config for the user (using `uv` or `python` as appropriate).
-3.  Ask the user to paste it into their client config.
-
-### 1. Install the server and addon
-
-```bash
-# 1. Clone the repo
-git clone https://github.com/AbhiRawat4841/mathematica-mcp.git
-cd mathematica-mcp
-
-# 2. Install the Python package
-pip install -e .
-# Or with uv:
-# uv sync
-
-# 3. Install the Mathematica addon
-cd addon
-wolframscript -file install.wl
-```
-
-### 2. Configure your client
-
-Use this MCP server definition everywhere (only the config file location changes):
-
-```json
-{
-  "mcpServers": {
-    "mathematica": {
-      "command": "uv",
-      "args": ["--directory", "/ABSOLUTE/PATH/TO/mathematica-mcp", "run", "mathematica-mcp"]
-    }
-  }
-}
-```
-
-If you do not use `uv`, use Python directly:
-
-```json
-{
-  "mcpServers": {
-    "mathematica": {
-      "command": "python3",
-      "args": ["-m", "mathematica_mcp"]
-    }
-  }
-}
-```
-
-#### Claude Desktop
-
-- macOS config: `~/Library/Application Support/Claude/claude_desktop_config.json`
-- Windows config: `%APPDATA%\Claude\claude_desktop_config.json`
-- Paste the JSON above and restart the app.
-
-#### Claude Code
-
-- Create `.mcp.json` in your project root and paste the JSON above.
-
-#### Cursor
-
-- Settings -> Features -> MCP -> Add New MCP Server
-- Name: `mathematica`
-- Type: `command`
-- Command: `uv --directory /ABSOLUTE/PATH/TO/mathematica-mcp run mathematica-mcp`
-
-#### VSCode (Continue or other MCP-capable extension)
-
-- Add the same MCP server definition in your extension settings.
-
-#### OpenCode
-
-- Add the same MCP server definition in your OpenCode config (project or global).
-
-### 3. Verify it works
-
-1. Start Mathematica.
-2. In a notebook, run `MCPServerStatus[]` and confirm `running -> True`.
-3. In your AI client, ask: "What is the value of Pi in Mathematica?".
 
 ---
 
