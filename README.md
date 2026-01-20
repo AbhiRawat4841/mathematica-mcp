@@ -19,28 +19,40 @@ This tool connects AI models (like Claude, Cursor, or OpenCode) directly to your
 *   **Read Notebooks**: It can open your `.nb` files and understand their content.
 *   **Remember Variables**: It remembers your definitions (`x = 5`) throughout the conversation.
 
+### Watch it in action
+
+[![Mathematica MCP Demo](https://img.youtube.com/vi/TjGSkvVyc1Y/0.jpg)](https://www.youtube.com/watch?v=TjGSkvVyc1Y)
+
 ---
 
-## Installation (The Easy Way)
+## Installation
 
-**[➡️ Click here for the Step-by-Step Beginner Guide](docs/quick-start.md)**
+### 0. Prerequisites
 
-If you are a developer and just want the commands:
+- Mathematica 14.0+ installed
+- Python 3.10+ installed
+- `wolframscript` available (Mathematica menu: Help -> Install wolframscript)
+
+### 1. Install the server and addon
 
 ```bash
 # 1. Clone the repo
 git clone https://github.com/AbhiRawat4841/mathematica-mcp.git
 cd mathematica-mcp
 
-# 2. Install Python package
+# 2. Install the Python package
 pip install -e .
+# Or with uv:
+# uv sync
 
-# 3. Install Mathematica Addon
+# 3. Install the Mathematica addon
 cd addon
 wolframscript -file install.wl
 ```
 
-Then add this to your MCP config (e.g., `claude_desktop_config.json`):
+### 2. Configure your client
+
+Use this MCP server definition everywhere (only the config file location changes):
 
 ```json
 {
@@ -52,6 +64,50 @@ Then add this to your MCP config (e.g., `claude_desktop_config.json`):
   }
 }
 ```
+
+If you do not use `uv`, use Python directly:
+
+```json
+{
+  "mcpServers": {
+    "mathematica": {
+      "command": "python3",
+      "args": ["-m", "mathematica_mcp"]
+    }
+  }
+}
+```
+
+#### Claude Desktop
+
+- macOS config: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- Windows config: `%APPDATA%\Claude\claude_desktop_config.json`
+- Paste the JSON above and restart the app.
+
+#### Claude Code
+
+- Create `.mcp.json` in your project root and paste the JSON above.
+
+#### Cursor
+
+- Settings -> Features -> MCP -> Add New MCP Server
+- Name: `mathematica`
+- Type: `command`
+- Command: `uv --directory /ABSOLUTE/PATH/TO/mathematica-mcp run mathematica-mcp`
+
+#### VSCode (Continue or other MCP-capable extension)
+
+- Add the same MCP server definition in your extension settings.
+
+#### OpenCode
+
+- Add the same MCP server definition in your OpenCode config (project or global).
+
+### 3. Verify it works
+
+1. Start Mathematica.
+2. In a notebook, run `MCPServerStatus[]` and confirm `running -> True`.
+3. In your AI client, ask: "What is the value of Pi in Mathematica?".
 
 ---
 
@@ -73,7 +129,6 @@ Then add this to your MCP config (e.g., `claude_desktop_config.json`):
 
 ## Documentation
 
-*   **[Beginner Quick Start](docs/quick-start.md)**: The "Happy Path" to get running in 5 minutes.
 *   **[Technical Reference](docs/technical-reference.md)**: Deep dive into architecture, tools, and configuration.
 
 ---
