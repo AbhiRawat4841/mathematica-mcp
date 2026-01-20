@@ -23,31 +23,31 @@ It can also:
 - Answer inline: symbolic math, plots, and real-world data lookups.
 - Read and parse `.nb` files: extract code, convert to Markdown/LaTeX.
 - Keep state: variables persist across calls.
-- Expose 65+ tools for math, data, graphics, and debugging.
+- Expose 79 tools for math, data, graphics, and debugging.
 - **Error analysis**: When code executes in notebooks, errors are captured, pattern-matched, and enriched with fix suggestions.
 
 ---
 
 ## Why use it? (Real-World Examples)
 
-### 🎓 For Students & Researchers
+### For Students & Researchers
 *Stop copy-pasting equations.*
 - **Fibonacci + Golden Ratio**: "Plot Fibonacci growth, ratio convergence to the Golden Ratio, and the Golden Spiral in one notebook."
 - **Symbolic Integration**: "Integrate `Sin[x]^4 Cos[x]^2`, simplify it, and show the steps."
 - **High-Quality Visualization**: "Render a 3D Sombrero surface and export as SVG for my paper."
 
-### 💻 For Developers
+### For Developers
 *Treat notebooks like code repositories.*
 - **Notebook Parsing**: "Extract only the Wolfram code from this `.nb` file and summarize the structure."
 - **Debugging**: "Trace the evaluation of `MyCustomFunction[x]` to see why it returns `Indeterminate`."
 - **Test Generation**: "Create tests for my Wolfram package that cover numeric, symbolic, and complex inputs."
 - **Error Analysis**: When notebook code produces errors, the AI receives pattern-matched suggestions (e.g., for `UnitConvert::compat`: "Use QuantityMagnitude[] to extract numeric values").
 
-### 📊 For Data Scientists
-*Access the world's largest knowledgebase.*
+### For Data Scientists
+*Access Wolfram's curated knowledge and import capabilities.*
 - **Real-World Entities**: "Compare GDP for US, China, Japan, Germany and plot a bar chart."
-- **Time Series Forecasting**: "Fetch last 20 years of GDP for G7, smooth it, and forecast 5 years ahead."
-- **Signal Cleanup**: "Import a noisy CSV, apply a low-pass filter, and plot before/after."
+- **Time Series Analysis**: "Fetch last 20 years of GDP for G7, smooth it, and forecast 5 years ahead."
+- **Data Import**: Import CSV, JSON, Excel, and 250+ other formats using Mathematica's native `Import[]` function.
 
 ---
 
@@ -60,7 +60,7 @@ It can also:
 ### 1. Install the Server
 ```bash
 # Clone the repository
-git clone https://github.com/psi-server/mathematica-mcp.git
+git clone https://github.com/AbhiRawat4841/mathematica-mcp.git
 cd mathematica-mcp
 
 # Install dependencies
@@ -91,36 +91,9 @@ See the full beginner walkthrough in `docs/quick-start.md`.
 
 ## Client Configuration
 
-Choose your AI client below to configure the connection.
+All MCP clients use the same server configuration. Only the config file location differs.
 
-### 🤖 Claude Desktop App
-Edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "mathematica": {
-      "command": "uv",
-      "args": ["--directory", "/path/to/mathematica-mcp", "run", "mathematica-mcp"]
-    }
-  }
-}
-```
-
-### 💻 VS Code (via Continue or similar)
-Add to your extension configuration (User Settings JSON):
-
-```json
-"mcpServers": {
-  "mathematica": {
-    "command": "uv",
-    "args": ["--directory", "/path/to/mathematica-mcp", "run", "mathematica-mcp"]
-  }
-}
-```
-
-### ⌨️ Claude Code (CLI)
-Create or edit `.mcp.json` in your project root:
+### Step 1: Copy this JSON block
 
 ```json
 {
@@ -133,33 +106,22 @@ Create or edit `.mcp.json` in your project root:
 }
 ```
 
-### 🧪 Codex CLI
-Add to your MCP configuration file (e.g., `~/.mcp.json`):
+Replace `/path/to/mathematica-mcp` with the actual path where you cloned the repository.
 
-```json
-{
-  "mcpServers": {
-    "mathematica": {
-      "command": "uv",
-      "args": ["--directory", "/path/to/mathematica-mcp", "run", "mathematica-mcp"]
-    }
-  }
-}
-```
+### Step 2: Add to your client's config file
 
-### 🛠️ OpenCode
-Add to your MCP configuration file (project or global):
+| Client | Config File Location | Platform |
+|--------|---------------------|----------|
+| Claude Desktop | `~/Library/Application Support/Claude/claude_desktop_config.json` | macOS |
+| Claude Desktop | `%APPDATA%\Claude\claude_desktop_config.json` | Windows |
+| Claude Code | `.mcp.json` (project) or `~/.claude.json` (global) | All |
+| Cursor | `~/.cursor/mcp.json` or Settings > Features > MCP | All |
+| VS Code | Check your MCP extension settings | All |
+| Codex CLI / OpenCode | `~/.mcp.json` or project config | All |
 
-```json
-{
-  "mcpServers": {
-    "mathematica": {
-      "command": "uv",
-      "args": ["--directory", "/path/to/mathematica-mcp", "run", "mathematica-mcp"]
-    }
-  }
-}
-```
+### Step 3: Restart your client
+
+After adding the configuration, restart your AI client to load the MCP server.
 
 ---
 

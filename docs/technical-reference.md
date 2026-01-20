@@ -55,7 +55,7 @@ This MCP gives LLMs **full session control** with persistent state, variable int
 ```
 
 **Two components:**
-1. **Python MCP Server** - Exposes 65+ tools to LLMs via MCP protocol
+1. **Python MCP Server** - Exposes 79 tools to LLMs via MCP protocol
 2. **Mathematica Addon** - Runs inside Mathematica with persistent session state
 
 **Performance:** Notebook execution uses an atomic command that combines notebook lookup, cell creation, and evaluation into a single round-trip (vs. 4 separate calls), resulting in 3-4x faster plot rendering.
@@ -961,7 +961,7 @@ The MCP server uses `ExportString[..., "RawJSON"]` for reliable JSON output from
 ```
 mathematica-mcp/
 ├── src/mathematica_mcp/
-│   ├── server.py          # 65+ MCP tools
+│   ├── server.py          # 79 MCP tools
 │   ├── notebook_parser.py # Python-native .nb parser (offline)
 │   ├── connection.py      # Socket connection to addon
 │   ├── session.py         # Kernel fallback (wolframscript)
@@ -979,10 +979,139 @@ mathematica-mcp/
 
 ---
 
+## Known Issues & Technical Limitations
+
+### Notebook Output Mode Synchronization Bug
+
+**Status**: Known upstream issue with MCP server notebook operations
+
+**Symptom**: When using `execute_code` with `output_target: "notebook"`, users may encounter:
+- `StringLength::string` errors during cell creation
+- `KeyExistsQ::invrl` errors during notebook state queries
+- Cells appearing empty when queried via API immediately after creation
+- MCP server debug output unexpectedly visible in notebook windows
+- Notebook frontend showing stale/cached content while kernel state has updated
+
+**Root Cause Analysis**:
+
+The issue stems from **asynchronous state synchronization** between Mathematica's frontend (FrontEnd) and computational kernel (Kernel):
+
+1. **Race Condition**: When cells are created or evaluated, the notebook frontend may cache and display content before the kernel has fully processed the operation
+2. **Incomplete Error Handling**: The MCP server's notebook output mode lacks proper synchronization checks, leading to undefined behavior when frontend and kernel states diverge
+3. **Internal API Bugs**: The server's use of `StringLength` and `KeyExistsQ` on potentially undefined or incorrectly typed values suggests incomplete null/type checking in the notebook manipulation code
+
+**Technical Details**:
+
+```
+Execution Flow (Broken):
+1. execute_code(output_target="notebook") called
+2. MCP server attempts to write cell to notebook
+3. Frontend receives cell creation request
+4. Frontend caches cell content locally
+5. Kernel processes cell (async)
+6. Query notebook state → Frontend returns stale cache
+7. Kernel state != Frontend state → StringLength/KeyExistsQ errors
+```
+
+**Affected Operations**:
+- `execute_code` with `output_target: "notebook"`
+- `write_cell` followed by immediate `evaluate_cell`
+- `get_cells` immediately after cell creation
+- Any rapid sequence of notebook mutations
+
+**Workarounds** (Recommended):
+
+1. **Use CLI Output Mode** (Most Reliable)
+   ```python
+   # Instead of:
+   execute_code(code="Plot[Sin[x], {x, 0, 2Pi}]", output_target="notebook")
+
+   # Use:
+   execute_code(code="Plot[Sin[x], {x, 0, 2Pi}]", output_target="cli", format="text")
+   ```
+
+2. **Create Named Notebooks** (Better State Tracking)
+   ```python
+   # Instead of relying on untitled notebooks:
+   nb = create_notebook(title="My Analysis")
+   # Use the returned notebook ID explicitly
+   ```
+
+3. **Avoid Rapid Sequential Operations** (Add Delays if Needed)
+   ```python
+   # Don't:
+   write_cell(content=code, notebook=nb)
+   evaluate_cell(cell_id=cell_id)  # May fail
+   get_cells(notebook=nb)  # May return stale data
+
+   # Do:
+   execute_code(code=code, output_target="cli")  # One atomic operation
+   ```
+
+4. **Verify Cell State Before Proceeding**
+   ```python
+   # Before operations:
+   cell_count_before = len(get_cells(notebook=nb))
+
+   # Perform operation
+   write_cell(...)
+
+   # Verify:
+   cell_count_after = len(get_cells(notebook=nb))
+   assert cell_count_after == cell_count_before + 1
+   ```
+
+**What Works Reliably**:
+- `execute_code` with `output_target: "cli"` ✅
+- `get_mathematica_status` ✅
+- `list_variables`, `get_variable`, `set_variable` ✅
+- All mathematical operations (`integrate`, `solve`, etc.) ✅
+- File operations (`open_notebook_file`, `run_script`) ✅
+- Natural language tools (`wolfram_alpha`, `interpret_natural_language`) ✅
+
+**Bug Report Status**:
+
+This issue should be reported to the Mathematica MCP maintainers with:
+- Minimal reproduction case
+- Error logs showing `StringLength::string` and `KeyExistsQ::invrl` patterns
+- Proposed fix: Add explicit frontend/kernel synchronization barriers before returning from notebook operations
+
+**Expected Fix** (Conceptual):
+
+```wolfram
+(* Current (broken): *)
+ExecuteInNotebook[code_] := (
+  cell = CreateCell[code];
+  EvaluateCell[cell];
+  Return[cell]  (* May return before evaluation completes *)
+)
+
+(* Proposed (fixed): *)
+ExecuteInNotebook[code_] := (
+  cell = CreateCell[code];
+  EvaluateCell[cell];
+  WaitForFrontEndUpdate[];  (* Block until frontend syncs *)
+  Return[cell]
+)
+```
+
+**Impact**:
+- **Severity**: Medium - Core functionality (`execute_code`) is affected but reliable workarounds exist
+- **Frequency**: High - Occurs on most notebook operations in rapid succession
+- **Workaround Difficulty**: Easy - CLI mode is fully functional and often preferable
+
+**Recommendations for Users**:
+1. Prefer CLI output mode for production workflows
+2. Use notebook mode only for visual presentation/exploration
+3. Always verify notebook state if notebook mode is required
+4. Report reproducible cases to help upstream maintainers
+
+---
+
 ## License
 
 MIT License
 
 ---
 
-*Last updated: January 2026 (v1.3 - Performance optimization: atomic notebook execution reduces 4 round-trips to 1; Graphics rendering fix for proper plot display)*
+*Last updated: January 2026 (v1.3 - Performance optimization: atomic notebook execution reduces 4 round-trips to 1; Graphics rendering fix for proper plot display; Known issues documentation added)*

@@ -46,11 +46,12 @@ Choose your app below.
     ```json
     "mcpServers": {
       "mathematica": {
-        "command": "python3",
-        "args": ["-m", "mathematica_mcp", "run"]
+        "command": "uv",
+        "args": ["--directory", "/path/to/mathematica-mcp", "run", "mathematica-mcp"]
       }
     }
     ```
+    Replace `/path/to/mathematica-mcp` with the actual path (e.g., `~/Downloads/mathematica-mcp`).
 4.  Restart Claude Desktop. Look for a plug icon.
 
 ### Cursor Editor
@@ -61,7 +62,8 @@ Choose your app below.
 4.  Enter:
     *   **Name**: `mathematica`
     *   **Type**: `command`
-    *   **Command**: `python3 -m mathematica_mcp run`
+    *   **Command**: `uv --directory /path/to/mathematica-mcp run mathematica-mcp`
+    Replace `/path/to/mathematica-mcp` with the actual path.
 5.  Click **Save**. A green light means it's working.
 
 ### VS Code
@@ -73,11 +75,12 @@ Choose your app below.
     ```json
     "mcpServers": {
       "mathematica": {
-        "command": "python3",
-        "args": ["-m", "mathematica_mcp", "run"]
+        "command": "uv",
+        "args": ["--directory", "/path/to/mathematica-mcp", "run", "mathematica-mcp"]
       }
     }
     ```
+    Replace `/path/to/mathematica-mcp` with the actual path.
 
 ### Claude Web / ChatGPT App / Gemini
 *Advanced Setup Required*
