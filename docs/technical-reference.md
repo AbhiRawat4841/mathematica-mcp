@@ -31,6 +31,7 @@ This MCP gives LLMs **full session control** with persistent state, variable int
 - Full visibility: list/get/clear variables, inspect expressions (Head, depth, size)
 - Natural language + Wolfram Alpha: NL→code, Alpha queries, entities, units, constants
 - Real debugging: trace evaluation, timing with memory, syntax check, fuzzy function search
+- **Error analysis**: Notebook errors are pattern-matched against 10+ error types with confidence-scored fix suggestions for the AI
 - File and notebooks: open/run .nb/.wl/.wlnb, read/convert notebooks (MD/LaTeX), outlines, scripts
 - **Offline notebook parsing**: Python-native parser extracts clean Wolfram code from complex BoxData without wolframscript
 - Data I/O: import/export 250+ formats (CSV/JSON/Excel/URLs), list supported formats
@@ -769,6 +770,109 @@ convert_notebook("~/research/paper.nb", output_format="latex")
 
 # Extract just the code
 read_notebook_content("~/research/paper.nb", include_outputs=False)
+```
+
+---
+
+## Error Detection and Analysis
+
+The Mathematica MCP includes error analysis for notebook execution that pattern-matches errors and provides fix suggestions to help the AI understand and resolve common issues.
+
+### How It Works
+
+When code is executed in notebook mode (`execute_code` with `output_target="notebook"`):
+
+1. **Error Capture**: The addon captures messages from `$MessageList` after cell evaluation
+2. **Pattern Matching**: Captured errors are matched against a knowledge base of 10+ common error patterns
+3. **Confidence Scoring**: Matches are scored as high/medium/low confidence
+4. **Suggestion Generation**: Actionable fixes are suggested based on the error type
+5. **LLM Formatting**: Errors are formatted with analysis, causes, fixes, and examples
+
+**Note**: Error analysis is currently active for notebook execution only. CLI mode (`output_target="cli"`) returns raw errors without analysis.
+
+### Supported Error Types
+
+| Error Pattern | Description | Example Fix |
+|---------------|-------------|-------------|
+| `UnitConvert::compat` | Incompatible units | Use `QuantityMagnitude[]` to extract numeric values |
+| `Part::partw` | Index out of range | Check with `Length[list]` before accessing |
+| `Part::partd` | Structure depth issue | Verify with `Dimensions[]` or `Depth[]` |
+| `Syntax::sntxi` | Syntax error | Check matching brackets and operators |
+| `Syntax::tsntxi` | Extra input | Remove extra characters or terminate properly |
+| `Divide::infy` | Division by zero | Add domain checks or use `Limit[]` |
+| `Power::infy` | Invalid power operation | Use `Assuming[]` to constrain domain |
+| `Set::write` | Protected symbol | Choose different variable names |
+| `Recursion::reclim` | Recursion limit exceeded | Add base case or increase `$RecursionLimit` |
+| `General::stop` | Output suppression | Fix underlying repeated errors |
+
+### Example Error Analysis
+
+**Code with error:**
+```mathematica
+CountryData["USA", "GDP"] + Quantity[1, "Hours"]
+```
+
+**Error Analysis Output:**
+```
+============================================================
+EXECUTION ERRORS DETECTED
+============================================================
+
+Summary: Found 1 error(s) and 0 warning(s)
+
+--- ERRORS ---
+
+UnitConvert::compat
+  Incompatible units: USD and Hours
+
+  Analysis: Incompatible units error
+  Likely cause: Attempting to convert between incompatible unit types
+  Suggested fix: Use QuantityMagnitude[] to extract numeric values
+  Example: QuantityMagnitude[CountryData["USA", "GDP"], "USDollars"]
+
+--- RECOMMENDATIONS ---
+High-confidence fixes available for the following errors:
+  • UnitConvert::compat: Use QuantityMagnitude[]
+TIP: When working with Entity data, use QuantityMagnitude[]
+============================================================
+```
+
+### API Usage
+
+The error analyzer is automatically invoked during notebook code execution. It can also be used directly for testing or analysis:
+
+```python
+from src.mathematica_mcp.error_analyzer import (
+    analyze_error,
+    analyze_messages,
+    format_error_for_llm
+)
+
+# Analyze a single error
+result = analyze_error("UnitConvert::compat", "Incompatible units")
+print(result['suggested_fix'])
+
+# Analyze multiple messages
+messages = [
+    {'tag': 'Part::partw', 'text': 'Part out of range', 'type': 'error'}
+]
+analysis = analyze_messages(messages)
+
+# Format for LLM
+formatted = format_error_for_llm(messages, code)
+```
+
+### Testing
+
+Comprehensive test suite available in `tests/test_error_detection.py`:
+- 33 test cases covering all error pattern types
+- Tests for error analyzer module (pattern matching, message analysis, LLM formatting)
+- Tests using inline execution to trigger real Mathematica errors
+- Pattern validation and real-world scenario tests
+
+Run tests:
+```bash
+python -m pytest tests/test_error_detection.py -v
 ```
 
 ---

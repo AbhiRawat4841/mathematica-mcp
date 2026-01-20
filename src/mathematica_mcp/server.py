@@ -24,6 +24,7 @@ from .cache import (
     clear_cache,
     remove_cached_expression,
 )
+from .error_analyzer import analyze_messages, format_error_for_llm
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -312,6 +313,85 @@ async def execute_code(
                 }
                 if result.get("created_notebook"):
                     response["note"] = "Created new notebook 'Analysis'."
+
+                # NEW: Process error messages if present
+                if result.get("has_errors") or result.get("has_warnings"):
+                    messages = result.get("messages", [])
+                    response["messages"] = messages
+                    response["has_errors"] = result.get("has_errors", False)
+                    response["has_warnings"] = result.get("has_warnings", False)
+
+                    # Update status to indicate errors
+                    if result.get("has_errors"):
+                        response["status"] = "executed_with_errors"
+                        response["message"] = (
+                            "Code executed in notebook but produced errors. "
+                            "See 'error_analysis' field for detailed suggestions."
+                        )
+
+                    # Format error summary for easy reading
+                    error_msgs = [
+                        m for m in messages if m.get("type") == "error"
+                    ]
+                    warning_msgs = [
+                        m for m in messages if m.get("type") == "warning"
+                    ]
+
+                    if error_msgs or warning_msgs:
+                        summary_parts = []
+                        if error_msgs:
+                            summary_parts.append(
+                                f"{len(error_msgs)} error(s): "
+                                + "; ".join(
+                                    f"{m.get('tag', 'Unknown')}"
+                                    for m in error_msgs[:3]
+                                )
+                            )
+                        if warning_msgs:
+                            summary_parts.append(
+                                f"{len(warning_msgs)} warning(s): "
+                                + "; ".join(
+                                    f"{m.get('tag', 'Unknown')}"
+                                    for m in warning_msgs[:3]
+                                )
+                            )
+                        response["error_summary"] = " | ".join(summary_parts)
+
+                        # NEW: Add intelligent error analysis
+                        error_analysis = analyze_messages(messages)
+                        response["error_analysis"] = {
+                            "total_errors": error_analysis["errors"],
+                            "total_warnings": error_analysis["warnings"],
+                            "severity": error_analysis["severity"],
+                            "recommendations": error_analysis["recommendations"],
+                            "should_retry": error_analysis["should_retry"],
+                        }
+
+                        # Include detailed analysis for each error
+                        if error_analysis.get("analyses"):
+                            response["detailed_analyses"] = [
+                                {
+                                    "tag": a["original_message"]["tag"],
+                                    "description": a.get("description", ""),
+                                    "suggested_fix": a.get("suggested_fix", ""),
+                                    "example": a.get("example", ""),
+                                    "confidence": a.get("confidence", "low"),
+                                }
+                                for a in error_analysis["analyses"]
+                                if a.get("confidence") in ["high", "medium"]
+                            ]
+
+                        # Add formatted error message for LLM
+                        response["llm_error_report"] = format_error_for_llm(
+                            messages, code
+                        )
+
+                        # Add output preview if available
+                        if result.get("output_preview"):
+                            response["output_preview"] = result.get(
+                                "output_preview"
+                            )
+
                 return json.dumps(response, indent=2)
             else:
                 raise RuntimeError(

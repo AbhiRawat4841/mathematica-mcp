@@ -24,6 +24,7 @@ It can also:
 - Read and parse `.nb` files: extract code, convert to Markdown/LaTeX.
 - Keep state: variables persist across calls.
 - Expose 65+ tools for math, data, graphics, and debugging.
+- **Error analysis**: When code executes in notebooks, errors are captured, pattern-matched, and enriched with fix suggestions.
 
 ---
 
@@ -40,6 +41,7 @@ It can also:
 - **Notebook Parsing**: "Extract only the Wolfram code from this `.nb` file and summarize the structure."
 - **Debugging**: "Trace the evaluation of `MyCustomFunction[x]` to see why it returns `Indeterminate`."
 - **Test Generation**: "Create tests for my Wolfram package that cover numeric, symbolic, and complex inputs."
+- **Error Analysis**: When notebook code produces errors, the AI receives pattern-matched suggestions (e.g., for `UnitConvert::compat`: "Use QuantityMagnitude[] to extract numeric values").
 
 ### 📊 For Data Scientists
 *Access the world's largest knowledgebase.*

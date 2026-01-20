@@ -599,13 +599,69 @@ cmdExecuteCodeNotebook[params_] := Module[
   (* Force frontend refresh *)
   FrontEndTokenExecute[nb, "Refresh"];
 
-  <|
-    "success" -> True,
-    "notebook_id" -> ToString[nb, InputForm],
-    "cell_id" -> ToString[cell, InputForm],
-    "waited_seconds" -> elapsed,
-    "created_notebook" -> createdNew
-  |>
+  (* ========================================================================== *)
+  (* NEW: Capture messages and errors from evaluation                          *)
+  (* ========================================================================== *)
+  Module[{messages, outputCells, outputContent, outputText, hasErrors, hasWarnings},
+
+    (* Capture recent messages from $MessageList *)
+    messages = Quiet @ Module[{recent, formatted},
+      recent = Take[$MessageList, UpTo[20]];  (* Last 20 messages *)
+      formatted = Map[
+        Function[msg,
+          Quiet @ Check[
+            <|
+              "tag" -> ToString[First[msg], OutputForm],
+              "text" -> ToString[Last[msg], OutputForm],
+              "type" -> If[StringContainsQ[ToString[First[msg]], "::"],
+                If[StringEndsQ[ToString[First[msg]], "::warning"], "warning", "error"],
+                "message"
+              ]
+            |>,
+            <|"tag" -> "Unknown", "text" -> "Failed to format message", "type" -> "error"|>
+          ]
+        ],
+        recent
+      ];
+      (* Filter out empty or malformed messages *)
+      Select[formatted, AssociationQ[#] && StringLength[#["text"]] > 0 &]
+    ];
+
+    (* Read output cell content to check for errors *)
+    outputCells = Quiet @ Cells[nb, CellStyle -> "Output"];
+    outputContent = If[Length[outputCells] > 0,
+      Quiet @ NotebookRead[Last[outputCells]],
+      None
+    ];
+
+    (* Extract text from output for preview *)
+    outputText = Quiet @ Check[
+      If[outputContent =!= None,
+        ToString[outputContent, OutputForm],
+        ""
+      ],
+      ""
+    ];
+
+    (* Determine if there are errors or warnings *)
+    hasErrors = Length[Select[messages, #["type"] == "error" &]] > 0;
+    hasWarnings = Length[Select[messages, #["type"] == "warning" &]] > 0;
+
+    (* Return enhanced response with error information *)
+    <|
+      "success" -> True,
+      "notebook_id" -> ToString[nb, InputForm],
+      "cell_id" -> ToString[cell, InputForm],
+      "waited_seconds" -> elapsed,
+      "created_notebook" -> createdNew,
+      (* NEW FIELDS *)
+      "messages" -> messages,
+      "has_errors" -> hasErrors,
+      "has_warnings" -> hasWarnings,
+      "message_count" -> Length[messages],
+      "output_preview" -> StringTake[outputText, UpTo[1000]]
+    |>
+  ]
 ];
 
 (* ============================================================================ *)
