@@ -1,6 +1,6 @@
 # Mathematica MCP
 
-**Give your AI the power of Wolfram Language.**
+**Give your AI Agent the power of Wolfram Language.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
@@ -10,14 +10,14 @@
 
 ## What is this?
 
-This tool connects AI models (like Claude, Cursor, or OpenCode) directly to your local Mathematica installation. It transforms Mathematica from a passive calculator into an active **pair programmer**.
+This **MCP Server** empowers **AI Agents & IDEs** (like Claude Desktop, Cursor, or OpenCode) with a direct interface to your local **Wolfram Engine**. It enables your agent to perform **symbolic reasoning, precise calculation, and interactive visualization** natively.
 
-**Your AI can now:**
-*   **Run Code**: It writes and executes Wolfram Language code for you.
-*   **Fix Errors**: If code fails, it sees the error and suggests fixes automatically.
-*   **Create Visualizations**: It can generate plots and export them as images.
-*   **Read Notebooks**: It can open your `.nb` files and understand their content.
-*   **Remember Variables**: It remembers your definitions (`x = 5`) throughout the conversation.
+**Capabilities:**
+*   **Execute Code**: Run Wolfram Language expressions in a secure sandbox.
+*   **Self-Correct**: Diagnose and fix syntax errors automatically.
+*   **Visualize**: Generate high-fidelity plots and export them as images.
+*   **Analyze Notebooks**: Parse and manipulate `.nb` files contextually.
+*   **Persist State**: Maintain a stateful session (e.g. `x = 5`) across interactions.
 
 ### Watch it in action
 
@@ -29,10 +29,10 @@ This tool connects AI models (like Claude, Cursor, or OpenCode) directly to your
 
 ### For Humans
 
-Copy and paste this prompt to your LLM agent (Claude Code, AmpCode, Cursor, etc.):
+Copy and paste this prompt to your AI Agent (Claude Desktop, Cursor, OpenCode, etc.):
 
 ```
-Install and configure mathematica-mcp by following the instructions here:
+Install and configure `mathematica-mcp` by following the instructions here:
 https://raw.githubusercontent.com/AbhiRawat4841/mathematica-mcp/main/docs/installation.md
 ```
 
