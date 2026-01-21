@@ -1,4 +1,6 @@
+import hashlib
 import time
+from collections import OrderedDict
 from typing import Dict, Any, Optional
 from dataclasses import dataclass, field
 
@@ -16,6 +18,89 @@ class CachedExpression:
 
 
 _expression_cache: Dict[str, CachedExpression] = {}
+
+
+NON_CACHEABLE_PATTERNS = [
+    "Random",
+    "Now",
+    "Date",
+    "AbsoluteTime",
+    "SessionTime",
+    "$Line",
+    "Dynamic",
+    "Button",
+    "Manipulate",
+    "CurrentValue",
+]
+
+
+class QueryCache:
+    def __init__(self, max_size: int = 1000, ttl_seconds: float = 3600):
+        self._cache: OrderedDict[str, Dict[str, Any]] = OrderedDict()
+        self.max_size = max_size
+        self.ttl = ttl_seconds
+        self.hits = 0
+        self.misses = 0
+
+    def _hash_code(self, code: str) -> str:
+        normalized = " ".join(code.split())
+        return hashlib.sha256(normalized.encode()).hexdigest()[:16]
+
+    def _is_cacheable(self, code: str) -> bool:
+        return not any(pattern in code for pattern in NON_CACHEABLE_PATTERNS)
+
+    def get(self, code: str) -> Optional[Dict[str, Any]]:
+        if not FEATURES.expression_cache or not self._is_cacheable(code):
+            return None
+
+        key = self._hash_code(code)
+        if key not in self._cache:
+            self.misses += 1
+            return None
+
+        entry = self._cache[key]
+        if time.time() - entry["created_at"] > self.ttl:
+            del self._cache[key]
+            self.misses += 1
+            return None
+
+        self._cache.move_to_end(key)
+        entry["access_count"] = entry.get("access_count", 0) + 1
+        self.hits += 1
+        return entry["result"]
+
+    def put(self, code: str, result: Dict[str, Any]) -> None:
+        if not FEATURES.expression_cache or not self._is_cacheable(code):
+            return
+
+        key = self._hash_code(code)
+        while len(self._cache) >= self.max_size:
+            self._cache.popitem(last=False)
+
+        self._cache[key] = {
+            "code": code,
+            "result": result,
+            "created_at": time.time(),
+            "access_count": 0,
+        }
+
+    def stats(self) -> Dict[str, Any]:
+        total = self.hits + self.misses
+        return {
+            "size": len(self._cache),
+            "max_size": self.max_size,
+            "hits": self.hits,
+            "misses": self.misses,
+            "hit_rate": round(self.hits / total, 3) if total > 0 else 0,
+        }
+
+    def clear(self) -> None:
+        self._cache.clear()
+        self.hits = 0
+        self.misses = 0
+
+
+_query_cache = QueryCache()
 
 
 def cache_expression(name: str, expression: str, result: str) -> bool:

@@ -235,27 +235,42 @@ def get_kernel_session():
     global _kernel_session, _use_wolframscript
 
     if _use_wolframscript:
-        return None  # Signal to use wolframscript instead
+        return None
 
     if _kernel_session is not None:
-        return _kernel_session
+        try:
+            from wolframclient.language import wlexpr
+
+            _kernel_session.evaluate(wlexpr("1"))
+            return _kernel_session
+        except Exception:
+            logger.warning("Kernel session unresponsive, recreating...")
+            try:
+                _kernel_session.terminate()
+            except Exception:
+                pass
+            _kernel_session = None
 
     try:
         from wolframclient.evaluation import WolframLanguageSession
+        from wolframclient.language import wlexpr
     except ImportError:
         logger.info("wolframclient not available, falling back to wolframscript")
         _use_wolframscript = True
         return None
 
-    kernel_path = find_wolfram_kernel()
+    kernel_path = os.environ.get("MATHEMATICA_KERNEL_PATH") or find_wolfram_kernel()
+
+    if not kernel_path:
+        logger.error("No Wolfram kernel found. Set MATHEMATICA_KERNEL_PATH env var.")
+        _use_wolframscript = True
+        return None
 
     try:
         _kernel_session = WolframLanguageSession(kernel_path)
-        # Test the session
-        from wolframclient.language import wlexpr
-
+        _kernel_session.start()
         _kernel_session.evaluate(wlexpr("1+1"))
-        logger.info("Created WolframLanguageSession (fallback kernel mode)")
+        logger.info(f"Kernel session ready: {kernel_path}")
         return _kernel_session
     except Exception as e:
         logger.warning(
@@ -351,11 +366,19 @@ def execute_in_kernel(code: str, output_format: str = "text") -> dict[str, Any]:
     """
     global _use_wolframscript
 
+    from .cache import _query_cache
+
+    cached = _query_cache.get(code)
+    if cached:
+        cached_result = cached.copy()
+        cached_result["from_cache"] = True
+        cached_result["timing_ms"] = 0
+        return cached_result
+
     session = get_kernel_session()
 
     if session is None or _use_wolframscript:
         result = _execute_via_wolframscript(code, output_format)
-        # Check if result is a Graphics object and rasterize it
         output = result.get("output", "")
         if result.get("success") and _is_graphics_output(output):
             image_path = _rasterize_via_wolframscript(code)
@@ -363,6 +386,8 @@ def execute_in_kernel(code: str, output_format: str = "text") -> dict[str, Any]:
                 result["image_path"] = image_path
                 result["output"] = f"[Graphics rendered to image: {image_path}]"
                 result["is_graphics"] = True
+        if result.get("success"):
+            _query_cache.put(code, result)
         return result
 
     try:
@@ -372,31 +397,33 @@ def execute_in_kernel(code: str, output_format: str = "text") -> dict[str, Any]:
 
     start_time = time.time()
     try:
-        result = session.evaluate(wlexpr(code))
+        # OPTIMIZED: Single evaluation - avoids re-evaluating code for each format
+        include_fullform = "True" if output_format == "mathematica" else "False"
+        include_tex = "True" if output_format == "latex" else "False"
+
+        eval_code = f"""
+Module[{{res = {code}}},
+  <|
+    "result" -> res,
+    "inputform" -> ToString[res, InputForm],
+    "fullform" -> If[{include_fullform}, ToString[res, FullForm], ""],
+    "tex" -> If[{include_tex}, ToString[TeXForm[res]], ""]
+  |>
+]
+"""
+        combined_result = session.evaluate(wlexpr(eval_code))
         timing_ms = int((time.time() - start_time) * 1000)
 
-        # Always get InputForm
-        try:
-            input_result = session.evaluate(wlexpr(f"ToString[InputForm[{code}]]"))
-            output_inputform = str(input_result)
-        except Exception:
-            output_inputform = str(result)
-
-        output_fullform = ""
-        output_tex = ""
-
-        # Only compute expensive formats if specifically requested
-        if output_format == "mathematica":
-            output_fullform = str(
-                result
-            )  # Result object string representation is usually FullForm-like or close enough
-
-        if output_format == "latex":
-            try:
-                tex_result = session.evaluate(wlexpr(f"ToString[TeXForm[{code}]]"))
-                output_tex = str(tex_result)
-            except Exception:
-                pass
+        if isinstance(combined_result, dict):
+            output_inputform = str(
+                combined_result.get("inputform", str(combined_result.get("result", "")))
+            )
+            output_fullform = str(combined_result.get("fullform", ""))
+            output_tex = str(combined_result.get("tex", ""))
+        else:
+            output_inputform = str(combined_result)
+            output_fullform = ""
+            output_tex = ""
 
         response = {
             "success": True,
@@ -409,7 +436,6 @@ def execute_in_kernel(code: str, output_format: str = "text") -> dict[str, Any]:
             "execution_method": "wolframclient",
         }
 
-        # Check if result is a Graphics object and rasterize it
         if _is_graphics_output(output_inputform):
             image_path = _rasterize_via_wolframscript(code)
             if image_path:
@@ -417,6 +443,7 @@ def execute_in_kernel(code: str, output_format: str = "text") -> dict[str, Any]:
                 response["output"] = f"[Graphics rendered to image: {image_path}]"
                 response["is_graphics"] = True
 
+        _query_cache.put(code, response)
         return response
     except Exception as e:
         logger.warning(f"wolframclient evaluation failed ({e}), trying wolframscript")
