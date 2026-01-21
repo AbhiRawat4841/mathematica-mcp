@@ -93,7 +93,7 @@ Create a `.mcp.json` file in your project root:
 
 ### Cursor Integration
 
-[![Install MCP Server](https://cursor.com/deeplink/mcp-install-dark.svg)](https://cursor.com)
+[**Download Cursor**](https://cursor.com)
 
 1. Go to **Settings > Features > MCP**.
 2. Click **Add New MCP Server**.
@@ -110,7 +110,7 @@ Create a `.mcp.json` file in your project root:
 
 ### Visual Studio Code Integration
 
-*Prerequisites*: Install the **[MCP Servers](https://marketplace.visualstudio.com/items?itemName=context-server.mcp-servers)** extension or **[Roo Code](https://marketplace.visualstudio.com/items?itemName=RooVeterinaryInc.roo-cline)**.
+*Prerequisites*: Install the **[Roo Code](https://marketplace.visualstudio.com/items?itemName=RooVeterinaryInc.roo-cline)** extension.
 
 Add this to your `settings.json` (or the extension's config file):
 
