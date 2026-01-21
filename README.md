@@ -27,21 +27,118 @@ This **MCP Server** empowers **AI Agents & IDEs** (like Claude Desktop, Cursor, 
 
 ## Installation
 
-### For Humans
+### Prerequisites
 
-> **[Read the Full Installation Guide](docs/installation.md)** for detailed setup in **VS Code**, **Cursor**, and **Claude Desktop**.
+- **Mathematica 14.0+** installed
+- **Python 3.10+** installed
+- **wolframscript** available in your PATH
+- **uv** package manager (Recommended)
 
-**Quick Start (AI Assisted):**
-Copy and paste this prompt to your AI Agent:
+### 1. Server Setup
 
+**Step 1: Install the Package**
+```bash
+git clone https://github.com/AbhiRawat4841/mathematica-mcp.git
+cd mathematica-mcp
+uv sync
 ```
-Install and configure `mathematica-mcp` by following the instructions here:
-https://raw.githubusercontent.com/AbhiRawat4841/mathematica-mcp/main/docs/installation.md
+
+**Step 2: Install Mathematica Addon**
+*Required for the server to communicate with the Wolfram Kernel.*
+```bash
+wolframscript -file addon/install.wl
 ```
 
-### For LLM Agents
+### 2. Client Integration
 
-Fetch the installation guide and follow the automated instructions:
+You need the **Absolute Path** to this repository. Run `pwd` to find it.
+*(Replace `/YOUR/PATH/TO/mathematica-mcp` in the examples below with this output)*
+
+#### Claude for Desktop
+
+Go to **Claude > Settings > Developer > Edit Config**.
+Add `mathematica` to your `mcpServers` list:
+
+```json
+{
+  "mcpServers": {
+    "mathematica": {
+      "command": "uv",
+      "args": [
+        "--directory",
+        "/YOUR/PATH/TO/mathematica-mcp",
+        "run",
+        "mathematica-mcp"
+      ]
+    }
+  }
+}
+```
+
+<details>
+<summary>Claude Code (CLI)</summary>
+
+Create a `.mcp.json` file in your project root:
+
+```json
+{
+  "mcpServers": {
+    "mathematica": {
+      "command": "uv",
+      "args": [
+        "--directory",
+        "/YOUR/PATH/TO/mathematica-mcp",
+        "run",
+        "mathematica-mcp"
+      ]
+    }
+  }
+}
+```
+</details>
+
+#### Cursor Integration
+
+[**Download Cursor**](https://cursor.com)
+
+1. Go to **Settings > Features > MCP**.
+2. Click **Add New MCP Server**.
+3. Enter the following details:
+
+| Field | Value |
+|-------|-------|
+| **Name** | `mathematica` |
+| **Type** | `command` |
+| **Command** | `uv` |
+| **Args** | `--directory /YOUR/PATH/TO/mathematica-mcp run mathematica-mcp` |
+
+**Note**: Paste the *entire* string above into the "Args" field.
+
+#### Visual Studio Code Integration
+
+*Prerequisites*: Install the **[Roo Code](https://marketplace.visualstudio.com/items?itemName=RooVeterinaryInc.roo-cline)** extension.
+
+Add this to your `settings.json` (or the extension's config file):
+
+```json
+{
+  "mcpServers": {
+    "mathematica": {
+      "command": "uv",
+      "args": [
+        "--directory",
+        "/YOUR/PATH/TO/mathematica-mcp",
+        "run",
+        "mathematica-mcp"
+      ]
+    }
+  }
+}
+```
+
+### 🤖 For LLM Agents
+
+If you are an AI assistant installing this for a user, run this automated script:
 
 ```bash
 curl -s https://raw.githubusercontent.com/AbhiRawat4841/mathematica-mcp/main/docs/installation.md
