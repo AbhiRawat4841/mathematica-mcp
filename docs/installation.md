@@ -228,7 +228,7 @@ Verify with `/mcp` inside Claude Code.
 | Field | Value |
 |-------|-------|
 | **Name** | `mathematica` |
-| **Type** | `command` |
+| **Type** | `stdio` |
 | **Command** | `uv` |
 | **Args** | `--directory /YOUR/PATH/TO/mathematica-mcp run mathematica-mcp` |
 
