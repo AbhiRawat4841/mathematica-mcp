@@ -27,24 +27,7 @@ This **MCP Server** empowers **AI Agents & IDEs** (like Claude Desktop, Cursor, 
 
 ## Installation
 
-```bash
-# 1. Clone and install
-git clone https://github.com/AbhiRawat4841/mathematica-mcp.git
-cd mathematica-mcp
-uv sync
-
-# 2. Install the Mathematica addon
-wolframscript -file addon/install.wl
-
-# 3. Restart Mathematica (required for addon to load)
-
-# 4. Configure your MCP client (Claude, Cursor, or VS Code)
-#    See the Full Installation Guide below
-```
-
-**Verify:** After restarting Mathematica, check the Messages window for `[MathematicaMCP] Server started on port 9881`
-
-📖 **[Full Installation Guide](docs/installation.md)** — Prerequisites, uv installation, **client integration (Claude, Cursor, VS Code)**, and troubleshooting.
+📖 See the **[Installation Guide](docs/installation.md)** for prerequisites, setup, and client configuration.
 
 ---
 
