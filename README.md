@@ -136,13 +136,8 @@ Add this to your `settings.json` (or the extension's config file):
 }
 ```
 
-### 🤖 For LLM Agents
-
-If you are an AI assistant installing this for a user, run this automated script:
-
-```bash
-curl -s https://raw.githubusercontent.com/AbhiRawat4841/mathematica-mcp/main/docs/installation.md
 ```
+
 
 ---
 

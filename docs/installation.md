@@ -130,21 +130,5 @@ Add this to your `settings.json` (or the extension's config file):
 }
 ```
 
----
-
-## 🤖 For LLM Agents (Automated Setup)
-
-If you are an AI assistant installing this for a user, run this script:
-
-```bash
-set -e
-# 1. Install dependencies
-if command -v uv >/dev/null 2>&1; then uv sync; else pip install -e .; fi
-
-# 2. Install Addon
-if ! command -v wolframscript >/dev/null 2>&1; then echo "Error: wolframscript missing"; exit 1; fi
-wolframscript -file addon/install.wl
-
-# 3. Report
-echo "Success! Config path: $(pwd)"
 ```
+
