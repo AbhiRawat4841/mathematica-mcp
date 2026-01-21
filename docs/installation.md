@@ -2,12 +2,13 @@
 
 ## Prerequisites
 
-- **Mathematica 14.0+** installed
-- **Python 3.10+** installed
-- **wolframscript** available in your PATH
-- **uv** package manager (Recommended)
+- **Mathematica 14.0+** — [Download](https://www.wolfram.com/mathematica/)
+- **Python 3.10+** — [Download](https://www.python.org/downloads/)
+- **wolframscript in your PATH** — See [below](#add-wolframscript-to-path)
+- **uv package manager** (Recommended) — [Docs](https://docs.astral.sh/uv/)
 
 ### Install uv
+
 **Mac/Linux:**
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -16,6 +17,30 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 **Windows:**
 ```powershell
 powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+### Add wolframscript to PATH
+
+After installing Mathematica, ensure `wolframscript` is accessible from your terminal.
+
+**macOS** — add to `~/.zshrc` or `~/.bashrc`:
+```bash
+export PATH="/Applications/Mathematica.app/Contents/MacOS:$PATH"
+```
+
+**Linux** — The installer typically creates symlinks in `/usr/local/bin`. If not:
+```bash
+export PATH="/usr/local/Wolfram/Mathematica/14.0/Executables:$PATH"
+```
+
+**Windows** — Mathematica usually adds it automatically. If not, add to your system PATH:
+```
+C:\Program Files\Wolfram Research\Mathematica\14.0\
+```
+
+**Verify installation:**
+```bash
+wolframscript -version
 ```
 
 ---
@@ -66,8 +91,15 @@ pwd
 
 ### Claude for Desktop
 
-Go to **Claude > Settings > Developer > Edit Config**.
-Add `mathematica` to your `mcpServers` list:
+**Config file location:**
+| Platform | Path |
+|----------|------|
+| macOS | `~/Library/Application Support/Claude/claude_desktop_config.json` |
+| Windows | `%APPDATA%\Claude\claude_desktop_config.json` |
+| Linux | `~/.config/Claude/claude_desktop_config.json` |
+
+1. Open Claude Desktop → **Settings** (gear icon) → **Developer** → **Edit Config**
+2. Add `mathematica` to your `mcpServers`:
 
 ```json
 {
@@ -84,27 +116,106 @@ Add `mathematica` to your `mcpServers` list:
   }
 }
 ```
+
+3. Save and **restart Claude Desktop**
+4. Look for the 🔨 hammer icon in the chat input to confirm MCP is loaded
+
+### Visual Studio Code
+
+> Requires **VS Code 1.102+** with GitHub Copilot
+
+Create `.vscode/mcp.json` in your workspace:
+
+```json
+{
+  "servers": {
+    "mathematica": {
+      "type": "stdio",
+      "command": "uv",
+      "args": [
+        "--directory",
+        "/YOUR/PATH/TO/mathematica-mcp",
+        "run",
+        "mathematica-mcp"
+      ]
+    }
+  }
+}
+```
+
+Alternatively, run **MCP: Add Server** from the Command Palette and select **Workspace**.
+
+> **Note**: VS Code uses `"servers"` (not `"mcpServers"`) and requires `"type": "stdio"`.
+> 
+> See [VS Code MCP documentation](https://code.visualstudio.com/docs/copilot/customization/mcp-servers) for advanced options.
+
+### OpenAI Codex CLI
+
+Codex stores MCP configuration in `~/.codex/config.toml`.
+
+```bash
+codex mcp add mathematica -- uv --directory /YOUR/PATH/TO/mathematica-mcp run mathematica-mcp
+```
+
 <details>
-<summary>Claude Code (CLI)</summary>
+<summary>Alternative: Edit config.toml directly</summary>
 
-Create a `.mcp.json` file in your project root:
+```toml
+[mcp_servers.mathematica]
+command = "uv"
+args = ["--directory", "/YOUR/PATH/TO/mathematica-mcp", "run", "mathematica-mcp"]
+```
+
+</details>
+
+Verify with `/mcp` in the Codex TUI.
+
+> See [Codex MCP documentation](https://developers.openai.com/codex/mcp/) for authentication and advanced options.
+
+### Claude Code (CLI)
+
+```bash
+claude mcp add mathematica --scope user -- uv --directory /YOUR/PATH/TO/mathematica-mcp run mathematica-mcp
+```
+
+<details>
+<summary>Alternative: Add via JSON</summary>
+
+```bash
+claude mcp add-json mathematica --scope user '{
+  "command": "uv",
+  "args": ["--directory", "/YOUR/PATH/TO/mathematica-mcp", "run", "mathematica-mcp"]
+}'
+```
+
+</details>
+
+<details>
+<summary>Alternative: Edit ~/.claude.json directly</summary>
 
 ```json
 {
   "mcpServers": {
     "mathematica": {
       "command": "uv",
-      "args": [
-        "--directory",
-        "/YOUR/PATH/TO/mathematica-mcp",
-        "run",
-        "mathematica-mcp"
-      ]
+      "args": ["--directory", "/YOUR/PATH/TO/mathematica-mcp", "run", "mathematica-mcp"]
     }
   }
 }
 ```
+
 </details>
+
+Verify with `/mcp` inside Claude Code.
+
+**Scopes:**
+| Scope | Flag | Use case |
+|-------|------|----------|
+| Local | (default) | Current project only |
+| User | `--scope user` | All projects on your machine |
+| Project | `--scope project` | Shared via `.mcp.json` in repo |
+
+> See [Claude Code MCP documentation](https://docs.anthropic.com/en/docs/claude-code/mcp) for remote servers and OAuth.
 
 ### Cursor Integration
 
@@ -122,28 +233,6 @@ Create a `.mcp.json` file in your project root:
 | **Args** | `--directory /YOUR/PATH/TO/mathematica-mcp run mathematica-mcp` |
 
 **Note**: Paste the *entire* string above into the "Args" field (or add them as separate arguments if the UI provides a list).
-
-### Visual Studio Code Integration
-
-*Prerequisites*: Install the **[Roo Code](https://marketplace.visualstudio.com/items?itemName=RooVeterinaryInc.roo-cline)** extension.
-
-Add this to your `settings.json` (or the extension's config file):
-
-```json
-{
-  "mcpServers": {
-    "mathematica": {
-      "command": "uv",
-      "args": [
-        "--directory",
-        "/YOUR/PATH/TO/mathematica-mcp",
-        "run",
-        "mathematica-mcp"
-      ]
-    }
-  }
-}
-```
 
 ---
 
@@ -168,11 +257,7 @@ export MATHEMATICA_PORT=9882
 ```
 
 ### wolframscript not found
-Ensure Mathematica is installed and wolframscript is in your PATH:
-```bash
-# macOS - add to ~/.zshrc or ~/.bashrc
-export PATH="/Applications/Mathematica.app/Contents/MacOS:$PATH"
-```
+See [Add wolframscript to PATH](#add-wolframscript-to-path) in Prerequisites.
 
 ### MCP client can't connect
 1. Verify Mathematica is running with the addon loaded
