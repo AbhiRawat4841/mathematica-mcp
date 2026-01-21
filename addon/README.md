@@ -16,12 +16,14 @@ This addon creates a TCP socket server (default port 9881) inside the Mathematic
 
 ### Auto-Load on Startup (Recommended)
 
+From the **mathematica-mcp** root directory:
 ```bash
-cd /path/to/mathematica-mcp/addon
-wolframscript -file install.wl
+wolframscript -file addon/install.wl
 ```
 
-This adds the package to your `~/Library/Wolfram/Kernel/init.m` (macOS) or equivalent so the server starts automatically when Mathematica launches.
+This adds the package to your `~/Library/Wolfram/Kernel/init.m` (macOS) or `%APPDATA%\Wolfram\Kernel\init.m` (Windows) so the server starts automatically when Mathematica launches.
+
+**After installation, restart Mathematica** for the changes to take effect.
 
 ### Manual Load
 

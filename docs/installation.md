@@ -38,6 +38,21 @@ uv sync
 wolframscript -file addon/install.wl
 ```
 
+### Step 3: Restart Mathematica
+**Close and reopen Mathematica** for the addon to load automatically.
+
+### Step 4: Verify Installation
+After restarting Mathematica, check the **Messages** window (⌘+Shift+M on macOS). You should see:
+```
+[MathematicaMCP] Server started on port 9881
+```
+
+If the server didn't start, you can manually start it in any Mathematica notebook:
+```mathematica
+Needs["MathematicaMCP`"]
+StartMCPServer[]
+```
+
 ---
 
 ## 2. Client Integration
@@ -130,5 +145,36 @@ Add this to your `settings.json` (or the extension's config file):
 }
 ```
 
+---
+
+## 3. Troubleshooting
+
+### Server didn't start automatically
+Manually start it in any Mathematica notebook:
+```mathematica
+Needs["MathematicaMCP`"]
+StartMCPServer[]
 ```
 
+### Port already in use
+Change the port in Mathematica:
+```mathematica
+MathematicaMCP`Private`$MCPPort = 9882;
+RestartMCPServer[]
+```
+Then set the environment variable for the Python client:
+```bash
+export MATHEMATICA_PORT=9882
+```
+
+### wolframscript not found
+Ensure Mathematica is installed and wolframscript is in your PATH:
+```bash
+# macOS - add to ~/.zshrc or ~/.bashrc
+export PATH="/Applications/Mathematica.app/Contents/MacOS:$PATH"
+```
+
+### MCP client can't connect
+1. Verify Mathematica is running with the addon loaded
+2. Check the absolute path in your client config is correct
+3. Ensure no firewall is blocking port 9881
