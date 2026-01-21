@@ -29,18 +29,19 @@ This **MCP Server** empowers **AI Agents & IDEs** (like Claude Desktop, Cursor, 
 
 ### For Humans
 
-Copy and paste this prompt to your AI Agent (Claude Desktop, Cursor, OpenCode, etc.):
+> **[Read the Full Installation Guide](docs/installation.md)** for detailed setup in **VS Code**, **Cursor**, and **Claude Desktop**.
+
+**Quick Start (AI Assisted):**
+Copy and paste this prompt to your AI Agent:
 
 ```
 Install and configure `mathematica-mcp` by following the instructions here:
 https://raw.githubusercontent.com/AbhiRawat4841/mathematica-mcp/main/docs/installation.md
 ```
 
-Or read the [Installation Guide](docs/installation.md) directly.
-
 ### For LLM Agents
 
-Fetch the installation guide and follow it:
+Fetch the installation guide and follow the automated instructions:
 
 ```bash
 curl -s https://raw.githubusercontent.com/AbhiRawat4841/mathematica-mcp/main/docs/installation.md
