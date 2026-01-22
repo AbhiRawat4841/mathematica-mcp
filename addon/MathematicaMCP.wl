@@ -195,19 +195,36 @@ validNotebookQ[nb_] := Module[{vis},
 ];
 
 (* Check if notebook is editable (not Messages window, Welcome Screen, Palette, etc.) *)
-editableNotebookQ[nb_] := Module[{title, editable, windowFrame, styleSheet},
+editableNotebookQ[nb_] := Module[{title, editable, windowFrame, styleSheet, fn, saveable},
   If[!validNotebookQ[nb], Return[False]];
+  
+  (* CRITICAL: Check if this is the system Messages notebook *)
+  If[nb === $MessagesNotebook, Return[False]];
+  If[nb === MessagesNotebook[], Return[False]];
+  
   title = Quiet[CurrentValue[nb, WindowTitle] /. $Failed -> ""];
   editable = Quiet[CurrentValue[nb, Editable] /. $Failed -> True];
+  saveable = Quiet[CurrentValue[nb, Saveable] /. $Failed -> True];
   windowFrame = Quiet[CurrentValue[nb, WindowFrame] /. $Failed -> "Normal"];
   styleSheet = Quiet[ToString[CurrentValue[nb, StyleDefinitions]] /. $Failed -> ""];
   
-  (* Reject special windows *)
+  (* Messages window and special windows are not saveable *)
+  If[saveable === False, Return[False]];
+  
+  (* Reject special windows by title *)
   If[StringContainsQ[title, "Messages", IgnoreCase -> True], Return[False]];
   If[StringContainsQ[title, "Welcome", IgnoreCase -> True], Return[False]];
   If[StringMatchQ[windowFrame, "Palette" | "ThinFrame" | "Frameless"], Return[False]];
   If[editable === False, Return[False]];
   If[StringContainsQ[styleSheet, "Palette", IgnoreCase -> True], Return[False]];
+  
+  (* Additional check: Reject notebooks with non-.nb file extensions (special windows) *)
+  fn = Quiet[NotebookFileName[nb] /. $Failed -> None];
+  If[StringQ[fn] && !StringEndsQ[fn, ".nb"], Return[False]];
+  
+  (* Check StyleDefinitions more thoroughly - Messages window uses MessagesNotebook.nb stylesheet *)
+  If[StringContainsQ[styleSheet, "MessagesNotebook", IgnoreCase -> True], Return[False]];
+  If[StringContainsQ[styleSheet, "WelcomeScreen", IgnoreCase -> True], Return[False]];
   
   True
 ];
