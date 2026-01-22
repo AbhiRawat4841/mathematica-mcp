@@ -194,6 +194,24 @@ validNotebookQ[nb_] := Module[{vis},
   vis =!= $Failed
 ];
 
+(* Check if notebook is editable (not Messages window, Welcome Screen, Palette, etc.) *)
+editableNotebookQ[nb_] := Module[{title, editable, windowFrame, styleSheet},
+  If[!validNotebookQ[nb], Return[False]];
+  title = Quiet[CurrentValue[nb, WindowTitle] /. $Failed -> ""];
+  editable = Quiet[CurrentValue[nb, Editable] /. $Failed -> True];
+  windowFrame = Quiet[CurrentValue[nb, WindowFrame] /. $Failed -> "Normal"];
+  styleSheet = Quiet[ToString[CurrentValue[nb, StyleDefinitions]] /. $Failed -> ""];
+  
+  (* Reject special windows *)
+  If[StringContainsQ[title, "Messages", IgnoreCase -> True], Return[False]];
+  If[StringContainsQ[title, "Welcome", IgnoreCase -> True], Return[False]];
+  If[StringMatchQ[windowFrame, "Palette" | "ThinFrame" | "Frameless"], Return[False]];
+  If[editable === False, Return[False]];
+  If[StringContainsQ[styleSheet, "Palette", IgnoreCase -> True], Return[False]];
+  
+  True
+];
+
 newCellId[] := Module[{uuid, hash},
   uuid = CreateUUID[];
   hash = Hash[uuid, "CRC32"];
@@ -249,7 +267,7 @@ jsonSanitize[value_] := Module[{v = value, sanitizedStr},
   ]
 ];
 
-resolveNotebook[spec_, sessionId_: None] := Module[{nb, held, candidates},
+resolveNotebook[spec_, sessionId_: None] := Module[{nb, held, candidates, editableNbs},
   If[StringQ[sessionId] && KeyExistsQ[$MCPSessionNotebooks, sessionId],
     nb = $MCPSessionNotebooks[sessionId];
     If[validNotebookQ[nb], Return[nb]];
@@ -257,7 +275,7 @@ resolveNotebook[spec_, sessionId_: None] := Module[{nb, held, candidates},
   ];
 
   If[spec === None || spec === Null || spec === "",
-    nb = If[validNotebookQ[$MCPActiveNotebook], $MCPActiveNotebook, InputNotebook[]],
+    nb = If[editableNotebookQ[$MCPActiveNotebook], $MCPActiveNotebook, InputNotebook[]],
     nb = Which[
       StringQ[spec],
         (held = Quiet[Check[ToExpression[spec, InputForm, HoldComplete], $Failed]];
@@ -274,6 +292,15 @@ resolveNotebook[spec_, sessionId_: None] := Module[{nb, held, candidates},
          ]),
       True,
         InputNotebook[]
+    ]
+  ];
+
+  (* If we got a non-editable notebook (Messages, Welcome Screen, etc.), find or create an editable one *)
+  If[!editableNotebookQ[nb],
+    editableNbs = Select[Notebooks[], editableNotebookQ];
+    nb = If[Length[editableNbs] > 0,
+      First[editableNbs],
+      CreateDocument[{}, WindowTitle -> "Analysis"]
     ]
   ];
 
