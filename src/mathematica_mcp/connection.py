@@ -11,7 +11,7 @@ logger = logging.getLogger("mathematica_mcp.connection")
 DEFAULT_HOST = "localhost"
 DEFAULT_PORT = 9881
 SOCKET_TIMEOUT = 180.0
-MAX_RESPONSE_BYTES = 5 * 1024 * 1024
+MAX_RESPONSE_BYTES = 20 * 1024 * 1024
 MAX_REQUEST_BYTES = 5 * 1024 * 1024
 
 
