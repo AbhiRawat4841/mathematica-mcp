@@ -76,3 +76,10 @@ readme_command_report.json
 
 # Benchmark results (machine-specific)
 benchmarks/benchmark_results_*.json
+
+# Test reports (machine-specific)
+TEST_RESULTS_DETAILED.md
+VERIFICATION_REPORT.md
+
+# Debug/test scripts at root
+test_mcp_connection.py
