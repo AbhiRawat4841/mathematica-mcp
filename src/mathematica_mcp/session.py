@@ -6,12 +6,35 @@ import re
 import subprocess
 import shutil
 import time
+import zlib
 from typing import Any, Optional
 
 logger = logging.getLogger("mathematica_mcp.session")
 
 _kernel_session: Any = None
 _use_wolframscript: bool = False
+
+
+def _session_context(session_id: Optional[str]) -> Optional[str]:
+    if not session_id:
+        return None
+    crc = zlib.crc32(session_id.encode("utf-8")) & 0xFFFFFFFF
+    return f"MCP`{crc:08x}`"
+
+
+def _wrap_code_for_context(code: str, context: Optional[str]) -> str:
+    if not context:
+        return code
+    return (
+        f'Block[{{$Context = "{context}", $ContextPath = {{"{context}", "System`"}}}}, '
+        f"{code}]"
+    )
+
+
+def _wrap_code_for_determinism(code: str, deterministic_seed: Optional[int]) -> str:
+    if deterministic_seed is None:
+        return code
+    return f"BlockRandom[SeedRandom[{deterministic_seed}]; {code}]"
 
 
 def find_wolfram_kernel() -> Optional[str]:
@@ -104,7 +127,13 @@ def _parse_association_output(output: str) -> dict[str, Any]:
 
 
 def _execute_via_wolframscript(
-    code: str, output_format: str = "text"
+    code: str,
+    output_format: str = "text",
+    *,
+    timeout: int = 60,
+    deterministic_seed: Optional[int] = None,
+    session_id: Optional[str] = None,
+    isolate_context: bool = False,
 ) -> dict[str, Any]:
     """Execute code via wolframscript CLI with timing and warning capture."""
     wolframscript = shutil.which("wolframscript")
@@ -123,11 +152,15 @@ def _execute_via_wolframscript(
     include_tex = "True" if output_format == "latex" else "False"
     include_full = "True" if output_format == "mathematica" else "False"
 
+    context = _session_context(session_id) if isolate_context else None
+    wrapped_expr = _wrap_code_for_context(code, context)
+    wrapped_expr = _wrap_code_for_determinism(wrapped_expr, deterministic_seed)
+
     wrapped_code = f"""
 Module[{{startTime, result, messages, timing, response, outInput, outFull="", outTex=""}},
   startTime = AbsoluteTime[];
   Block[{{$MessageList = {{}}}},
-    result = Quiet[Check[{code}, $Failed]];
+    result = Quiet[Check[{wrapped_expr}, $Failed]];
     messages = $MessageList;
   ];
   
@@ -159,7 +192,7 @@ Module[{{startTime, result, messages, timing, response, outInput, outFull="", ou
             [wolframscript, "-code", wrapped_code],
             capture_output=True,
             text=True,
-            timeout=60,
+            timeout=timeout,
         )
         python_timing = int((time.time() - start_time) * 1000)
         output = result.stdout.strip()
@@ -214,10 +247,10 @@ Module[{{startTime, result, messages, timing, response, outInput, outFull="", ou
     except subprocess.TimeoutExpired:
         return {
             "success": False,
-            "output": "Execution timed out after 60 seconds",
+            "output": f"Execution timed out after {timeout} seconds",
             "error": "timeout",
             "warnings": [],
-            "timing_ms": 60000,
+            "timing_ms": int(timeout * 1000),
             "execution_method": "wolframscript",
         }
     except Exception as e:
@@ -359,7 +392,16 @@ Module[{{result, img}},
         return None
 
 
-def execute_in_kernel(code: str, output_format: str = "text") -> dict[str, Any]:
+def execute_in_kernel(
+    code: str,
+    output_format: str = "text",
+    *,
+    render_graphics: bool = True,
+    deterministic_seed: Optional[int] = None,
+    session_id: Optional[str] = None,
+    isolate_context: bool = False,
+    timeout: int = 60,
+) -> dict[str, Any]:
     """Execute code in kernel with structured metadata (timing, warnings).
 
     Automatically rasterizes Graphics results to images for better display.
@@ -368,7 +410,17 @@ def execute_in_kernel(code: str, output_format: str = "text") -> dict[str, Any]:
 
     from .cache import _query_cache
 
-    cached = _query_cache.get(code)
+    context_key = session_id if isolate_context else None
+    context = _session_context(session_id) if isolate_context else None
+    wrapped_code = _wrap_code_for_context(code, context)
+    wrapped_code = _wrap_code_for_determinism(wrapped_code, deterministic_seed)
+    cached = _query_cache.get(
+        code,
+        output_format=output_format,
+        render_graphics=render_graphics,
+        deterministic_seed=deterministic_seed,
+        context_key=context_key,
+    )
     if cached:
         cached_result = cached.copy()
         cached_result["from_cache"] = True
@@ -378,22 +430,43 @@ def execute_in_kernel(code: str, output_format: str = "text") -> dict[str, Any]:
     session = get_kernel_session()
 
     if session is None or _use_wolframscript:
-        result = _execute_via_wolframscript(code, output_format)
+        result = _execute_via_wolframscript(
+            code,
+            output_format,
+            timeout=timeout,
+            deterministic_seed=deterministic_seed,
+            session_id=session_id,
+            isolate_context=isolate_context,
+        )
         output = result.get("output", "")
-        if result.get("success") and _is_graphics_output(output):
-            image_path = _rasterize_via_wolframscript(code)
+        if render_graphics and result.get("success") and _is_graphics_output(output):
+            image_path = _rasterize_via_wolframscript(wrapped_code)
             if image_path:
                 result["image_path"] = image_path
                 result["output"] = f"[Graphics rendered to image: {image_path}]"
                 result["is_graphics"] = True
         if result.get("success"):
-            _query_cache.put(code, result)
+            _query_cache.put(
+                code,
+                result,
+                output_format=output_format,
+                render_graphics=render_graphics,
+                deterministic_seed=deterministic_seed,
+                context_key=context_key,
+            )
         return result
 
     try:
         from wolframclient.language import wlexpr
     except ImportError:
-        return _execute_via_wolframscript(code, output_format)
+        return _execute_via_wolframscript(
+            code,
+            output_format,
+            timeout=timeout,
+            deterministic_seed=deterministic_seed,
+            session_id=session_id,
+            isolate_context=isolate_context,
+        )
 
     start_time = time.time()
     try:
@@ -402,7 +475,7 @@ def execute_in_kernel(code: str, output_format: str = "text") -> dict[str, Any]:
         include_tex = "True" if output_format == "latex" else "False"
 
         eval_code = f"""
-Module[{{res = {code}}},
+Module[{{res = {wrapped_code}}},
   <|
     "result" -> res,
     "inputform" -> ToString[res, InputForm],
@@ -436,15 +509,29 @@ Module[{{res = {code}}},
             "execution_method": "wolframclient",
         }
 
-        if _is_graphics_output(output_inputform):
-            image_path = _rasterize_via_wolframscript(code)
+        if render_graphics and _is_graphics_output(output_inputform):
+            image_path = _rasterize_via_wolframscript(wrapped_code)
             if image_path:
                 response["image_path"] = image_path
                 response["output"] = f"[Graphics rendered to image: {image_path}]"
                 response["is_graphics"] = True
 
-        _query_cache.put(code, response)
+        _query_cache.put(
+            code,
+            response,
+            output_format=output_format,
+            render_graphics=render_graphics,
+            deterministic_seed=deterministic_seed,
+            context_key=context_key,
+        )
         return response
     except Exception as e:
         logger.warning(f"wolframclient evaluation failed ({e}), trying wolframscript")
-        return _execute_via_wolframscript(code, output_format)
+        return _execute_via_wolframscript(
+            code,
+            output_format,
+            timeout=timeout,
+            deterministic_seed=deterministic_seed,
+            session_id=session_id,
+            isolate_context=isolate_context,
+        )

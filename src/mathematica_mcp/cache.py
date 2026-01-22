@@ -42,18 +42,39 @@ class QueryCache:
         self.hits = 0
         self.misses = 0
 
-    def _hash_code(self, code: str) -> str:
+    def _hash_code(
+        self,
+        code: str,
+        output_format: str,
+        render_graphics: bool,
+        deterministic_seed: Optional[int],
+        context_key: Optional[str],
+    ) -> str:
         normalized = " ".join(code.split())
-        return hashlib.sha256(normalized.encode()).hexdigest()[:16]
+        options = (
+            f"|fmt={output_format}|gfx={int(render_graphics)}|seed={deterministic_seed}"
+            f"|ctx={context_key}"
+        )
+        return hashlib.sha256((normalized + options).encode()).hexdigest()[:16]
 
     def _is_cacheable(self, code: str) -> bool:
         return not any(pattern in code for pattern in NON_CACHEABLE_PATTERNS)
 
-    def get(self, code: str) -> Optional[Dict[str, Any]]:
+    def get(
+        self,
+        code: str,
+        *,
+        output_format: str = "text",
+        render_graphics: bool = True,
+        deterministic_seed: Optional[int] = None,
+        context_key: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
         if not FEATURES.expression_cache or not self._is_cacheable(code):
             return None
 
-        key = self._hash_code(code)
+        key = self._hash_code(
+            code, output_format, render_graphics, deterministic_seed, context_key
+        )
         if key not in self._cache:
             self.misses += 1
             return None
@@ -69,11 +90,22 @@ class QueryCache:
         self.hits += 1
         return entry["result"]
 
-    def put(self, code: str, result: Dict[str, Any]) -> None:
+    def put(
+        self,
+        code: str,
+        result: Dict[str, Any],
+        *,
+        output_format: str = "text",
+        render_graphics: bool = True,
+        deterministic_seed: Optional[int] = None,
+        context_key: Optional[str] = None,
+    ) -> None:
         if not FEATURES.expression_cache or not self._is_cacheable(code):
             return
 
-        key = self._hash_code(code)
+        key = self._hash_code(
+            code, output_format, render_graphics, deterministic_seed, context_key
+        )
         while len(self._cache) >= self.max_size:
             self._cache.popitem(last=False)
 

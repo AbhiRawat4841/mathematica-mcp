@@ -19,6 +19,9 @@ $MCPAuthToken = Quiet[Check[Environment["MATHEMATICA_MCP_TOKEN"], ""]];
 $MCPMaxMessageBytes = 5*1024*1024; (* 5MB max request *)
 $MCPMaxResponseBytes = 5*1024*1024; (* 5MB max response *)
 $MCPBuffers = <||>; (* per-socket input buffers *)
+$MCPActiveNotebook = None;
+$MCPSessionNotebooks = <||>;
+$MCPSessionContexts = <||>;
 
 debugLog[msg_] := Module[{},
   If[$MCPDebug,
@@ -131,6 +134,9 @@ handleConnection[assoc_Association] := Module[
         
         responseStr = Quiet[Check[ExportString[response, "RawJSON", "Compact" -> True], None]];
         If[responseStr === None || !StringQ[responseStr],
+          responseStr = Quiet[Check[ExportString[jsonSanitize[response], "RawJSON", "Compact" -> True], None]];
+        ];
+        If[responseStr === None || !StringQ[responseStr],
           responseStr = "{\"status\":\"error\",\"message\":\"Failed to serialize response\"}";
           If[$MCPDebug, Print["[MCP Debug] ExportString failed, using fallback"]];
         ];
@@ -155,7 +161,7 @@ handleConnection[assoc_Association] := Module[
 (* ============================================================================ *)
 
 processCommand[request_Association] := Module[
-  {id, command, params, token, result},
+  {id, command, params, token, result, response},
   
   id = Lookup[request, "id", CreateUUID[]];
   command = Lookup[request, "command", "unknown"];
@@ -168,104 +174,137 @@ processCommand[request_Association] := Module[
     Return[<|"id" -> id, "status" -> "error", "message" -> "Unauthorized"|>]
   ];
   
-  result = Quiet @ Check[
-    Switch[command,
-      "ping", cmdPing[params],
-      "get_status", cmdGetStatus[params],
-      
-      "get_notebooks", cmdGetNotebooks[params],
-      "get_notebook_info", cmdGetNotebookInfo[params],
-      "create_notebook", cmdCreateNotebook[params],
-      "save_notebook", cmdSaveNotebook[params],
-      "close_notebook", cmdCloseNotebook[params],
-      
-      "get_cells", cmdGetCells[params],
-      "get_cell_content", cmdGetCellContent[params],
-      "write_cell", cmdWriteCell[params],
-      "delete_cell", cmdDeleteCell[params],
-      "evaluate_cell", cmdEvaluateCell[params],
-      
-      "execute_code", cmdExecuteCode[params],
-      "execute_code_notebook", cmdExecuteCodeNotebook[params],
-      "execute_selection", cmdExecuteSelection[params],
-      
-      "screenshot_notebook", cmdScreenshotNotebook[params],
-      "screenshot_cell", cmdScreenshotCell[params],
-      "rasterize_expression", cmdRasterizeExpression[params],
-      
-      "select_cell", cmdSelectCell[params],
-      "scroll_to_cell", cmdScrollToCell[params],
-      
-      "export_notebook", cmdExportNotebook[params],
-      
-      (* TIER 1: Variable Introspection *)
-      "list_variables", cmdListVariables[params],
-      "get_variable", cmdGetVariable[params],
-      "set_variable", cmdSetVariable[params],
-      "clear_variables", cmdClearVariables[params],
-      "get_expression_info", cmdGetExpressionInfo[params],
-      
-      (* TIER 1: Error Recovery *)
-      "get_messages", cmdGetMessages[params],
-      
-      (* TIER 2: File Handling *)
-      "open_notebook_file", cmdOpenNotebookFile[params],
-      "run_script", cmdRunScript[params],
-      
-      (* TIER 4: Debugging *)
-      "trace_evaluation", cmdTraceEvaluation[params],
-      "time_expression", cmdTimeExpression[params],
-      "check_syntax", cmdCheckSyntax[params],
-      
-      (* TIER 5: Data I/O *)
-      "import_data", cmdImportData[params],
-      "export_data", cmdExportData[params],
-      "list_import_formats", cmdListImportFormats[params],
-      
-      (* TIER 6: Visualization *)
-      "export_graphics", cmdExportGraphics[params],
-      
-      _, <|"error" -> ("Unknown command: " <> command)|>
-    ],
-    <|"error" -> "Command execution failed"|>
-  ];
-  
-  If[KeyExistsQ[result, "error"],
+  result = dispatchCommand[command, params];
+
+  response = If[KeyExistsQ[result, "error"],
     <|"id" -> id, "status" -> "error", "message" -> result["error"]|>,
     <|"id" -> id, "status" -> "success", "result" -> result|>
-  ]
+  ];
+
+  maybeCompressResponse[response, params]
 ];
 
 (* ============================================================================ *)
 (* HELPER FUNCTIONS                                                             *)
 (* ============================================================================ *)
 
-resolveNotebook[spec_] := Which[
-  spec === None || spec === Null || spec === "",
-    InputNotebook[],
-  StringQ[spec],
-    Module[{held},
-      held = Quiet[Check[ToExpression[spec, InputForm, HoldComplete], $Failed]];
-      If[MatchQ[held, HoldComplete[_NotebookObject]],
-        ReleaseHold[held],
-        SelectFirst[Notebooks[], 
-          StringContainsQ[ToString[NotebookFileName[#] /. $Failed -> ""], spec, IgnoreCase -> True] &,
-          InputNotebook[]
-        ]
-      ]
-    ],
-  True,
-    InputNotebook[]
+validNotebookQ[nb_] := Module[{vis},
+  If[!MatchQ[nb, _NotebookObject], Return[False]];
+  vis = Quiet[Check[CurrentValue[nb, Visible], $Failed]];
+  vis =!= $Failed
 ];
 
-resolveCellObject[spec_] := Which[
-  StringQ[spec],
-    Module[{held},
-      held = Quiet[Check[ToExpression[spec, InputForm, HoldComplete], $Failed]];
-      If[MatchQ[held, HoldComplete[_CellObject]], ReleaseHold[held], spec]
-    ],
-  True,
-    spec
+newCellId[] := Module[{uuid, hash},
+  uuid = CreateUUID[];
+  hash = Hash[uuid, "CRC32"];
+  Mod[hash, 2^31 - 1] + 1
+];
+
+getSessionContext[sessionId_] := Module[{hash, ctx},
+  If[!StringQ[sessionId] || StringLength[sessionId] == 0, Return[None]];
+  If[KeyExistsQ[$MCPSessionContexts, sessionId],
+    Return[$MCPSessionContexts[sessionId]]
+  ];
+  hash = IntegerString[Hash[sessionId, "CRC32"], 16];
+  ctx = "MCP`" <> hash <> "`";
+  $MCPSessionContexts[sessionId] = ctx;
+  ctx
+];
+
+resolveSyncMode[params_] := Module[{sync, refresh},
+  sync = Lookup[params, "sync", None];
+  refresh = TrueQ[Lookup[params, "refresh", False]];
+  Which[
+    StringQ[sync] && MemberQ[{"none", "refresh", "strict"}, sync], sync,
+    refresh, "refresh",
+    True, "none"
+  ]
+];
+
+jsonSanitize[value_] := Module[{v = value, sanitizedStr},
+  Which[
+    AssociationQ[v], AssociationMap[jsonSanitize, v],
+    ListQ[v], jsonSanitize /@ v,
+    v === None || v === Null, Null,
+    StringQ[v], 
+      (* Escape special characters that break JSON *)
+      StringReplace[v, {"\n" -> "\\n", "\r" -> "", "\t" -> "\\t", "\\" -> "\\\\"}],
+    TrueQ[v] || v === False, v,
+    NumberQ[v] && !MatchQ[v, _Complex], v,
+    (* Handle special Mathematica objects that can't serialize directly *)
+    MatchQ[v, _CellObject | _NotebookObject | _FrontEndObject], 
+      ToString[v, InputForm],
+    MatchQ[v, _BoxData | _Cell | _StyleBox | _RowBox | _Dynamic],
+      sanitizedStr = Quiet[Check[ToString[v, InputForm], "<<BoxData>>"]];
+      StringTake[sanitizedStr, UpTo[500]],
+    MatchQ[v, _RGBColor | _GrayLevel | _Hue | _CMYKColor],
+      ToString[v, InputForm],
+    True, 
+      sanitizedStr = Quiet[Check[ToString[v, InputForm], ToString[Head[v]]]];
+      (* Limit very long strings *)
+      If[StringLength[sanitizedStr] > 1000,
+        StringTake[sanitizedStr, 1000] <> "...",
+        sanitizedStr
+      ]
+  ]
+];
+
+resolveNotebook[spec_, sessionId_: None] := Module[{nb, held, candidates},
+  If[StringQ[sessionId] && KeyExistsQ[$MCPSessionNotebooks, sessionId],
+    nb = $MCPSessionNotebooks[sessionId];
+    If[validNotebookQ[nb], Return[nb]];
+    $MCPSessionNotebooks = KeyDrop[$MCPSessionNotebooks, sessionId];
+  ];
+
+  If[spec === None || spec === Null || spec === "",
+    nb = If[validNotebookQ[$MCPActiveNotebook], $MCPActiveNotebook, InputNotebook[]],
+    nb = Which[
+      StringQ[spec],
+        (held = Quiet[Check[ToExpression[spec, InputForm, HoldComplete], $Failed]];
+         If[MatchQ[held, HoldComplete[_NotebookObject]],
+           ReleaseHold[held],
+           SelectFirst[Notebooks[],
+             StringContainsQ[
+               ToString[NotebookFileName[#] /. $Failed -> ""],
+               spec,
+               IgnoreCase -> True
+             ] &,
+             InputNotebook[]
+           ]
+         ]),
+      True,
+        InputNotebook[]
+    ]
+  ];
+
+  If[validNotebookQ[nb], $MCPActiveNotebook = nb];
+  nb
+];
+
+resolveCellObject[spec_, nb_: None] := Module[{held, cellId, searchNbs, cells, targetNb},
+  If[StringQ[spec],
+    held = Quiet[Check[ToExpression[spec, InputForm, HoldComplete], $Failed]];
+    If[MatchQ[held, HoldComplete[_CellObject]], Return[ReleaseHold[held]]]
+  ];
+
+  cellId = Which[
+    IntegerQ[spec], spec,
+    NumberQ[spec] && spec =!= Indeterminate && spec =!= Infinity && spec =!= -Infinity, Round[spec],
+    StringQ[spec] && StringMatchQ[spec, NumberString], ToExpression[spec],
+    True, None
+  ];
+
+  If[cellId === None, Return[spec]];
+
+  targetNb = If[nb === None || nb === Null, $MCPActiveNotebook, nb];
+  If[validNotebookQ[targetNb],
+    cells = Quiet[Cells[targetNb, CellID -> cellId]];
+    If[ListQ[cells] && Length[cells] > 0, Return[First[cells]]]
+  ];
+
+  searchNbs = Select[Notebooks[], validNotebookQ];
+  cells = Quiet @ Flatten[Cells[#, CellID -> cellId] & /@ searchNbs];
+  If[ListQ[cells] && Length[cells] > 0, First[cells], spec]
 ];
 
 notebookToAssoc[nb_NotebookObject] := Module[{filename, title, modified, visible},
@@ -276,23 +315,145 @@ notebookToAssoc[nb_NotebookObject] := Module[{filename, title, modified, visible
   <|
     "id" -> ToString[nb, InputForm],
     "filename" -> If[StringQ[filename], filename, Null],
-    "title" -> If[StringQ[title], title, ToString[title]],
+    "title" -> If[StringQ[title], title, ToString[title, InputForm]],
     "modified" -> TrueQ[modified],
     "visible" -> TrueQ[visible]
   |>
 ];
 
-cellToAssoc[cell_CellObject] := Module[{content, style},
-  style = CurrentValue[cell, CellStyle];
-  content = Quiet[NotebookRead[cell]];
+cellToAssoc[cell_CellObject, includeContent_: True] := Module[{content, style, cellId, styleValue, cellIdValue, contentPreview},
+  (* Safely get style with error handling *)
+  style = Quiet[Check[CurrentValue[cell, CellStyle], "Unknown"]];
+  cellId = Quiet[Check[CurrentValue[cell, CellID], Null] /. $Failed -> Null];
+  
+  (* Safely get content *)
+  content = If[includeContent, 
+    Quiet[Check[NotebookRead[cell], Null]], 
+    Null
+  ];
+  
+  (* Sanitize style value *)
+  styleValue = If[ListQ[style], First[style, "Unknown"], style];
+  styleValue = If[StringQ[styleValue], styleValue, ToString[styleValue, InputForm]];
+  
+  (* Sanitize cell ID *)
+  cellIdValue = Which[
+    cellId === Null || cellId === $Failed, Null,
+    IntegerQ[cellId], cellId,
+    StringQ[cellId], cellId,
+    True, ToString[cellId, InputForm]
+  ];
+  
+  (* Safely create content preview *)
+  contentPreview = If[includeContent && content =!= Null,
+    Quiet[Check[
+      Module[{extracted, str},
+        extracted = content /. Cell[c_, ___] :> c;
+        str = ToString[extracted, InputForm];
+        (* Limit length and sanitize *)
+        str = StringTake[str, UpTo[200]];
+        StringReplace[str, {"\n" -> " ", "\r" -> "", "\t" -> " "}]
+      ],
+      "<<content unavailable>>"
+    ]],
+    Null
+  ];
+  
   <|
     "id" -> ToString[cell, InputForm],
-    "style" -> If[ListQ[style], First[style], style],
-    "content_preview" -> StringTake[
-      ToString[content /. Cell[c_, ___] :> c, InputForm], 
-      UpTo[200]
-    ]
+    "cell_id" -> cellIdValue,
+    "style" -> styleValue,
+    "content_preview" -> contentPreview
   |>
+];
+
+dispatchCommand[command_, params_] := Quiet @ Check[
+  Switch[command,
+    "ping", cmdPing[params],
+    "get_status", cmdGetStatus[params],
+
+    "get_notebooks", cmdGetNotebooks[params],
+    "get_notebook_info", cmdGetNotebookInfo[params],
+    "create_notebook", cmdCreateNotebook[params],
+    "save_notebook", cmdSaveNotebook[params],
+    "close_notebook", cmdCloseNotebook[params],
+
+    "get_cells", cmdGetCells[params],
+    "get_cell_content", cmdGetCellContent[params],
+    "write_cell", cmdWriteCell[params],
+    "delete_cell", cmdDeleteCell[params],
+    "evaluate_cell", cmdEvaluateCell[params],
+
+    "execute_code", cmdExecuteCode[params],
+    "execute_code_notebook", cmdExecuteCodeNotebook[params],
+    "execute_selection", cmdExecuteSelection[params],
+    "batch_commands", cmdBatchCommands[params],
+
+    "screenshot_notebook", cmdScreenshotNotebook[params],
+    "screenshot_cell", cmdScreenshotCell[params],
+    "rasterize_expression", cmdRasterizeExpression[params],
+
+    "select_cell", cmdSelectCell[params],
+    "scroll_to_cell", cmdScrollToCell[params],
+
+    "export_notebook", cmdExportNotebook[params],
+
+    (* TIER 1: Variable Introspection *)
+    "list_variables", cmdListVariables[params],
+    "get_variable", cmdGetVariable[params],
+    "set_variable", cmdSetVariable[params],
+    "clear_variables", cmdClearVariables[params],
+    "get_expression_info", cmdGetExpressionInfo[params],
+
+    (* TIER 1: Error Recovery *)
+    "get_messages", cmdGetMessages[params],
+
+    (* TIER 2: File Handling *)
+    "open_notebook_file", cmdOpenNotebookFile[params],
+    "run_script", cmdRunScript[params],
+
+    (* TIER 4: Debugging *)
+    "trace_evaluation", cmdTraceEvaluation[params],
+    "time_expression", cmdTimeExpression[params],
+    "check_syntax", cmdCheckSyntax[params],
+
+    (* TIER 5: Data I/O *)
+    "import_data", cmdImportData[params],
+    "export_data", cmdExportData[params],
+    "list_import_formats", cmdListImportFormats[params],
+
+    (* TIER 6: Visualization *)
+    "export_graphics", cmdExportGraphics[params],
+
+    _, <|"error" -> ("Unknown command: " <> command)|>
+  ],
+  <|"error" -> "Command execution failed"|>
+];
+
+maybeCompressResponse[response_, params_] := Module[
+  {compress, minBytes, result, resultJson, compressed, compressedJson},
+  compress = TrueQ[Lookup[params, "compress", False]];
+  minBytes = Lookup[params, "compression_min_bytes", 16384];
+  If[!compress || !KeyExistsQ[response, "result"], Return[response]];
+
+  result = response["result"];
+  resultJson = Quiet[Check[ExportString[result, "RawJSON", "Compact" -> True], ""]];
+  If[StringLength[resultJson] < minBytes, Return[response]];
+
+  compressed = Quiet[Check[Compress[result], ""]];
+  compressedJson = If[StringQ[compressed], StringLength[compressed], Infinity];
+  If[compressedJson >= StringLength[resultJson], Return[response]];
+
+  Association[
+    KeyDrop[response, "result"],
+    <|
+      "compressed" -> True,
+      "compression" -> "WLCompress",
+      "result_compressed" -> compressed,
+      "result_size" -> StringLength[resultJson],
+      "compressed_size" -> compressedJson
+    |>
+  ]
 ];
 
 (* ============================================================================ *)
@@ -326,33 +487,58 @@ cmdGetNotebooks[_] := Module[{nbs},
   Map[notebookToAssoc, nbs]
 ];
 
-cmdGetNotebookInfo[params_] := Module[{nb, cells},
-  nb = resolveNotebook[Lookup[params, "notebook", None]];
+cmdGetNotebookInfo[params_] := Module[{nb, cells, sessionId, cellStyles, titleVal},
+  sessionId = Lookup[params, "session_id", None];
+  nb = resolveNotebook[Lookup[params, "notebook", None], sessionId];
   If[nb === None || !MatchQ[nb, _NotebookObject],
     Return[<|"error" -> "No notebook found"|>]
   ];
   
   (* Wrap in Quiet to handle edge cases *)
-  cells = Quiet[Cells[nb]];
+  cells = Quiet[Check[Cells[nb], {}]];
   If[!ListQ[cells], cells = {}];
   
-  Quiet @ <|
-    "id" -> ToString[nb, InputForm],
-    "filename" -> (NotebookFileName[nb] /. $Failed -> None),
-    "directory" -> (NotebookDirectory[nb] /. $Failed -> None),
-    "title" -> (CurrentValue[nb, WindowTitle] /. $Failed -> "Unknown"),
-    "cell_count" -> Length[cells],
-    "cell_styles" -> DeleteDuplicates[
-      Flatten[{CurrentValue[#, CellStyle] /. $Failed -> "Unknown"} & /@ cells]
+  (* Sanitize cell styles - ensure they're all strings *)
+  cellStyles = Quiet[Check[
+    DeleteDuplicates[
+      Map[
+        Function[{cell},
+          Module[{s},
+            s = Quiet[Check[CurrentValue[cell, CellStyle], "Unknown"]];
+            If[ListQ[s], s = First[s, "Unknown"]];
+            If[StringQ[s], s, ToString[s, InputForm]]
+          ]
+        ],
+        cells
+      ]
     ],
-    "modified" -> TrueQ[CurrentValue[nb, "Modified"]],
-    "visible" -> TrueQ[CurrentValue[nb, Visible]]
+    {"Unknown"}
+  ]];
+  
+  (* Sanitize title *)
+  titleVal = Quiet[Check[CurrentValue[nb, WindowTitle], "Unknown"]];
+  If[!StringQ[titleVal], titleVal = ToString[titleVal, InputForm]];
+  
+  <|
+    "id" -> ToString[nb, InputForm],
+    "filename" -> Quiet[Check[NotebookFileName[nb], Null] /. $Failed -> Null],
+    "directory" -> Quiet[Check[NotebookDirectory[nb], Null] /. $Failed -> Null],
+    "title" -> titleVal,
+    "cell_count" -> Length[cells],
+    "cell_styles" -> cellStyles,
+    "modified" -> TrueQ[Quiet[CurrentValue[nb, "Modified"]]],
+    "visible" -> TrueQ[Quiet[CurrentValue[nb, Visible]]]
   |>
 ];
 
-cmdCreateNotebook[params_] := Module[{nb, title},
+cmdCreateNotebook[params_] := Module[{nb, title, sessionId},
   title = Lookup[params, "title", "Untitled"];
+  sessionId = Lookup[params, "session_id", None];
   nb = CreateDocument[{}, WindowTitle -> title];
+  If[StringQ[sessionId] && StringLength[sessionId] > 0,
+    $MCPSessionNotebooks[sessionId] = nb;
+  ];
+  $MCPActiveNotebook = nb;
   <|
     "id" -> ToString[nb, InputForm],
     "title" -> title,
@@ -360,8 +546,9 @@ cmdCreateNotebook[params_] := Module[{nb, title},
   |>
 ];
 
-cmdSaveNotebook[params_] := Module[{nb, path, format},
-  nb = resolveNotebook[Lookup[params, "notebook", None]];
+cmdSaveNotebook[params_] := Module[{nb, path, format, sessionId},
+  sessionId = Lookup[params, "session_id", None];
+  nb = resolveNotebook[Lookup[params, "notebook", None], sessionId];
   path = Lookup[params, "path", None];
   format = Lookup[params, "format", "Notebook"];
   
@@ -373,9 +560,13 @@ cmdSaveNotebook[params_] := Module[{nb, path, format},
   ]
 ];
 
-cmdCloseNotebook[params_] := Module[{nb},
-  nb = resolveNotebook[Lookup[params, "notebook", None]];
+cmdCloseNotebook[params_] := Module[{nb, sessionId},
+  sessionId = Lookup[params, "session_id", None];
+  nb = resolveNotebook[Lookup[params, "notebook", None], sessionId];
   NotebookClose[nb];
+  If[StringQ[sessionId] && KeyExistsQ[$MCPSessionNotebooks, sessionId],
+    $MCPSessionNotebooks = KeyDrop[$MCPSessionNotebooks, sessionId]
+  ];
   <|"closed" -> True|>
 ];
 
@@ -383,26 +574,63 @@ cmdCloseNotebook[params_] := Module[{nb},
 (* CELL COMMANDS                                                                *)
 (* ============================================================================ *)
 
-cmdGetCells[params_] := Module[{nb, style, cells},
-  nb = resolveNotebook[Lookup[params, "notebook", None]];
-  style = Lookup[params, "style", None];
-  
-  cells = If[style === None,
-    Cells[nb],
-    Cells[nb, CellStyle -> style]
+cmdGetCells[params_] := Module[{nb, style, cells, sessionId, offset, limit, includeContent, total, start, end, slice, returnMeta, cellAssocs},
+  sessionId = Lookup[params, "session_id", None];
+  nb = resolveNotebook[Lookup[params, "notebook", None], sessionId];
+  If[nb === None || !validNotebookQ[nb],
+    Return[<|"error" -> "No valid notebook found"|>]
   ];
   
-  cellToAssoc /@ cells
+  style = Lookup[params, "style", None];
+  offset = Max[0, Lookup[params, "offset", 0]];
+  limit = Lookup[params, "limit", None];
+  includeContent = Lookup[params, "include_content", True];
+  returnMeta = KeyExistsQ[params, "offset"] || KeyExistsQ[params, "limit"] || KeyExistsQ[params, "include_content"];
+
+  cells = Quiet[Check[
+    If[style === None,
+      Cells[nb],
+      Cells[nb, CellStyle -> style]
+    ],
+    {}
+  ]];
+  If[!ListQ[cells], cells = {}];
+
+  total = Length[cells];
+  start = offset + 1;
+  end = If[IntegerQ[limit], Min[offset + limit, total], total];
+  slice = If[total == 0 || start > total, {}, Take[cells, {start, end}]];
+
+  (* Safely convert cells to associations with error handling *)
+  cellAssocs = Map[
+    Function[{cell},
+      Quiet[Check[cellToAssoc[cell, includeContent], <|"id" -> "error", "style" -> "Unknown", "error" -> "Failed to read cell"|>]]
+    ],
+    If[returnMeta, slice, cells]
+  ];
+
+  If[!returnMeta,
+    cellAssocs,
+    <|
+      "count" -> Length[slice],
+      "total" -> total,
+      "offset" -> offset,
+      "limit" -> If[limit === None, Null, limit],
+      "cells" -> cellAssocs
+    |>
+  ]
 ];
 
-cmdGetCellContent[params_] := Module[{cell, content},
-  cell = resolveCellObject[Lookup[params, "cell_id", None]];
+cmdGetCellContent[params_] := Module[{cell, content, nb, sessionId},
+  sessionId = Lookup[params, "session_id", None];
+  nb = resolveNotebook[Lookup[params, "notebook", None], sessionId];
+  cell = resolveCellObject[Lookup[params, "cell_id", None], nb];
   If[!MatchQ[cell, _CellObject],
     Return[<|"error" -> "Invalid cell ID"|>]
   ];
   
   content = NotebookRead[cell];
-  <|
+  jsonSanitize @ <|
     "id" -> ToString[cell, InputForm],
     "style" -> CurrentValue[cell, CellStyle],
     "content" -> ToString[content /. Cell[c_, ___] :> c, InputForm],
@@ -410,14 +638,17 @@ cmdGetCellContent[params_] := Module[{cell, content},
   |>
 ];
 
-cmdWriteCell[params_] := Module[{nb, content, style, position, cell, refresh},
-  nb = resolveNotebook[Lookup[params, "notebook", None]];
+cmdWriteCell[params_] := Module[{nb, content, style, position, cell, syncMode, syncWait, cellId, sessionId, cellObj},
+  sessionId = Lookup[params, "session_id", None];
+  nb = resolveNotebook[Lookup[params, "notebook", None], sessionId];
   content = Lookup[params, "content", ""];
   style = Lookup[params, "style", "Input"];
   position = Lookup[params, "position", "After"];
-  refresh = TrueQ[Lookup[params, "refresh", False]];
+  syncMode = resolveSyncMode[params];
+  syncWait = Lookup[params, "sync_wait", 2];
+  cellId = newCellId[];
   
-  cell = Cell[content, style];
+  cell = Cell[content, style, CellID -> cellId];
   
   Switch[position,
     "End",
@@ -432,13 +663,35 @@ cmdWriteCell[params_] := Module[{nb, content, style, position, cell, refresh},
       NotebookWrite[nb, cell, After]
   ];
   
-  If[refresh, FrontEndTokenExecute[nb, "Refresh"]];
+  If[syncMode =!= "none",
+    FrontEndTokenExecute[nb, "Refresh"];
+    Pause[0.05];
+  ];
+  If[syncMode === "strict",
+    Module[{elapsed = 0, interval = 0.05, found = False},
+      While[elapsed < syncWait && !found,
+        Pause[interval];
+        elapsed += interval;
+        found = Length[Cells[nb, CellID -> cellId]] > 0;
+      ];
+    ]
+  ];
   
-  <|"written" -> True, "style" -> style, "position" -> position|>
+  cellObj = Quiet@Check[First[Cells[nb, CellID -> cellId]], None];
+
+  <|
+    "written" -> True,
+    "style" -> style,
+    "position" -> position,
+    "cell_id" -> If[cellObj === None, ToString[cellId], ToString[cellObj, InputForm]],
+    "cell_id_numeric" -> cellId
+  |>
 ];
 
-cmdDeleteCell[params_] := Module[{cell},
-  cell = resolveCellObject[Lookup[params, "cell_id", None]];
+cmdDeleteCell[params_] := Module[{cell, nb, sessionId},
+  sessionId = Lookup[params, "session_id", None];
+  nb = resolveNotebook[Lookup[params, "notebook", None], sessionId];
+  cell = resolveCellObject[Lookup[params, "cell_id", None], nb];
   If[!MatchQ[cell, _CellObject],
     Return[<|"error" -> "Invalid cell ID"|>]
   ];
@@ -446,17 +699,19 @@ cmdDeleteCell[params_] := Module[{cell},
   <|"deleted" -> True|>
 ];
 
-cmdEvaluateCell[params_] := Module[{cell, nb, cellsBefore, cellsAfter, maxWait, waitInterval, elapsed, refresh},
-  cell = resolveCellObject[Lookup[params, "cell_id", None]];
+cmdEvaluateCell[params_] := Module[{cell, nb, maxWait, waitInterval, elapsed, syncMode, sessionId, evaluating, syncWait},
+  sessionId = Lookup[params, "session_id", None];
+  nb = resolveNotebook[Lookup[params, "notebook", None], sessionId];
+  cell = resolveCellObject[Lookup[params, "cell_id", None], nb];
   If[!MatchQ[cell, _CellObject],
     Return[<|"error" -> "Invalid cell ID"|>]
   ];
   nb = ParentNotebook[cell];
   maxWait = Lookup[params, "max_wait", 10];
   waitInterval = 0.1;
-  refresh = TrueQ[Lookup[params, "refresh", False]];
+  syncMode = resolveSyncMode[params];
+  syncWait = Lookup[params, "sync_wait", 2];
 
-  cellsBefore = Length[Cells[nb]];
   SelectionMove[cell, All, Cell];
   FrontEndTokenExecute["EvaluateCells"];
 
@@ -464,14 +719,24 @@ cmdEvaluateCell[params_] := Module[{cell, nb, cellsBefore, cellsAfter, maxWait, 
   While[elapsed < maxWait,
     Pause[waitInterval];
     elapsed += waitInterval;
-    cellsAfter = Length[Cells[nb]];
-    If[cellsAfter > cellsBefore,
-      Pause[0.15];
-      Break[];
-    ];
+    evaluating = Quiet[Check[CurrentValue[nb, Evaluating], False]];
+    If[!TrueQ[evaluating], Break[]];
   ];
 
-  If[refresh, FrontEndTokenExecute[nb, "Refresh"]];
+  If[syncMode =!= "none",
+    FrontEndTokenExecute[nb, "Refresh"];
+    Pause[0.05];
+  ];
+  If[syncMode === "strict",
+    Module[{elapsedSync = 0, interval = 0.05},
+      While[elapsedSync < syncWait,
+        Pause[interval];
+        elapsedSync += interval;
+        evaluating = Quiet[Check[CurrentValue[nb, Evaluating], False]];
+        If[!TrueQ[evaluating], Break[]];
+      ];
+    ]
+  ];
 
   <|"evaluated" -> True, "cell" -> ToString[cell, InputForm], "waited_seconds" -> elapsed|>
 ];
@@ -480,113 +745,210 @@ cmdEvaluateCell[params_] := Module[{cell, nb, cellsBefore, cellsAfter, maxWait, 
 (* CODE EXECUTION                                                               *)
 (* ============================================================================ *)
 
-cmdExecuteCode[params_] := Module[{code, format, result, output, texOutput},
+cmdExecuteCode[params_] := Module[
+  {code, format, result, outputInput, outputFull = "", outputTex = "", messages,
+   timing, failed, deterministicSeed, timeout, sessionId, isolateContext, ctx, exprToEval,
+   formattedMessages, hasErrors, hasWarnings, errorType},
+
   code = Lookup[params, "code", ""];
   format = Lookup[params, "format", "text"];
-  
+  deterministicSeed = Lookup[params, "deterministic_seed", None];
+  timeout = Lookup[params, "timeout", None];
+  sessionId = Lookup[params, "session_id", None];
+  isolateContext = TrueQ[Lookup[params, "isolate_context", False]];
+
   If[code === "",
     Return[<|"error" -> "No code provided"|>]
   ];
-  
-  result = Quiet @ Check[ToExpression[code], $Failed];
-  
-  If[result === $Failed,
-    Return[<|
-      "success" -> False,
-      "output" -> "Evaluation failed",
-      "error" -> "Syntax or evaluation error"
-    |>]
+
+  ctx = If[isolateContext, getSessionContext[sessionId], None];
+
+  exprToEval = ToExpression[code];
+  If[ctx =!= None,
+    exprToEval = Block[{$Context = ctx, $ContextPath = {ctx, "System`"}}, exprToEval]
   ];
-  
-  output = Switch[format,
-    "latex", ToString[TeXForm[result]],
-    "mathematica", ToString[result, InputForm],
-    _, ToString[result]
+  If[deterministicSeed =!= None && deterministicSeed =!= Null,
+    exprToEval = BlockRandom[SeedRandom[deterministicSeed]; exprToEval]
   ];
-  
-  texOutput = Quiet[ToString[TeXForm[result]]];
-  
-  <|
-    "success" -> True,
-    "output" -> output,
-    "output_tex" -> texOutput,
-    "output_inputform" -> ToString[result, InputForm]
-  |>
+  If[NumberQ[timeout],
+    exprToEval = TimeConstrained[exprToEval, timeout, $Aborted]
+  ];
+
+  {timing, {result, messages}} = AbsoluteTiming[
+    Block[{$MessageList = {}},
+      {Quiet @ Check[exprToEval, $Failed], $MessageList}
+    ]
+  ];
+
+  failed = (result === $Failed || result === $Aborted);
+  errorType = If[result === $Aborted, "timeout", "evaluation_error"];
+
+  outputInput = ToString[result, InputForm];
+  If[format === "mathematica", outputFull = ToString[result, FullForm]];
+  If[format === "latex", outputTex = ToString[TeXForm[result]]];
+
+  formattedMessages = Map[
+    Function[msg,
+      Quiet @ Check[
+        <|
+          "tag" -> ToString[First[msg], OutputForm],
+          "text" -> ToString[Last[msg], OutputForm],
+          "type" -> If[StringContainsQ[ToString[First[msg]], "::"],
+            If[StringEndsQ[ToString[First[msg]], "::warning"], "warning", "error"],
+            "message"
+          ]
+        |>,
+        <|"tag" -> "Unknown", "text" -> "Failed to format message", "type" -> "error"|>
+      ]
+    ],
+    Take[messages, UpTo[20]]
+  ];
+  formattedMessages = Select[formattedMessages, AssociationQ[#] && StringLength[#["text"]] > 0 &];
+  hasErrors = Length[Select[formattedMessages, #"type" == "error" &]] > 0;
+  hasWarnings = Length[Select[formattedMessages, #"type" == "warning" &]] > 0;
+
+  Module[{response},
+    response = <|
+      "success" -> Not[failed],
+      "output" -> outputInput,
+      "output_inputform" -> outputInput,
+      "output_fullform" -> outputFull,
+      "output_tex" -> outputTex,
+      "messages" -> formattedMessages,
+      "warnings" -> If[hasWarnings,
+        (#["text"] & /@ Select[formattedMessages, #["type"] == "warning" &]),
+        {}
+      ],
+      "has_errors" -> hasErrors,
+      "has_warnings" -> hasWarnings,
+      "timing_ms" -> Round[timing * 1000],
+      "execution_method" -> "addon"
+    |>;
+    If[failed, response["error"] = errorType];
+    response
+  ]
 ];
 
-cmdExecuteSelection[params_] := Module[{nb, cellsBefore, cellsAfter, maxWait, waitInterval, elapsed, refresh},
-  nb = resolveNotebook[Lookup[params, "notebook", None]];
+cmdExecuteSelection[params_] := Module[{nb, maxWait, waitInterval, elapsed, syncMode, sessionId, evaluating, cellsBefore, cellsAfter, syncWait},
+  sessionId = Lookup[params, "session_id", None];
+  nb = resolveNotebook[Lookup[params, "notebook", None], sessionId];
   maxWait = Lookup[params, "max_wait", 10];
   waitInterval = 0.1;
-  refresh = TrueQ[Lookup[params, "refresh", False]];
+  syncMode = resolveSyncMode[params];
+  syncWait = Lookup[params, "sync_wait", 2];
 
-  cellsBefore = Length[Cells[nb]];
+  cellsBefore = Quiet[Check[Length[Cells[nb]], 0]];
   FrontEndTokenExecute["EvaluateCells"];
 
   elapsed = 0;
   While[elapsed < maxWait,
     Pause[waitInterval];
     elapsed += waitInterval;
-    cellsAfter = Length[Cells[nb]];
-    If[cellsAfter > cellsBefore,
-      Pause[0.15];
-      Break[];
-    ];
+    evaluating = Quiet[Check[CurrentValue[nb, Evaluating], False]];
+    If[!TrueQ[evaluating], Break[]];
   ];
 
-  If[refresh, FrontEndTokenExecute[nb, "Refresh"]];
+  If[syncMode =!= "none",
+    FrontEndTokenExecute[nb, "Refresh"];
+    Pause[0.05];
+  ];
+  If[syncMode === "strict",
+    Module[{elapsedSync = 0, interval = 0.05},
+      While[elapsedSync < syncWait,
+        Pause[interval];
+        elapsedSync += interval;
+        evaluating = Quiet[Check[CurrentValue[nb, Evaluating], False]];
+        If[!TrueQ[evaluating], Break[]];
+      ];
+    ]
+  ];
 
+  cellsAfter = Quiet[Check[Length[Cells[nb]], cellsBefore]];
   <|
     "evaluated" -> True,
     "waited_seconds" -> elapsed,
     "cells_before" -> cellsBefore,
-    "cells_after" -> Length[Cells[nb]]
+    "cells_after" -> cellsAfter
   |>
+];
+
+cmdBatchCommands[params_] := Module[{commands, results},
+  commands = Lookup[params, "commands", {}];
+  If[!ListQ[commands],
+    Return[<|"error" -> "commands must be a list"|>]
+  ];
+
+  results = Map[
+    Function[cmd,
+      Module[{cmdName, cmdParams, res},
+        cmdName = Lookup[cmd, "command", "unknown"];
+        cmdParams = Lookup[cmd, "params", <||>];
+        res = dispatchCommand[cmdName, cmdParams];
+        If[KeyExistsQ[res, "error"],
+          <|"success" -> False, "command" -> cmdName, "error" -> res["error"]|>,
+          <|"success" -> True, "command" -> cmdName, "result" -> res|>
+        ]
+      ]
+    ],
+    commands
+  ];
+
+  <|"success" -> True, "count" -> Length[results], "results" -> results|>
 ];
 
 (* Atomic notebook execution with kernel-mode fast path *)
 cmdExecuteCodeNotebook[params_] := Module[
-  {code, mode, refresh, nb, nbs, createdNew, maxWait},
+  {code, mode, syncMode, nb, createdNew, maxWait, sessionId, deterministicSeed, isolateContext, syncWait, nbSpec},
 
   code = Lookup[params, "code", ""];
   If[code === "", Return[<|"error" -> "No code provided"|>]];
 
   mode = Lookup[params, "mode", "kernel"];
-  refresh = TrueQ[Lookup[params, "refresh", False]];
+  syncMode = resolveSyncMode[params];
   maxWait = Lookup[params, "max_wait", 30];
-
-  nbs = Select[Notebooks[],
-    Module[{title, vis},
-      title = Quiet[CurrentValue[#, WindowTitle] /. $Failed -> ""];
-      vis = Quiet[CurrentValue[#, Visible] /. $Failed -> True];
-      StringQ[title] && title != "Automatic" &&
-      !StringContainsQ[title, "WelcomeScreen"] && TrueQ[vis]
-    ] &
-  ];
+  sessionId = Lookup[params, "session_id", None];
+  deterministicSeed = Lookup[params, "deterministic_seed", None];
+  isolateContext = TrueQ[Lookup[params, "isolate_context", False]];
+  syncWait = Lookup[params, "sync_wait", 2];
+  nbSpec = Lookup[params, "notebook", None];
 
   createdNew = False;
-  nb = If[Length[nbs] > 0,
-    First[nbs],
+  nb = resolveNotebook[nbSpec, sessionId];
+  If[nb === None || !validNotebookQ[nb],
     createdNew = True;
-    CreateDocument[{}, WindowTitle -> "Analysis"]
+    nb = CreateDocument[{}, WindowTitle -> "Analysis"]
+  ];
+  $MCPActiveNotebook = nb;
+  If[StringQ[sessionId] && StringLength[sessionId] > 0,
+    $MCPSessionNotebooks[sessionId] = nb
   ];
 
   If[mode === "frontend",
-    executeCodeNotebookFrontend[nb, code, maxWait, refresh, createdNew],
-    executeCodeNotebookKernel[nb, code, refresh, createdNew]
+    executeCodeNotebookFrontend[nb, code, maxWait, syncMode, createdNew, sessionId, deterministicSeed, isolateContext, syncWait],
+    executeCodeNotebookKernel[nb, code, syncMode, createdNew, sessionId, deterministicSeed, isolateContext, syncWait]
   ]
 ];
 
-executeCodeNotebookKernel[nb_, code_, refresh_, createdNew_] := Module[
-  {result, messages, timing, isGraphics, outputCell, inputCell},
+executeCodeNotebookKernel[nb_, code_, syncMode_, createdNew_, sessionId_, deterministicSeed_, isolateContext_, syncWait_] := Module[
+  {result, messages, timing, isGraphics, outputCell, inputCellId, inputCellObj, exprToEval, ctx},
 
+  inputCellId = newCellId[];
   SelectionMove[nb, After, Notebook];
-  NotebookWrite[nb, Cell[code, "Input"], After];
-  inputCell = Last[Cells[nb, CellStyle -> "Input"]];
+  NotebookWrite[nb, Cell[code, "Input", CellID -> inputCellId], After];
+  inputCellObj = Quiet@Check[First[Cells[nb, CellID -> inputCellId]], None];
+
+  ctx = If[TrueQ[isolateContext], getSessionContext[sessionId], None];
+  exprToEval = ToExpression[code];
+  If[ctx =!= None,
+    exprToEval = Block[{$Context = ctx, $ContextPath = {ctx, "System`"}}, exprToEval]
+  ];
+  If[deterministicSeed =!= None && deterministicSeed =!= Null,
+    exprToEval = BlockRandom[SeedRandom[deterministicSeed]; exprToEval]
+  ];
 
   {timing, {result, messages}} = AbsoluteTiming[
     Block[{$MessageList = {}},
-      {Quiet @ Check[ToExpression[code], $Failed], $MessageList}
+      {Quiet @ Check[exprToEval, $Failed], $MessageList}
     ]
   ];
 
@@ -603,7 +965,19 @@ executeCodeNotebookKernel[nb_, code_, refresh_, createdNew_] := Module[
   SelectionMove[nb, After, Notebook];
   NotebookWrite[nb, outputCell, After];
 
-  If[refresh, FrontEndTokenExecute[nb, "Refresh"]];
+  If[syncMode =!= "none",
+    FrontEndTokenExecute[nb, "Refresh"];
+    Pause[0.05];
+  ];
+  If[syncMode === "strict",
+    Module[{elapsed = 0, interval = 0.05, found = False},
+      While[elapsed < syncWait && !found,
+        Pause[interval];
+        elapsed += interval;
+        found = Length[Cells[nb, CellID -> inputCellId]] > 0;
+      ];
+    ]
+  ];
 
   Module[{formattedMessages, hasErrors, hasWarnings},
     formattedMessages = Map[
@@ -630,7 +1004,8 @@ executeCodeNotebookKernel[nb_, code_, refresh_, createdNew_] := Module[
       "success" -> True,
       "mode" -> "kernel",
       "notebook_id" -> ToString[nb, InputForm],
-      "cell_id" -> ToString[inputCell, InputForm],
+      "cell_id" -> If[inputCellObj === None, ToString[inputCellId], ToString[inputCellObj, InputForm]],
+      "cell_id_numeric" -> inputCellId,
       "timing_ms" -> Round[timing * 1000],
       "created_notebook" -> createdNew,
       "messages" -> formattedMessages,
@@ -643,14 +1018,25 @@ executeCodeNotebookKernel[nb_, code_, refresh_, createdNew_] := Module[
   ]
 ];
 
-executeCodeNotebookFrontend[nb_, code_, maxWait_, refresh_, createdNew_] := Module[
-  {cell, cellsBefore, cellsAfter, waitInterval, elapsed},
+executeCodeNotebookFrontend[nb_, code_, maxWait_, syncMode_, createdNew_, sessionId_, deterministicSeed_, isolateContext_, syncWait_] := Module[
+  {cell, cellsBefore, cellsAfter, waitInterval, elapsed, inputCellId, inputCellObj, execCode, ctx},
 
   cellsBefore = Length[Cells[nb]];
 
+  execCode = code;
+  ctx = If[TrueQ[isolateContext], getSessionContext[sessionId], None];
+  If[ctx =!= None,
+    execCode = "Block[{$Context = \"" <> ctx <> "\", $ContextPath = {\"" <> ctx <> "\", \"System`\"}}, " <> execCode <> "]"
+  ];
+  If[deterministicSeed =!= None && deterministicSeed =!= Null,
+    execCode = "BlockRandom[SeedRandom[" <> ToString[deterministicSeed] <> "]; " <> execCode <> "]"
+  ];
+
+  inputCellId = newCellId[];
   SelectionMove[nb, After, Notebook];
-  NotebookWrite[nb, Cell[code, "Input"], After];
-  cell = Last[Cells[nb, CellStyle -> "Input"]];
+  NotebookWrite[nb, Cell[execCode, "Input", CellID -> inputCellId], After];
+  inputCellObj = Quiet@Check[First[Cells[nb, CellID -> inputCellId]], None];
+  cell = If[inputCellObj === None, Last[Cells[nb, CellStyle -> "Input"]], inputCellObj];
 
   waitInterval = 0.05;
   SelectionMove[cell, All, Cell];
@@ -667,7 +1053,19 @@ executeCodeNotebookFrontend[nb_, code_, maxWait_, refresh_, createdNew_] := Modu
     ];
   ];
 
-  If[refresh, FrontEndTokenExecute[nb, "Refresh"]];
+  If[syncMode =!= "none",
+    FrontEndTokenExecute[nb, "Refresh"];
+    Pause[0.05];
+  ];
+  If[syncMode === "strict",
+    Module[{elapsedSync = 0, interval = 0.05, found = False},
+      While[elapsedSync < syncWait && !found,
+        Pause[interval];
+        elapsedSync += interval;
+        found = Length[Cells[nb, CellID -> inputCellId]] > 0;
+      ];
+    ]
+  ];
 
   Module[{messages, outputCells, outputContent, outputText, hasErrors, hasWarnings},
     messages = Quiet @ Module[{recent, formatted},
@@ -709,7 +1107,8 @@ executeCodeNotebookFrontend[nb_, code_, maxWait_, refresh_, createdNew_] := Modu
       "success" -> True,
       "mode" -> "frontend",
       "notebook_id" -> ToString[nb, InputForm],
-      "cell_id" -> ToString[cell, InputForm],
+      "cell_id" -> If[inputCellObj === None, ToString[cell, InputForm], ToString[inputCellObj, InputForm]],
+      "cell_id_numeric" -> inputCellId,
       "waited_seconds" -> elapsed,
       "created_notebook" -> createdNew,
       "messages" -> messages,
@@ -725,8 +1124,14 @@ executeCodeNotebookFrontend[nb_, code_, maxWait_, refresh_, createdNew_] := Modu
 (* SCREENSHOT COMMANDS                                                          *)
 (* ============================================================================ *)
 
-cmdScreenshotNotebook[params_] := Module[{nb, img, path, maxHeight, format, waitMs, useRasterize, exportResult, method},
-  nb = resolveNotebook[Lookup[params, "notebook", None]];
+cmdScreenshotNotebook[params_] := Module[{nb, img, path, maxHeight, format, waitMs, useRasterize, exportResult, method, sessionId},
+  sessionId = Lookup[params, "session_id", None];
+  nb = resolveNotebook[Lookup[params, "notebook", None], sessionId];
+  If[nb === None || !validNotebookQ[nb],
+    nb = CreateDocument[{}, WindowTitle -> "MCP Screenshot"];
+    If[nb === None || !validNotebookQ[nb], Return[<|"error" -> "No notebook found"|>]];
+  ];
+  $MCPActiveNotebook = nb;
   maxHeight = Lookup[params, "max_height", 2000];
   format = Lookup[params, "format", "PNG"];
   waitMs = Lookup[params, "wait_ms", 100];
@@ -767,8 +1172,13 @@ cmdScreenshotNotebook[params_] := Module[{nb, img, path, maxHeight, format, wait
   |>
 ];
 
-cmdScreenshotCell[params_] := Module[{cell, content, img, path, useRasterize, exportResult, method, nb},
-  cell = resolveCellObject[Lookup[params, "cell_id", None]];
+cmdScreenshotCell[params_] := Module[{cell, content, img, path, useRasterize, exportResult, method, nb, sessionId},
+  sessionId = Lookup[params, "session_id", None];
+  nb = resolveNotebook[Lookup[params, "notebook", None], sessionId];
+  If[nb === None || !validNotebookQ[nb],
+    Return[<|"error" -> "No notebook found"|>]
+  ];
+  cell = resolveCellObject[Lookup[params, "cell_id", None], nb];
   If[!MatchQ[cell, _CellObject],
     Return[<|"error" -> "Invalid cell ID"|>]
   ];
@@ -833,8 +1243,10 @@ cmdRasterizeExpression[params_] := Module[{expr, result, img, path, imageSize},
 (* NAVIGATION COMMANDS                                                          *)
 (* ============================================================================ *)
 
-cmdSelectCell[params_] := Module[{cell},
-  cell = resolveCellObject[Lookup[params, "cell_id", None]];
+cmdSelectCell[params_] := Module[{cell, nb, sessionId},
+  sessionId = Lookup[params, "session_id", None];
+  nb = resolveNotebook[Lookup[params, "notebook", None], sessionId];
+  cell = resolveCellObject[Lookup[params, "cell_id", None], nb];
   If[!MatchQ[cell, _CellObject],
     Return[<|"error" -> "Invalid cell ID"|>]
   ];
@@ -842,8 +1254,10 @@ cmdSelectCell[params_] := Module[{cell},
   <|"selected" -> True|>
 ];
 
-cmdScrollToCell[params_] := Module[{cell, nb},
-  cell = resolveCellObject[Lookup[params, "cell_id", None]];
+cmdScrollToCell[params_] := Module[{cell, nb, sessionId},
+  sessionId = Lookup[params, "session_id", None];
+  nb = resolveNotebook[Lookup[params, "notebook", None], sessionId];
+  cell = resolveCellObject[Lookup[params, "cell_id", None], nb];
   If[!MatchQ[cell, _CellObject],
     Return[<|"error" -> "Invalid cell ID"|>]
   ];
@@ -858,8 +1272,9 @@ cmdScrollToCell[params_] := Module[{cell, nb},
 (* EXPORT COMMANDS                                                              *)
 (* ============================================================================ *)
 
-cmdExportNotebook[params_] := Module[{nb, path, format},
-  nb = resolveNotebook[Lookup[params, "notebook", None]];
+cmdExportNotebook[params_] := Module[{nb, path, format, sessionId},
+  sessionId = Lookup[params, "session_id", None];
+  nb = resolveNotebook[Lookup[params, "notebook", None], sessionId];
   path = Lookup[params, "path", None];
   format = Lookup[params, "format", "PDF"];
   
@@ -1076,8 +1491,9 @@ cmdGetMessages[params_] := Module[{count, messages},
 (* TIER 2: FILE HANDLING                                                        *)
 (* ============================================================================ *)
 
-cmdOpenNotebookFile[params_] := Module[{path, expandedPath, nb},
+cmdOpenNotebookFile[params_] := Module[{path, expandedPath, nb, sessionId},
   path = Lookup[params, "path", None];
+  sessionId = Lookup[params, "session_id", None];
   
   If[path === None,
     Return[<|"error" -> "No path specified"|>]
@@ -1100,6 +1516,11 @@ cmdOpenNotebookFile[params_] := Module[{path, expandedPath, nb},
     Return[<|"error" -> "Failed to open notebook"|>]
   ];
   
+  If[StringQ[sessionId] && StringLength[sessionId] > 0,
+    $MCPSessionNotebooks[sessionId] = nb
+  ];
+  $MCPActiveNotebook = nb;
+
   <|
     "success" -> True,
     "id" -> ToString[nb, InputForm],

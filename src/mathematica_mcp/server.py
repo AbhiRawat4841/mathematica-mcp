@@ -14,6 +14,9 @@ from .session import (
     close_kernel_session,
     _is_graphics_output,
     _rasterize_via_wolframscript,
+    _session_context,
+    _wrap_code_for_context,
+    _wrap_code_for_determinism,
 )
 from .config import FEATURES
 from .telemetry import telemetry_tool, get_usage_stats, reset_stats
@@ -32,6 +35,18 @@ logging.basicConfig(
 logger = logging.getLogger("mathematica_mcp")
 
 mcp = FastMCP("mathematica-mcp")
+
+
+def _prepare_raster_code(
+    code: str,
+    *,
+    deterministic_seed: Optional[int],
+    session_id: Optional[str],
+    isolate_context: bool,
+) -> str:
+    context = _session_context(session_id) if isolate_context else None
+    wrapped = _wrap_code_for_context(code, context)
+    return _wrap_code_for_determinism(wrapped, deterministic_seed)
 
 
 def _lookup_symbols_in_kernel(query: str) -> Dict[str, Any]:
@@ -83,11 +98,25 @@ def _parse_wolfram_association(raw: str) -> Dict[str, Any]:
     """Convert Wolfram Association syntax (<|...|>) to Python dict."""
     try:
         s = raw.strip()
+        # Remove newlines within the association (multiline Mathematica output)
+        s = re.sub(r'\n\s*', ' ', s)
+        # Remove carriage returns
+        s = s.replace('\r', '')
+        # Handle fractions like 100584/625 - quote them as strings
+        s = re.sub(r':\s*(\d+)/(\d+)\s*([,}])', r': "\1/\2"\3', s)
+        # Convert Association delimiters
         s = re.sub(r"<\|", "{", s)
         s = re.sub(r"\|>", "}", s)
+        # Convert arrow to colon
         s = re.sub(r"\s*->\s*", ": ", s)
-        s = s.replace("True", "true").replace("False", "false")
-        s = re.sub(r":\s*([A-Za-z][A-Za-z0-9`$]*)\s*([,}])", r': "\1"\2', s)
+        # Convert Mathematica booleans
+        s = s.replace("True", "true").replace("False", "false").replace("Null", "null")
+        # Quote unquoted symbols (identifiers starting with letter, may contain ` $ digits)
+        # But be careful not to match already quoted strings or numbers
+        s = re.sub(r':\s*([A-Za-z][A-Za-z0-9`$]*(?:\s+[A-Za-z][A-Za-z0-9`$]*)*)\s*([,}])', 
+                   r': "\1"\2', s)
+        # Handle special Mathematica output like "100584 kilometers" with line breaks
+        s = re.sub(r':\s*(\d+)\s+([A-Za-z]+)\s*([,}])', r': "\1 \2"\3', s)
         return json.loads(s)
     except Exception:
         return {"success": True, "raw": raw, "parse_error": True}
@@ -200,20 +229,26 @@ async def get_notebooks() -> str:
 
 
 @mcp.tool()
-async def get_notebook_info(notebook: Optional[str] = None) -> str:
+async def get_notebook_info(
+    notebook: Optional[str] = None, session_id: Optional[str] = None
+) -> str:
     """Get details about a notebook (filename, directory, cell count)."""
-    result = _try_addon_command("get_notebook_info", {"notebook": notebook})
+    result = _try_addon_command(
+        "get_notebook_info", {"notebook": notebook, "session_id": session_id}
+    )
     return json.dumps(result, indent=2)
 
 
 @mcp.tool()
-async def create_notebook(title: str = "Untitled") -> str:
+async def create_notebook(title: str = "Untitled", session_id: Optional[str] = None) -> str:
     """Create a new empty notebook. Returns notebook ID.
     
     NOTE: For executing code in a notebook, prefer execute_code(code, output_target="notebook")
     which handles notebook creation, cell writing, and evaluation atomically.
     """
-    result = _try_addon_command("create_notebook", {"title": title})
+    result = _try_addon_command(
+        "create_notebook", {"title": title, "session_id": session_id}
+    )
     return json.dumps(result, indent=2)
 
 
@@ -222,32 +257,67 @@ async def save_notebook(
     notebook: Optional[str] = None,
     path: Optional[str] = None,
     format: Literal["Notebook", "PDF", "HTML", "TeX"] = "Notebook",
+    session_id: Optional[str] = None,
 ) -> str:
     """Save a notebook to disk."""
     result = _try_addon_command(
-        "save_notebook", {"notebook": notebook, "path": path, "format": format}
+        "save_notebook",
+        {
+            "notebook": notebook,
+            "path": path,
+            "format": format,
+            "session_id": session_id,
+        },
     )
     return json.dumps(result, indent=2)
 
 
 @mcp.tool()
-async def close_notebook(notebook: Optional[str] = None) -> str:
+async def close_notebook(
+    notebook: Optional[str] = None, session_id: Optional[str] = None
+) -> str:
     """Close a notebook."""
-    result = _try_addon_command("close_notebook", {"notebook": notebook})
+    result = _try_addon_command(
+        "close_notebook", {"notebook": notebook, "session_id": session_id}
+    )
     return json.dumps(result, indent=2)
 
 
 @mcp.tool()
-async def get_cells(notebook: Optional[str] = None, style: Optional[str] = None) -> str:
+async def get_cells(
+    notebook: Optional[str] = None,
+    style: Optional[str] = None,
+    session_id: Optional[str] = None,
+    offset: int = 0,
+    limit: Optional[int] = None,
+    include_content: bool = True,
+) -> str:
     """Get list of cells in a notebook."""
-    result = _try_addon_command("get_cells", {"notebook": notebook, "style": style})
+    result = _try_addon_command(
+        "get_cells",
+        {
+            "notebook": notebook,
+            "style": style,
+            "session_id": session_id,
+            "offset": offset,
+            "limit": limit,
+            "include_content": include_content,
+        },
+    )
     return json.dumps(result, indent=2)
 
 
 @mcp.tool()
-async def get_cell_content(cell_id: str) -> str:
+async def get_cell_content(
+    cell_id: str,
+    notebook: Optional[str] = None,
+    session_id: Optional[str] = None,
+) -> str:
     """Get the full content of a specific cell."""
-    result = _try_addon_command("get_cell_content", {"cell_id": cell_id})
+    result = _try_addon_command(
+        "get_cell_content",
+        {"cell_id": cell_id, "notebook": notebook, "session_id": session_id},
+    )
     return json.dumps(result, indent=2)
 
 
@@ -257,6 +327,9 @@ async def write_cell(
     style: str = "Input",
     notebook: Optional[str] = None,
     position: Literal["After", "Before", "End", "Beginning"] = "After",
+    session_id: Optional[str] = None,
+    sync: Literal["none", "refresh", "strict"] = "none",
+    sync_wait: float = 2,
 ) -> str:
     """Write a new cell to a notebook without evaluating it.
     
@@ -270,22 +343,49 @@ async def write_cell(
             "content": content,
             "style": style,
             "position": position,
+            "session_id": session_id,
+            "sync": sync,
+            "sync_wait": sync_wait,
         },
     )
     return json.dumps(result, indent=2)
 
 
 @mcp.tool()
-async def delete_cell(cell_id: str) -> str:
+async def delete_cell(
+    cell_id: str,
+    notebook: Optional[str] = None,
+    session_id: Optional[str] = None,
+) -> str:
     """Delete a cell from a notebook."""
-    result = _try_addon_command("delete_cell", {"cell_id": cell_id})
+    result = _try_addon_command(
+        "delete_cell",
+        {"cell_id": cell_id, "notebook": notebook, "session_id": session_id},
+    )
     return json.dumps(result, indent=2)
 
 
 @mcp.tool()
-async def evaluate_cell(cell_id: str) -> str:
+async def evaluate_cell(
+    cell_id: str,
+    notebook: Optional[str] = None,
+    session_id: Optional[str] = None,
+    max_wait: int = 10,
+    sync: Literal["none", "refresh", "strict"] = "none",
+    sync_wait: float = 2,
+) -> str:
     """Evaluate a specific cell."""
-    result = _try_addon_command("evaluate_cell", {"cell_id": cell_id})
+    result = _try_addon_command(
+        "evaluate_cell",
+        {
+            "cell_id": cell_id,
+            "notebook": notebook,
+            "session_id": session_id,
+            "max_wait": max_wait,
+            "sync": sync,
+            "sync_wait": sync_wait,
+        },
+    )
     return json.dumps(result, indent=2)
 
 
@@ -295,6 +395,14 @@ async def execute_code(
     format: Literal["text", "latex", "mathematica"] = "text",
     output_target: Literal["cli", "notebook"] = "notebook",
     mode: Literal["kernel", "frontend"] = "kernel",
+    render_graphics: bool = True,
+    deterministic_seed: Optional[int] = None,
+    session_id: Optional[str] = None,
+    isolate_context: bool = False,
+    timeout: int = 60,
+    max_wait: int = 30,
+    sync: Literal["none", "refresh", "strict"] = "none",
+    sync_wait: float = 2,
 ) -> str:
     """Execute Wolfram Language code. THIS IS THE PRIMARY TOOL for running Mathematica code.
 
@@ -307,6 +415,14 @@ async def execute_code(
         format: Output format (text, latex, mathematica)
         output_target: "notebook" (insert into active notebook) or "cli" (return text only)
         mode: "kernel" (fast, synchronous) or "frontend" (legacy, for Manipulate/dynamic content)
+        render_graphics: Whether to auto-rasterize Graphics output to an image
+        deterministic_seed: Seed for deterministic random output (optional)
+        session_id: Optional session identifier for notebook routing and isolation
+        isolate_context: Use a dedicated Mathematica context per session_id
+        timeout: Max seconds for kernel evaluation (CLI paths)
+        max_wait: Max seconds for notebook frontend evaluation
+        sync: Notebook sync mode (none/refresh/strict)
+        sync_wait: Seconds to wait in strict sync mode
     
     Examples:
         execute_code("Integrate[(2x+x^2)/x^5, x]") - Compute integral in notebook
@@ -318,9 +434,18 @@ async def execute_code(
             # Use atomic command that combines find/create notebook + write + evaluate
             # in a single round-trip for better performance
             # mode="kernel" is the new fast path (no polling)
-            result = _try_addon_command(
-                "execute_code_notebook", {"code": code, "max_wait": 30, "mode": mode}
-            )
+            params = {
+                "code": code,
+                "max_wait": max_wait,
+                "mode": mode,
+                "session_id": session_id,
+                "isolate_context": isolate_context,
+                "sync": sync,
+                "sync_wait": sync_wait,
+            }
+            if deterministic_seed is not None:
+                params["deterministic_seed"] = deterministic_seed
+            result = _try_addon_command("execute_code_notebook", params)
 
             if result.get("success"):
                 response = {
@@ -416,15 +541,50 @@ async def execute_code(
 
             # Fallback to CLI execution with auto-rasterization for graphics
             try:
-                result = _try_addon_command(
-                    "execute_code", {"code": code, "format": format}
-                )
+                params = {
+                    "code": code,
+                    "format": format,
+                    "session_id": session_id,
+                    "isolate_context": isolate_context,
+                    "timeout": timeout,
+                }
+                if deterministic_seed is not None:
+                    params["deterministic_seed"] = deterministic_seed
+                result = _try_addon_command("execute_code", params)
                 if isinstance(result, dict):
                     result["note"] = "Executed via CLI (notebook error)."
+                    output = result.get("output", "")
+                    output_inputform = result.get("output_inputform", "")
+                    if render_graphics and (
+                        _is_graphics_output(output)
+                        or _is_graphics_output(output_inputform)
+                    ):
+                        raster_code = _prepare_raster_code(
+                            code,
+                            deterministic_seed=deterministic_seed,
+                            session_id=session_id,
+                            isolate_context=isolate_context,
+                        )
+                        image_path = _rasterize_via_wolframscript(raster_code)
+                        if image_path:
+                            result["rendered_image"] = image_path
+                            result["output"] = (
+                                f"[Graphics rendered to image: {image_path}]"
+                            )
+                            result["is_graphics"] = True
+                            result["tip"] = "Use Read tool to view image."
                     return json.dumps(result, indent=2)
                 return f"{result}\n(Note: Executed via CLI due to notebook error)"
             except Exception:
-                result = execute_in_kernel(code, format)
+                result = execute_in_kernel(
+                    code,
+                    format,
+                    render_graphics=render_graphics,
+                    deterministic_seed=deterministic_seed,
+                    session_id=session_id,
+                    isolate_context=isolate_context,
+                    timeout=timeout,
+                )
                 result["execution_mode"] = "kernel_fallback"
                 result["note"] = (
                     "Executed via CLI (notebook error). Run StartMCPServer[] in Mathematica."
@@ -435,10 +595,27 @@ async def execute_code(
                     result["tip"] = "Use Read tool to view image."
                 return json.dumps(result, indent=2)
 
-    result = _try_addon_command("execute_code", {"code": code, "format": format})
+    params = {
+        "code": code,
+        "format": format,
+        "session_id": session_id,
+        "isolate_context": isolate_context,
+        "timeout": timeout,
+    }
+    if deterministic_seed is not None:
+        params["deterministic_seed"] = deterministic_seed
+    result = _try_addon_command("execute_code", params)
     # Check if addon command succeeded, otherwise fall back to kernel
     if result.get("success") is False or "error" in result:
-        result = execute_in_kernel(code, format)
+        result = execute_in_kernel(
+            code,
+            format,
+            render_graphics=render_graphics,
+            deterministic_seed=deterministic_seed,
+            session_id=session_id,
+            isolate_context=isolate_context,
+            timeout=timeout,
+        )
         result["execution_mode"] = "kernel_fallback"
         # Return image info if graphics were rasterized
         if result.get("is_graphics") and result.get("image_path"):
@@ -448,8 +625,16 @@ async def execute_code(
         # Check if addon returned Graphics output and rasterize it
         output = result.get("output", "")
         output_inputform = result.get("output_inputform", "")
-        if _is_graphics_output(output) or _is_graphics_output(output_inputform):
-            image_path = _rasterize_via_wolframscript(code)
+        if render_graphics and (
+            _is_graphics_output(output) or _is_graphics_output(output_inputform)
+        ):
+            raster_code = _prepare_raster_code(
+                code,
+                deterministic_seed=deterministic_seed,
+                session_id=session_id,
+                isolate_context=isolate_context,
+            )
+            image_path = _rasterize_via_wolframscript(raster_code)
             if image_path:
                 result["rendered_image"] = image_path
                 result["output"] = f"[Graphics rendered to image: {image_path}]"
@@ -466,20 +651,46 @@ async def execute_code(
 
 
 @mcp.tool()
-async def evaluate_selection(notebook: Optional[str] = None) -> str:
+async def batch_commands(commands: List[Dict[str, Any]]) -> str:
+    """Execute multiple commands in one round-trip."""
+    result = _try_addon_command("batch_commands", {"commands": commands})
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+async def evaluate_selection(
+    notebook: Optional[str] = None,
+    session_id: Optional[str] = None,
+    max_wait: int = 10,
+    sync: Literal["none", "refresh", "strict"] = "none",
+    sync_wait: float = 2,
+) -> str:
     """
     Evaluate the currently selected cell(s) in a notebook.
 
     Args:
         notebook: Notebook ID. If None, uses selected notebook.
     """
-    result = _try_addon_command("execute_selection", {"notebook": notebook})
+    result = _try_addon_command(
+        "execute_selection",
+        {
+            "notebook": notebook,
+            "session_id": session_id,
+            "max_wait": max_wait,
+            "sync": sync,
+            "sync_wait": sync_wait,
+        },
+    )
     return json.dumps(result, indent=2)
 
 
 @mcp.tool()
 async def screenshot_notebook(
-    notebook: Optional[str] = None, max_height: int = 2000
+    notebook: Optional[str] = None,
+    max_height: int = 2000,
+    session_id: Optional[str] = None,
+    use_rasterize: bool = False,
+    wait_ms: int = 100,
 ) -> Image:
     """
     Capture a screenshot of an entire notebook window.
@@ -491,7 +702,14 @@ async def screenshot_notebook(
     Returns the screenshot as an image that can be viewed directly.
     """
     result = _try_addon_command(
-        "screenshot_notebook", {"notebook": notebook, "max_height": max_height}
+        "screenshot_notebook",
+        {
+            "notebook": notebook,
+            "max_height": max_height,
+            "session_id": session_id,
+            "use_rasterize": use_rasterize,
+            "wait_ms": wait_ms,
+        },
     )
 
     image_path = result["path"]
@@ -503,7 +721,12 @@ async def screenshot_notebook(
 
 
 @mcp.tool()
-async def screenshot_cell(cell_id: str) -> Image:
+async def screenshot_cell(
+    cell_id: str,
+    notebook: Optional[str] = None,
+    session_id: Optional[str] = None,
+    use_rasterize: bool = False,
+) -> Image:
     """
     Capture a screenshot of a specific cell's content and output.
 
@@ -512,7 +735,15 @@ async def screenshot_cell(cell_id: str) -> Image:
     Args:
         cell_id: The cell object ID to screenshot
     """
-    result = _try_addon_command("screenshot_cell", {"cell_id": cell_id})
+    result = _try_addon_command(
+        "screenshot_cell",
+        {
+            "cell_id": cell_id,
+            "notebook": notebook,
+            "session_id": session_id,
+            "use_rasterize": use_rasterize,
+        },
+    )
 
     image_path = result["path"]
     with open(image_path, "rb") as f:
@@ -552,16 +783,30 @@ async def rasterize_expression(expression: str, image_size: int = 400) -> Image:
 
 
 @mcp.tool()
-async def select_cell(cell_id: str) -> str:
+async def select_cell(
+    cell_id: str,
+    notebook: Optional[str] = None,
+    session_id: Optional[str] = None,
+) -> str:
     """Select a cell in the notebook (moves cursor to it)."""
-    result = _try_addon_command("select_cell", {"cell_id": cell_id})
+    result = _try_addon_command(
+        "select_cell",
+        {"cell_id": cell_id, "notebook": notebook, "session_id": session_id},
+    )
     return json.dumps(result, indent=2)
 
 
 @mcp.tool()
-async def scroll_to_cell(cell_id: str) -> str:
+async def scroll_to_cell(
+    cell_id: str,
+    notebook: Optional[str] = None,
+    session_id: Optional[str] = None,
+) -> str:
     """Scroll the notebook view to make a cell visible."""
-    result = _try_addon_command("scroll_to_cell", {"cell_id": cell_id})
+    result = _try_addon_command(
+        "scroll_to_cell",
+        {"cell_id": cell_id, "notebook": notebook, "session_id": session_id},
+    )
     return json.dumps(result, indent=2)
 
 
@@ -570,10 +815,12 @@ async def export_notebook(
     path: str,
     notebook: Optional[str] = None,
     format: Literal["PDF", "HTML", "TeX", "Markdown"] = "PDF",
+    session_id: Optional[str] = None,
 ) -> str:
     """Export a notebook to PDF, HTML, TeX, or Markdown."""
     result = _try_addon_command(
-        "export_notebook", {"notebook": notebook, "path": path, "format": format}
+        "export_notebook",
+        {"notebook": notebook, "path": path, "format": format, "session_id": session_id},
     )
     return json.dumps(result, indent=2)
 
@@ -1311,41 +1558,38 @@ async def search_function_repository(
             {"success": False, "error": "wolframscript not found in PATH"}, indent=2
         )
 
+    safe_query = query.replace('"', '\\"')
+
     search_code = f"""
-Module[{{results, query}},
-  query = "{query}";
-  results = Quiet[Check[
-    Take[
-      ResourceSearch[{{"ResourceType" -> "Function", "Name" -> query}}, "SnippetData"],
-      UpTo[{max_results}]
-    ],
+Module[{{results, query, clean, fetch, maxRes}},
+  query = "{safe_query}";
+  maxRes = {max_results};
+  fetch[q_, field_] := Quiet[Check[
+    Normal@ResourceSearch[{{"ResourceType" -> "Function", field -> q}}, "Associations"],
     {{}}
   ]];
-  
+
+  results = Quiet[Check[Take[fetch[query, "Name"], UpTo[maxRes]], {{}}]];
+
   If[results === {{}},
-    (* Fallback: try keyword search *)
-    results = Quiet[Check[
-      Take[
-        ResourceSearch[{{"ResourceType" -> "Function", "Keyword" -> query}}, "SnippetData"],
-        UpTo[{max_results}]
-      ],
-      {{}}
-    ]]
+    results = Quiet[Check[Take[fetch[query, "Keyword"], UpTo[maxRes]], {{}}]]
   ];
-  
-  <|
-    "success" -> True,
-    "query" -> query,
-    "count" -> Length[results],
-    "results" -> Map[
-      <|
-        "name" -> #["Name"],
-        "short_description" -> Quiet[Check[#["ShortDescription"], ""]],
-        "repository_location" -> "Wolfram Function Repository"
-      |> &,
-      results
-    ]
-  |>
+
+  clean[res_] := <|
+    "name" -> ToString[Lookup[res, "Name", ""]],
+    "short_description" -> ToString[Lookup[res, "ShortDescription", ""]],
+    "repository_location" -> "Wolfram Function Repository"
+  |>;
+
+  ExportString[
+    <|
+      "success" -> True,
+      "query" -> query,
+      "count" -> Length[results],
+      "results" -> Map[clean, results]
+    |>,
+    "JSON"
+  ]
 ]
 """
 
@@ -1357,12 +1601,36 @@ Module[{{results, query}},
             timeout=60,
         )
 
-        raw_output = result.stdout.strip()
-        parsed = _parse_wolfram_association(raw_output)
+        if result.returncode != 0:
+            return json.dumps(
+                {
+                    "success": False,
+                    "error": result.stderr or "Search failed",
+                    "query": query,
+                },
+                indent=2,
+            )
 
-        return json.dumps(
-            parsed if isinstance(parsed, dict) else {"raw": raw_output}, indent=2
-        )
+        raw_output = result.stdout.strip()
+        if not raw_output:
+            return json.dumps(
+                {"success": False, "error": "Empty search response", "query": query},
+                indent=2,
+            )
+
+        try:
+            parsed = json.loads(raw_output)
+        except json.JSONDecodeError as e:
+            return json.dumps(
+                {
+                    "success": False,
+                    "error": f"Failed to parse search response: {e}",
+                    "raw": raw_output,
+                },
+                indent=2,
+            )
+
+        return json.dumps(parsed, indent=2)
 
     except subprocess.TimeoutExpired:
         return json.dumps(
@@ -2137,7 +2405,9 @@ def _expand_path(path: str) -> str:
 
 
 @mcp.tool()
-async def open_notebook_file(path: str) -> str:
+async def open_notebook_file(
+    path: str, session_id: Optional[str] = None
+) -> str:
     """
     Open an existing Mathematica notebook file (.nb) in the Mathematica frontend.
 
@@ -2156,7 +2426,9 @@ async def open_notebook_file(path: str) -> str:
         open_notebook_file("~/Documents/analysis.nb") -> {id: "NotebookObject[...]", cell_count: 15}
     """
     expanded = _expand_path(path)
-    result = _try_addon_command("open_notebook_file", {"path": expanded})
+    result = _try_addon_command(
+        "open_notebook_file", {"path": expanded, "session_id": session_id}
+    )
 
     if result.get("error"):
         return json.dumps(
@@ -2219,34 +2491,73 @@ async def read_notebook_content(path: str, include_outputs: bool = False) -> str
             {"success": False, "error": f"File not found: {expanded}"}, indent=2
         )
 
+    def _parse_with_python_parser(expanded_path: str) -> str:
+        from .notebook_parser import NotebookParser, CellStyle
+
+        parser = NotebookParser(truncation_threshold=25000)
+        notebook = parser.parse_file(expanded_path)
+
+        allowed_styles = {
+            CellStyle.INPUT,
+            CellStyle.CODE,
+            CellStyle.TEXT,
+            CellStyle.SECTION,
+            CellStyle.SUBSECTION,
+            CellStyle.TITLE,
+        }
+
+        cells = []
+        for cell in notebook.cells:
+            if include_outputs or cell.style in allowed_styles:
+                cells.append({"content": cell.content, "style": cell.style.value})
+
+        return json.dumps(
+            {
+                "success": True,
+                "path": expanded_path,
+                "cell_count": len(cells),
+                "cells": cells[:50],
+            },
+            indent=2,
+        )
+
     wolframscript = shutil.which("wolframscript")
     if not wolframscript:
-        return json.dumps(
-            {"success": False, "error": "wolframscript not found"}, indent=2
-        )
+        try:
+            return _parse_with_python_parser(expanded)
+        except Exception as e:
+            return json.dumps(
+                {
+                    "success": False,
+                    "error": f"wolframscript not found and python parser failed: {e}",
+                },
+                indent=2,
+            )
 
     style_filter = (
         "True"
         if include_outputs
-        else 'MemberQ[{"Input", "Code", "Text", "Section", "Subsection", "Title"}, #[[2]]]'
+        else 'MemberQ[{"Input", "Code", "Text", "Section", "Subsection", "Title"}, #["style"]]'
     )
+
+    safe_path = expanded.replace("\\", "\\\\").replace('"', '\\"')
 
     code = f'''
 Module[{{nb, cells, filtered}},
-  nb = Quiet[Check[Import["{expanded}", "Notebook"], $Failed]];
+  nb = Quiet[Check[Import["{safe_path}", "Notebook"], $Failed]];
   If[nb === $Failed,
-    <|"success" -> False, "error" -> "Failed to read notebook"|>,
+    ExportString[<|"success" -> False, "error" -> "Failed to read notebook"|>, "JSON"],
     cells = Cases[nb, Cell[content_, style_, ___] :> <|
       "content" -> ToString[content, InputForm],
-      "style" -> style
+      "style" -> ToString[style]
     |>, Infinity];
     filtered = Select[cells, {style_filter} &];
-    <|
+    ExportString[<|
       "success" -> True,
-      "path" -> "{expanded}",
+      "path" -> "{safe_path}",
       "cell_count" -> Length[filtered],
       "cells" -> Take[filtered, UpTo[50]]
-    |>
+    |>, "JSON"]
   ]
 ]
 '''
@@ -2258,11 +2569,28 @@ Module[{{nb, cells, filtered}},
             text=True,
             timeout=30,
         )
+        if result.returncode != 0:
+            raise RuntimeError(result.stderr or "wolframscript failed")
+
         output = result.stdout.strip()
-        parsed = _parse_wolfram_association(output)
-        return json.dumps(parsed, indent=2)
+        if not output:
+            raise RuntimeError("Empty response from wolframscript")
+
+        try:
+            return json.dumps(json.loads(output), indent=2)
+        except json.JSONDecodeError as e:
+            raise RuntimeError(f"Failed to parse wolframscript JSON: {e}")
     except Exception as e:
-        return json.dumps({"success": False, "error": str(e)}, indent=2)
+        try:
+            return _parse_with_python_parser(expanded)
+        except Exception as parser_error:
+            return json.dumps(
+                {
+                    "success": False,
+                    "error": f"{e}; fallback parser failed: {parser_error}",
+                },
+                indent=2,
+            )
 
 
 @mcp.tool()
@@ -2706,27 +3034,45 @@ async def interpret_natural_language(text: str) -> str:
 
     safe_text = text.replace('"', '\\"')
 
-    code = f'''
-Module[{{result, inputForm}},
-  result = Quiet[Check[
-    WolframAlpha["{safe_text}", {{"Input", "Result"}}],
-    $Failed
-  ]];
-  If[result === $Failed || result === {{}},
-    <|"success" -> False, "error" -> "Could not interpret text"|>,
-    inputForm = If[Length[result] >= 1, 
-      ToString[result[[1, 2]], InputForm], 
-      ""];
-    <|
-      "success" -> True,
-      "input" -> "{safe_text}",
-      "wolfram_code" -> inputForm,
-      "result" -> If[Length[result] >= 2, ToString[result[[2, 2]]], ToString[result]],
-      "tex" -> Quiet[Check[If[Length[result] >= 2, ToString[TeXForm[result[[2, 2]]]], ""], ""]]
-    |>
+    code = '''
+Module[{query, props, inputSpec, inputExpr, inputForm, resultExpr},
+  query = "__MCP_QUERY__";
+  props = Quiet[Check[WolframAlpha[query, "Properties"], {}]];
+  inputSpec = SelectFirst[
+    props,
+    (Length[#] == 2 && #[[2]] === "Input") &,
+    Missing["NotAvailable"]
+  ];
+  inputExpr = If[inputSpec === Missing["NotAvailable"],
+    Missing["NotAvailable"],
+    Quiet[Check[WolframAlpha[query, {inputSpec[[1]], "Input"}], Missing["NotAvailable"]]]
+  ];
+
+  inputForm = Which[
+    inputExpr === Missing["NotAvailable"] || inputExpr === {}, "",
+    Head[inputExpr] === HoldComplete,
+      ToString[Unevaluated[inputExpr /. HoldComplete[x_] :> x], InputForm],
+    True,
+      ToString[Unevaluated[inputExpr], InputForm]
+  ];
+
+  resultExpr = Quiet[Check[WolframAlpha[query, "Result"], $Failed]];
+  If[resultExpr === $Failed || resultExpr === Missing["NotAvailable"] || resultExpr === {},
+    ExportString[<|"success" -> False, "error" -> "Could not interpret text"|>, "JSON"],
+    ExportString[
+      <|
+        "success" -> True,
+        "input" -> query,
+        "wolfram_code" -> inputForm,
+        "result" -> ToString[resultExpr, InputForm],
+        "tex" -> Quiet[Check[ToString[TeXForm[resultExpr]], ""]]
+      |>,
+      "JSON"
+    ]
   ]
 ]
 '''
+    code = code.replace("__MCP_QUERY__", safe_text)
 
     try:
         result = subprocess.run(
@@ -2735,8 +3081,31 @@ Module[{{result, inputForm}},
             text=True,
             timeout=30,
         )
+        if result.returncode != 0:
+            return json.dumps(
+                {"success": False, "error": result.stderr or "Query failed"},
+                indent=2,
+            )
+
         output = result.stdout.strip()
-        parsed = _parse_wolfram_association(output)
+        if not output:
+            return json.dumps(
+                {"success": False, "error": "Empty WolframAlpha response"},
+                indent=2,
+            )
+
+        try:
+            parsed = json.loads(output)
+        except json.JSONDecodeError as e:
+            return json.dumps(
+                {
+                    "success": False,
+                    "error": f"Failed to parse WolframAlpha response: {e}",
+                    "raw": output,
+                },
+                indent=2,
+            )
+
         return json.dumps(parsed, indent=2)
     except Exception as e:
         return json.dumps({"success": False, "error": str(e)}, indent=2)
