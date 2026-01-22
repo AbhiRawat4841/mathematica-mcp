@@ -1,5 +1,38 @@
 # Installation Guide
 
+## Quick Start (Recommended)
+
+The easiest way to install is using our automated setup:
+
+```bash
+# For Claude Desktop
+uvx mathematica-mcp setup claude-desktop
+
+# For Cursor
+uvx mathematica-mcp setup cursor
+
+# For VS Code
+uvx mathematica-mcp setup vscode
+
+# For OpenAI Codex CLI
+uvx mathematica-mcp setup codex
+
+# For Google Gemini CLI
+uvx mathematica-mcp setup gemini
+
+# For Claude Code CLI
+uvx mathematica-mcp setup claude-code
+```
+
+Then restart Mathematica and your editor. **Done!**
+
+To verify your installation:
+```bash
+uvx mathematica-mcp doctor
+```
+
+---
+
 ## Prerequisites
 
 - **Mathematica 14.0+** — [Download](https://www.wolfram.com/mathematica/)
@@ -233,6 +266,34 @@ Verify with `/mcp` inside Claude Code.
 | **Args** | `--directory /YOUR/PATH/TO/mathematica-mcp run mathematica-mcp` |
 
 **Note**: Paste the *entire* string above into the "Args" field (or add them as separate arguments if the UI provides a list).
+
+### Google Gemini CLI
+
+Gemini CLI stores MCP configuration in `~/.gemini/settings.json`.
+
+```bash
+gemini mcp add mathematica -- uv --directory /YOUR/PATH/TO/mathematica-mcp run mathematica-mcp
+```
+
+<details>
+<summary>Alternative: Edit settings.json directly</summary>
+
+```json
+{
+  "mcpServers": {
+    "mathematica": {
+      "command": "uv",
+      "args": ["--directory", "/YOUR/PATH/TO/mathematica-mcp", "run", "mathematica-mcp"]
+    }
+  }
+}
+```
+
+</details>
+
+Verify with `/mcp` in Gemini CLI.
+
+> See [Gemini CLI MCP documentation](https://geminicli.com/docs/tools/mcp-server/) for advanced options.
 
 ---
 

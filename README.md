@@ -25,9 +25,103 @@ This **MCP Server** empowers **AI Agents & IDEs** (like Claude Desktop, Cursor, 
 
 ---
 
-## Installation
+## Quick Start
 
-📖 See the **[Installation Guide](docs/installation.md)** for prerequisites, setup, and client configuration.
+### One-Command Setup (Recommended)
+
+```bash
+# For Claude Desktop
+uvx mathematica-mcp setup claude-desktop
+
+# For Cursor
+uvx mathematica-mcp setup cursor
+
+# For VS Code
+uvx mathematica-mcp setup vscode
+
+# For OpenAI Codex CLI
+uvx mathematica-mcp setup codex
+
+# For Google Gemini CLI
+uvx mathematica-mcp setup gemini
+```
+
+Then restart Mathematica and your editor. Done!
+
+### Alternative: Interactive Installer
+
+```bash
+curl -sSL https://raw.githubusercontent.com/AbhiRawat4841/mathematica-mcp/main/install.sh | bash
+```
+
+### Verify Installation
+
+```bash
+uvx mathematica-mcp doctor
+```
+
+---
+
+## Manual Installation
+
+<details>
+<summary>Click to expand manual setup instructions</summary>
+
+1.  **Clone & Install**:
+    ```bash
+    git clone https://github.com/AbhiRawat4841/mathematica-mcp.git
+    cd mathematica-mcp
+    uv sync
+    ```
+
+2.  **Install Mathematica Addon**:
+    ```bash
+    wolframscript -file addon/install.wl
+    ```
+    *Restart Mathematica after this step.*
+
+3.  **Configure your editor** (replace path with your actual path):
+
+    **Claude Desktop** (`~/Library/Application Support/Claude/claude_desktop_config.json`):
+    ```json
+    {
+      "mcpServers": {
+        "mathematica": {
+          "command": "uv",
+          "args": ["--directory", "/path/to/mathematica-mcp", "run", "mathematica-mcp"]
+        }
+      }
+    }
+    ```
+
+    **Cursor** (`~/.cursor/mcp.json`):
+    ```json
+    {
+      "mcpServers": {
+        "mathematica": {
+          "command": "uv",
+          "args": ["--directory", "/path/to/mathematica-mcp", "run", "mathematica-mcp"]
+        }
+      }
+    }
+    ```
+
+    **VS Code** (`~/.vscode/mcp.json`):
+    ```json
+    {
+      "servers": {
+        "mathematica": {
+          "type": "stdio",
+          "command": "uv",
+          "args": ["--directory", "/path/to/mathematica-mcp", "run", "mathematica-mcp"]
+        }
+      }
+    }
+    ```
+
+</details>
+
+📖 See the **[Installation Guide](docs/installation.md)** for troubleshooting and advanced setup.
 
 ---
 
