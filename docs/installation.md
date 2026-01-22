@@ -263,3 +263,36 @@ See [Add wolframscript to PATH](#add-wolframscript-to-path) in Prerequisites.
 1. Verify Mathematica is running with the addon loaded
 2. Check the absolute path in your client config is correct
 3. Ensure no firewall is blocking port 9881
+
+---
+
+## 4. Advanced Configuration
+
+### Session Isolation
+
+For multi-session use (e.g., multiple notebooks), use `session_id` parameter:
+```python
+execute_code(code="x = 5", session_id="notebook1")
+execute_code(code="x = 10", session_id="notebook2")  # Independent variable
+```
+
+### Context Isolation
+
+Use `isolate_context=True` to keep variables separate per session:
+```python
+execute_code(code="myVar = 42", session_id="session1", isolate_context=True)
+```
+
+### Authentication Token (Optional)
+
+Set `MATHEMATICA_MCP_TOKEN` environment variable for secure connections:
+```bash
+export MATHEMATICA_MCP_TOKEN="your-secret-token"
+```
+
+### Deterministic Execution
+
+For reproducible random results:
+```python
+execute_code(code="RandomReal[]", deterministic_seed=12345)
+```

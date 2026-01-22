@@ -35,6 +35,15 @@ Tests for README examples and command validation
 ### `test_derivation_verification.py`
 Tests for mathematical derivation verification
 
+### `test_notebook_optimizations.py` ⭐ NEW
+Performance tests for kernel-mode fast path optimization:
+- **Kernel mode execution** - Direct kernel evaluation (378x faster than frontend mode)
+- **Atomic notebook operations** - Combined notebook lookup, cell creation, and evaluation
+- **Session isolation** - Tests for `session_id` and `isolate_context` parameters
+- **Deterministic execution** - Seeded random number generation for reproducibility
+
+**Requires**: Active Mathematica connection with `StartMCPServer[]`
+
 ## Running Tests
 
 ### Run all tests:

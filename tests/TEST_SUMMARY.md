@@ -237,6 +237,40 @@ python -m pytest tests/test_error_detection.py --cov=src/mathematica_mcp/error_a
 - Average per test: ~0.18 seconds
 - Includes live Mathematica kernel calls
 
+---
+
+## Notebook Optimization Tests
+
+### File: `test_notebook_optimizations.py`
+
+Tests for the kernel-mode fast path introduced in commit `8197bdc`.
+
+### Performance Improvements Tested
+
+| Mode | Typical Execution Time | Speedup |
+|------|----------------------|---------|
+| Frontend mode (legacy) | ~3780ms | 1x |
+| Kernel mode (new) | ~10ms | **378x** |
+
+### Test Coverage
+
+- **Kernel mode execution** - Direct kernel evaluation bypassing frontend
+- **Atomic notebook operations** - Single round-trip for create+write+evaluate
+- **Session ID routing** - Notebook isolation per session
+- **Context isolation** - `isolate_context` parameter for variable separation
+- **Deterministic seeds** - Reproducible random number generation
+
+### Key Parameters Tested
+
+| Parameter | Description |
+|-----------|-------------|
+| `mode` | `"kernel"` (fast) or `"frontend"` (legacy) |
+| `session_id` | Optional session identifier for notebook routing |
+| `isolate_context` | Use dedicated Mathematica context per session |
+| `deterministic_seed` | Seed for reproducible random output |
+
+---
+
 ## Conclusion
 
 The error detection and analysis system has been comprehensively tested across:

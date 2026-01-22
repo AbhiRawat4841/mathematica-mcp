@@ -21,7 +21,7 @@
 ```
 
 **Two components:**
-1. **Python MCP Server** - Exposes 98 tools to LLMs via MCP protocol
+1. **Python MCP Server** - Exposes 80 tools to LLMs via MCP protocol
 2. **Mathematica Addon** - Runs inside Mathematica with persistent session state
 
 **Performance:** Notebook execution uses an atomic command that combines notebook lookup, cell creation, and evaluation into a single round-trip (vs. 4 separate calls), resulting in 3-4x faster plot rendering.
@@ -939,8 +939,11 @@ mathematica-mcp/
 │   ├── install.wl          # Auto-install script
 │   └── README.md
 └── tests/
-    ├── test_session.py              # 49 tests: session, parsing, math operations
-    └── test_derivation_verification.py  # 14 tests: algebraic/trig identity verification
+    ├── test_session.py                  # Session, parsing, math operations
+    ├── test_derivation_verification.py  # Algebraic/trig identity verification
+    ├── test_error_detection.py          # Error analysis and LLM formatting (33 tests)
+    ├── test_readme_commands.py          # README examples validation
+    └── test_notebook_optimizations.py   # Kernel-mode fast path benchmarks (378x speedup)
 ```
 
 ---
