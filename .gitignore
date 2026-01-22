@@ -83,3 +83,4 @@ VERIFICATION_REPORT.md
 
 # Debug/test scripts at root
 test_mcp_connection.py
+CLIENT_CONFIG.json
