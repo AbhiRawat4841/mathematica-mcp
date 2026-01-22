@@ -326,22 +326,27 @@ cmdGetNotebooks[_] := Module[{nbs},
   Map[notebookToAssoc, nbs]
 ];
 
-cmdGetNotebookInfo[params_] := Module[{nb},
+cmdGetNotebookInfo[params_] := Module[{nb, cells},
   nb = resolveNotebook[Lookup[params, "notebook", None]];
   If[nb === None || !MatchQ[nb, _NotebookObject],
     Return[<|"error" -> "No notebook found"|>]
   ];
-  <|
+  
+  (* Wrap in Quiet to handle edge cases *)
+  cells = Quiet[Cells[nb]];
+  If[!ListQ[cells], cells = {}];
+  
+  Quiet @ <|
     "id" -> ToString[nb, InputForm],
     "filename" -> (NotebookFileName[nb] /. $Failed -> None),
     "directory" -> (NotebookDirectory[nb] /. $Failed -> None),
-    "title" -> CurrentValue[nb, WindowTitle],
-    "cell_count" -> Length[Cells[nb]],
+    "title" -> (CurrentValue[nb, WindowTitle] /. $Failed -> "Unknown"),
+    "cell_count" -> Length[cells],
     "cell_styles" -> DeleteDuplicates[
-      Flatten[{CurrentValue[#, CellStyle]} & /@ Cells[nb]]
+      Flatten[{CurrentValue[#, CellStyle] /. $Failed -> "Unknown"} & /@ cells]
     ],
-    "modified" -> CurrentValue[nb, "Modified"],
-    "visible" -> CurrentValue[nb, Visible]
+    "modified" -> TrueQ[CurrentValue[nb, "Modified"]],
+    "visible" -> TrueQ[CurrentValue[nb, Visible]]
   |>
 ];
 
@@ -405,11 +410,12 @@ cmdGetCellContent[params_] := Module[{cell, content},
   |>
 ];
 
-cmdWriteCell[params_] := Module[{nb, content, style, position, cell},
+cmdWriteCell[params_] := Module[{nb, content, style, position, cell, refresh},
   nb = resolveNotebook[Lookup[params, "notebook", None]];
   content = Lookup[params, "content", ""];
   style = Lookup[params, "style", "Input"];
   position = Lookup[params, "position", "After"];
+  refresh = TrueQ[Lookup[params, "refresh", False]];
   
   cell = Cell[content, style];
   
@@ -426,6 +432,8 @@ cmdWriteCell[params_] := Module[{nb, content, style, position, cell},
       NotebookWrite[nb, cell, After]
   ];
   
+  If[refresh, FrontEndTokenExecute[nb, "Refresh"]];
+  
   <|"written" -> True, "style" -> style, "position" -> position|>
 ];
 
@@ -438,7 +446,7 @@ cmdDeleteCell[params_] := Module[{cell},
   <|"deleted" -> True|>
 ];
 
-cmdEvaluateCell[params_] := Module[{cell, nb, cellsBefore, cellsAfter, maxWait, waitInterval, elapsed},
+cmdEvaluateCell[params_] := Module[{cell, nb, cellsBefore, cellsAfter, maxWait, waitInterval, elapsed, refresh},
   cell = resolveCellObject[Lookup[params, "cell_id", None]];
   If[!MatchQ[cell, _CellObject],
     Return[<|"error" -> "Invalid cell ID"|>]
@@ -446,9 +454,9 @@ cmdEvaluateCell[params_] := Module[{cell, nb, cellsBefore, cellsAfter, maxWait, 
   nb = ParentNotebook[cell];
   maxWait = Lookup[params, "max_wait", 10];
   waitInterval = 0.1;
+  refresh = TrueQ[Lookup[params, "refresh", False]];
 
   cellsBefore = Length[Cells[nb]];
-  (* Use FrontEndTokenExecute for proper graphics rendering *)
   SelectionMove[cell, All, Cell];
   FrontEndTokenExecute["EvaluateCells"];
 
@@ -463,7 +471,7 @@ cmdEvaluateCell[params_] := Module[{cell, nb, cellsBefore, cellsAfter, maxWait, 
     ];
   ];
 
-  FrontEndTokenExecute[nb, "Refresh"];
+  If[refresh, FrontEndTokenExecute[nb, "Refresh"]];
 
   <|"evaluated" -> True, "cell" -> ToString[cell, InputForm], "waited_seconds" -> elapsed|>
 ];
@@ -506,32 +514,27 @@ cmdExecuteCode[params_] := Module[{code, format, result, output, texOutput},
   |>
 ];
 
-cmdExecuteSelection[params_] := Module[{nb, cellsBefore, cellsAfter, maxWait, waitInterval, elapsed},
+cmdExecuteSelection[params_] := Module[{nb, cellsBefore, cellsAfter, maxWait, waitInterval, elapsed, refresh},
   nb = resolveNotebook[Lookup[params, "notebook", None]];
-  maxWait = Lookup[params, "max_wait", 10]; (* seconds *)
-  waitInterval = 0.1; (* 100ms polling interval *)
+  maxWait = Lookup[params, "max_wait", 10];
+  waitInterval = 0.1;
+  refresh = TrueQ[Lookup[params, "refresh", False]];
 
-  (* Count cells before evaluation *)
   cellsBefore = Length[Cells[nb]];
-
-  (* Fire evaluation - use FrontEndTokenExecute for proper graphics rendering *)
   FrontEndTokenExecute["EvaluateCells"];
 
-  (* Wait for output cell to appear (cell count increases) *)
   elapsed = 0;
   While[elapsed < maxWait,
     Pause[waitInterval];
     elapsed += waitInterval;
     cellsAfter = Length[Cells[nb]];
     If[cellsAfter > cellsBefore,
-      (* Output cell appeared - give brief extra time for rendering *)
       Pause[0.15];
       Break[];
     ];
   ];
 
-  (* Force frontend to flush rendering queue *)
-  FrontEndTokenExecute[nb, "Refresh"];
+  If[refresh, FrontEndTokenExecute[nb, "Refresh"]];
 
   <|
     "evaluated" -> True,
@@ -541,14 +544,17 @@ cmdExecuteSelection[params_] := Module[{nb, cellsBefore, cellsAfter, maxWait, wa
   |>
 ];
 
-(* Atomic notebook execution - combines find/create notebook, write cell, and evaluate in one operation *)
+(* Atomic notebook execution with kernel-mode fast path *)
 cmdExecuteCodeNotebook[params_] := Module[
-  {code, nb, nbs, cell, cellsBefore, cellsAfter, maxWait, waitInterval, elapsed, createdNew},
+  {code, mode, refresh, nb, nbs, createdNew, maxWait},
 
   code = Lookup[params, "code", ""];
   If[code === "", Return[<|"error" -> "No code provided"|>]];
 
-  (* Find or create visible notebook - single operation *)
+  mode = Lookup[params, "mode", "kernel"];
+  refresh = TrueQ[Lookup[params, "refresh", False]];
+  maxWait = Lookup[params, "max_wait", 30];
+
   nbs = Select[Notebooks[],
     Module[{title, vis},
       title = Quiet[CurrentValue[#, WindowTitle] /. $Failed -> ""];
@@ -565,48 +571,107 @@ cmdExecuteCodeNotebook[params_] := Module[
     CreateDocument[{}, WindowTitle -> "Analysis"]
   ];
 
-  (* Count cells before we start *)
-  cellsBefore = Length[Cells[nb]];
+  If[mode === "frontend",
+    executeCodeNotebookFrontend[nb, code, maxWait, refresh, createdNew],
+    executeCodeNotebookKernel[nb, code, refresh, createdNew]
+  ]
+];
 
-  (* Write cell at end of notebook *)
+executeCodeNotebookKernel[nb_, code_, refresh_, createdNew_] := Module[
+  {result, messages, timing, isGraphics, outputCell, inputCell},
+
   SelectionMove[nb, After, Notebook];
   NotebookWrite[nb, Cell[code, "Input"], After];
+  inputCell = Last[Cells[nb, CellStyle -> "Input"]];
 
-  (* Get the cell we just wrote *)
+  {timing, {result, messages}} = AbsoluteTiming[
+    Block[{$MessageList = {}},
+      {Quiet @ Check[ToExpression[code], $Failed], $MessageList}
+    ]
+  ];
+
+  isGraphics = MatchQ[result, _Graphics | _Graphics3D | _Image | _Legended | _Graph];
+
+  outputCell = If[result === $Failed,
+    Cell["$Failed", "Output", GeneratedCell -> True],
+    If[isGraphics,
+      Cell[BoxData[ToBoxes[result]], "Output", GeneratedCell -> True],
+      Cell[ToString[result, InputForm], "Output", GeneratedCell -> True]
+    ]
+  ];
+
+  SelectionMove[nb, After, Notebook];
+  NotebookWrite[nb, outputCell, After];
+
+  If[refresh, FrontEndTokenExecute[nb, "Refresh"]];
+
+  Module[{formattedMessages, hasErrors, hasWarnings},
+    formattedMessages = Map[
+      Function[msg,
+        Quiet @ Check[
+          <|
+            "tag" -> ToString[First[msg], OutputForm],
+            "text" -> ToString[Last[msg], OutputForm],
+            "type" -> If[StringContainsQ[ToString[First[msg]], "::"],
+              If[StringEndsQ[ToString[First[msg]], "::warning"], "warning", "error"],
+              "message"
+            ]
+          |>,
+          <|"tag" -> "Unknown", "text" -> "Failed to format message", "type" -> "error"|>
+        ]
+      ],
+      Take[messages, UpTo[20]]
+    ];
+    formattedMessages = Select[formattedMessages, AssociationQ[#] && StringLength[#["text"]] > 0 &];
+    hasErrors = Length[Select[formattedMessages, #["type"] == "error" &]] > 0;
+    hasWarnings = Length[Select[formattedMessages, #["type"] == "warning" &]] > 0;
+
+    <|
+      "success" -> True,
+      "mode" -> "kernel",
+      "notebook_id" -> ToString[nb, InputForm],
+      "cell_id" -> ToString[inputCell, InputForm],
+      "timing_ms" -> Round[timing * 1000],
+      "created_notebook" -> createdNew,
+      "messages" -> formattedMessages,
+      "has_errors" -> hasErrors,
+      "has_warnings" -> hasWarnings,
+      "message_count" -> Length[formattedMessages],
+      "output_preview" -> StringTake[ToString[result, InputForm], UpTo[1000]],
+      "is_graphics" -> isGraphics
+    |>
+  ]
+];
+
+executeCodeNotebookFrontend[nb_, code_, maxWait_, refresh_, createdNew_] := Module[
+  {cell, cellsBefore, cellsAfter, waitInterval, elapsed},
+
+  cellsBefore = Length[Cells[nb]];
+
+  SelectionMove[nb, After, Notebook];
+  NotebookWrite[nb, Cell[code, "Input"], After];
   cell = Last[Cells[nb, CellStyle -> "Input"]];
 
-  (* Evaluate with faster polling *)
-  maxWait = Lookup[params, "max_wait", 30];
-  waitInterval = 0.05;  (* 50ms - faster than the old 100ms *)
-
-  (* Use FrontEndTokenExecute for proper graphics rendering *)
+  waitInterval = 0.05;
   SelectionMove[cell, All, Cell];
   FrontEndTokenExecute["EvaluateCells"];
 
-  (* Wait for output cell to appear *)
   elapsed = 0;
   While[elapsed < maxWait,
     Pause[waitInterval];
     elapsed += waitInterval;
     cellsAfter = Length[Cells[nb]];
-    (* +1 for our input cell, so we need > cellsBefore + 1 for output *)
     If[cellsAfter > cellsBefore + 1,
-      Pause[0.1];  (* Brief settle time for rendering *)
+      Pause[0.1];
       Break[];
     ];
   ];
 
-  (* Force frontend refresh *)
-  FrontEndTokenExecute[nb, "Refresh"];
+  If[refresh, FrontEndTokenExecute[nb, "Refresh"]];
 
-  (* ========================================================================== *)
-  (* NEW: Capture messages and errors from evaluation                          *)
-  (* ========================================================================== *)
   Module[{messages, outputCells, outputContent, outputText, hasErrors, hasWarnings},
-
-    (* Capture recent messages from $MessageList *)
     messages = Quiet @ Module[{recent, formatted},
-      recent = Take[$MessageList, UpTo[20]];  (* Last 20 messages *)
+      recent = Take[$MessageList, UpTo[20]];
       formatted = Map[
         Function[msg,
           Quiet @ Check[
@@ -623,38 +688,30 @@ cmdExecuteCodeNotebook[params_] := Module[
         ],
         recent
       ];
-      (* Filter out empty or malformed messages *)
       Select[formatted, AssociationQ[#] && StringLength[#["text"]] > 0 &]
     ];
 
-    (* Read output cell content to check for errors *)
     outputCells = Quiet @ Cells[nb, CellStyle -> "Output"];
     outputContent = If[Length[outputCells] > 0,
       Quiet @ NotebookRead[Last[outputCells]],
       None
     ];
 
-    (* Extract text from output for preview *)
     outputText = Quiet @ Check[
-      If[outputContent =!= None,
-        ToString[outputContent, OutputForm],
-        ""
-      ],
+      If[outputContent =!= None, ToString[outputContent, OutputForm], ""],
       ""
     ];
 
-    (* Determine if there are errors or warnings *)
     hasErrors = Length[Select[messages, #["type"] == "error" &]] > 0;
     hasWarnings = Length[Select[messages, #["type"] == "warning" &]] > 0;
 
-    (* Return enhanced response with error information *)
     <|
       "success" -> True,
+      "mode" -> "frontend",
       "notebook_id" -> ToString[nb, InputForm],
       "cell_id" -> ToString[cell, InputForm],
       "waited_seconds" -> elapsed,
       "created_notebook" -> createdNew,
-      (* NEW FIELDS *)
       "messages" -> messages,
       "has_errors" -> hasErrors,
       "has_warnings" -> hasWarnings,
@@ -668,50 +725,83 @@ cmdExecuteCodeNotebook[params_] := Module[
 (* SCREENSHOT COMMANDS                                                          *)
 (* ============================================================================ *)
 
-cmdScreenshotNotebook[params_] := Module[{nb, img, path, maxHeight, format, waitMs},
+cmdScreenshotNotebook[params_] := Module[{nb, img, path, maxHeight, format, waitMs, useRasterize, exportResult, method},
   nb = resolveNotebook[Lookup[params, "notebook", None]];
   maxHeight = Lookup[params, "max_height", 2000];
   format = Lookup[params, "format", "PNG"];
-  waitMs = Lookup[params, "wait_ms", 100]; (* brief settle time *)
+  waitMs = Lookup[params, "wait_ms", 100];
+  useRasterize = TrueQ[Lookup[params, "use_rasterize", False]];
   
-  (* Force frontend to complete any pending rendering *)
   FrontEndTokenExecute[nb, "Refresh"];
   Pause[waitMs / 1000.0];
   
   path = FileNameJoin[{$TemporaryDirectory, "mcp_nb_" <> CreateUUID[] <> ".png"}];
+  method = "rasterize";
   
-  img = Rasterize[nb, ImageResolution -> 144];
-  
-  If[ImageDimensions[img][[2]] > maxHeight,
-    img = ImageResize[img, {Automatic, maxHeight}]
+  If[!useRasterize,
+    exportResult = Quiet @ Check[
+      FrontEndExecute[FrontEnd`ExportPacket[nb, "PNG"]],
+      $Failed
+    ];
+    If[MatchQ[exportResult, {_ByteArray, ___}],
+      Export[path, ImportByteArray[First[exportResult], "PNG"], format];
+      img = Import[path];
+      method = "export_packet";
+    ]
   ];
   
-  Export[path, img, format];
+  If[method === "rasterize",
+    img = Rasterize[nb, ImageResolution -> 144];
+    If[ImageDimensions[img][[2]] > maxHeight,
+      img = ImageResize[img, {Automatic, maxHeight}]
+    ];
+    Export[path, img, format];
+  ];
   
   <|
     "path" -> path,
     "width" -> ImageDimensions[img][[1]],
     "height" -> ImageDimensions[img][[2]],
-    "format" -> format
+    "format" -> format,
+    "method" -> method
   |>
 ];
 
-cmdScreenshotCell[params_] := Module[{cell, content, img, path},
+cmdScreenshotCell[params_] := Module[{cell, content, img, path, useRasterize, exportResult, method, nb},
   cell = resolveCellObject[Lookup[params, "cell_id", None]];
   If[!MatchQ[cell, _CellObject],
     Return[<|"error" -> "Invalid cell ID"|>]
   ];
   
+  useRasterize = TrueQ[Lookup[params, "use_rasterize", False]];
   content = NotebookRead[cell];
   path = FileNameJoin[{$TemporaryDirectory, "mcp_cell_" <> CreateUUID[] <> ".png"}];
+  method = "rasterize";
   
-  img = Rasterize[content, ImageResolution -> 144];
-  Export[path, img, "PNG"];
+  If[!useRasterize,
+    nb = ParentNotebook[cell];
+    SelectionMove[cell, All, Cell];
+    exportResult = Quiet @ Check[
+      FrontEndExecute[FrontEnd`ExportPacket[NotebookSelection[nb], "PNG"]],
+      $Failed
+    ];
+    If[MatchQ[exportResult, {_ByteArray, ___}],
+      Export[path, ImportByteArray[First[exportResult], "PNG"], "PNG"];
+      img = Import[path];
+      method = "export_packet";
+    ]
+  ];
+  
+  If[method === "rasterize",
+    img = Rasterize[content, ImageResolution -> 144];
+    Export[path, img, "PNG"];
+  ];
   
   <|
     "path" -> path,
     "width" -> ImageDimensions[img][[1]],
-    "height" -> ImageDimensions[img][[2]]
+    "height" -> ImageDimensions[img][[2]],
+    "method" -> method
   |>
 ];
 

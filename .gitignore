@@ -73,3 +73,6 @@ readme_command_report.json
 
 # Generated images at root
 /*.png
+
+# Benchmark results (machine-specific)
+benchmarks/benchmark_results_*.json

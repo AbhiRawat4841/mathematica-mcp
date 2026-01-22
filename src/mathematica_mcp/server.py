@@ -208,7 +208,11 @@ async def get_notebook_info(notebook: Optional[str] = None) -> str:
 
 @mcp.tool()
 async def create_notebook(title: str = "Untitled") -> str:
-    """Create a new empty notebook. Returns notebook ID."""
+    """Create a new empty notebook. Returns notebook ID.
+    
+    NOTE: For executing code in a notebook, prefer execute_code(code, output_target="notebook")
+    which handles notebook creation, cell writing, and evaluation atomically.
+    """
     result = _try_addon_command("create_notebook", {"title": title})
     return json.dumps(result, indent=2)
 
@@ -254,7 +258,11 @@ async def write_cell(
     notebook: Optional[str] = None,
     position: Literal["After", "Before", "End", "Beginning"] = "After",
 ) -> str:
-    """Write a new cell to a notebook. Ensure a visible notebook exists first."""
+    """Write a new cell to a notebook without evaluating it.
+    
+    NOTE: For executing code, prefer execute_code(code, output_target="notebook")
+    which writes AND evaluates the cell atomically.
+    """
     result = _try_addon_command(
         "write_cell",
         {
@@ -286,20 +294,32 @@ async def execute_code(
     code: str,
     format: Literal["text", "latex", "mathematica"] = "text",
     output_target: Literal["cli", "notebook"] = "notebook",
+    mode: Literal["kernel", "frontend"] = "kernel",
 ) -> str:
-    """Execute Wolfram Language code.
+    """Execute Wolfram Language code. THIS IS THE PRIMARY TOOL for running Mathematica code.
+
+    Use this tool to evaluate integrals, solve equations, create plots, etc.
+    With output_target="notebook", it atomically creates/finds a notebook, writes the code,
+    and evaluates it - all in one fast operation.
 
     Args:
-        code: Wolfram Language code
+        code: Wolfram Language code (e.g., "Integrate[x^2, x]", "Plot[Sin[x], {x, 0, 2Pi}]")
         format: Output format (text, latex, mathematica)
-        output_target: "notebook" (insert into active notebook) or "cli" (return text)
+        output_target: "notebook" (insert into active notebook) or "cli" (return text only)
+        mode: "kernel" (fast, synchronous) or "frontend" (legacy, for Manipulate/dynamic content)
+    
+    Examples:
+        execute_code("Integrate[(2x+x^2)/x^5, x]") - Compute integral in notebook
+        execute_code("Plot[Sin[x], {x, 0, 2Pi}]") - Create plot in notebook
+        execute_code("Solve[x^2 - 4 == 0, x]", output_target="cli") - Get result as text
     """
     if output_target == "notebook":
         try:
             # Use atomic command that combines find/create notebook + write + evaluate
             # in a single round-trip for better performance
+            # mode="kernel" is the new fast path (no polling)
             result = _try_addon_command(
-                "execute_code_notebook", {"code": code, "max_wait": 30}
+                "execute_code_notebook", {"code": code, "max_wait": 30, "mode": mode}
             )
 
             if result.get("success"):
