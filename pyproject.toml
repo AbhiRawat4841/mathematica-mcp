@@ -1,6 +1,6 @@
 [project]
 name = "mathematica-mcp-full"
-version = "0.1.2"
+version = "0.1.3"
 description = "Full GUI control of Mathematica notebooks and kernel via Model Context Protocol"
 readme = "README.md"
 requires-python = ">=3.10"

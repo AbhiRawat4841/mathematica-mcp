@@ -150,15 +150,15 @@ def get_package_dir() -> Path:
 
 def get_addon_dir() -> Path:
     """Get the addon directory."""
-    pkg_dir = get_package_dir()
-    addon_dir = pkg_dir / "addon"
-    if addon_dir.exists():
-        return addon_dir
-    # Fallback: check if we're running from source
+    # First check inside the package (when installed via pip/uvx)
+    pkg_addon = Path(__file__).parent / "addon"
+    if pkg_addon.exists():
+        return pkg_addon
+    # Fallback: check project root (when running from source)
     source_addon = Path(__file__).parent.parent.parent / "addon"
     if source_addon.exists():
         return source_addon
-    return addon_dir
+    return pkg_addon
 
 
 def find_wolframscript() -> Optional[Path]:
@@ -302,14 +302,14 @@ def generate_mcp_config(use_uvx: bool = True) -> Dict[str, Any]:
     if use_uvx:
         return {
             "command": "uvx",
-            "args": ["mathematica-mcp"]
+            "args": ["mathematica-mcp-full"]
         }
     else:
         # Use absolute path for local development
         pkg_dir = get_package_dir()
         return {
             "command": "uv",
-            "args": ["--directory", str(pkg_dir), "run", "mathematica-mcp"]
+            "args": ["--directory", str(pkg_dir), "run", "mathematica-mcp-full"]
         }
 
 
@@ -347,14 +347,14 @@ def generate_toml_config(server_name: str, use_uvx: bool = True) -> str:
         return f'''
 [mcp_servers.{server_name}]
 command = "uvx"
-args = ["mathematica-mcp"]
+args = ["mathematica-mcp-full"]
 '''
     else:
         pkg_dir = get_package_dir()
         return f'''
 [mcp_servers.{server_name}]
 command = "uv"
-args = ["--directory", "{pkg_dir}", "run", "mathematica-mcp"]
+args = ["--directory", "{pkg_dir}", "run", "mathematica-mcp-full"]
 '''
 
 
