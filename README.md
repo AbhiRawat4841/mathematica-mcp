@@ -57,6 +57,9 @@ uvx mathematica-mcp-full setup codex
 
 # For Google Gemini CLI
 uvx mathematica-mcp-full setup gemini
+
+# For Claude Code CLI
+uvx mathematica-mcp-full setup claude-code
 ```
 
 Then restart Mathematica and your editor. Done!
