@@ -392,7 +392,7 @@ main() {
         
         if [ -d "$clone_dir" ]; then
             info "Updating existing clone..."
-            cd "$clone_dir" && git pull --quiet
+            cd "$clone_dir" && git fetch --quiet && git reset --hard origin/main --quiet
         else
             git clone --quiet https://github.com/AbhiRawat4841/mathematica-mcp.git "$clone_dir"
         fi
