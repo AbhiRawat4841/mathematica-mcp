@@ -260,8 +260,20 @@ PYTHON
 
 # Interactive client selection
 select_client() {
+    # Check if running interactively (stdin is a terminal)
+    if [ ! -t 0 ]; then
+        echo "" >&2
+        echo "Error: Interactive mode requires a terminal." >&2
+        echo "When using curl | bash, specify the client:" >&2
+        echo "  curl -sSL <url>/install.sh | bash -s -- claude-desktop" >&2
+        echo "" >&2
+        echo "Supported clients: ${CLIENTS[*]}" >&2
+        echo ""
+        return
+    fi
+
     header "Select your MCP client:"
-    
+
     local i=1
     for client in "${CLIENTS[@]}"; do
         case "$client" in
@@ -274,10 +286,10 @@ select_client() {
         esac
         ((i++))
     done
-    
+
     echo ""
     read -p "Enter number (1-${#CLIENTS[@]}): " choice
-    
+
     if [[ "$choice" =~ ^[1-6]$ ]]; then
         echo "${CLIENTS[$((choice-1))]}"
     else

@@ -49,7 +49,9 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/mathematica_mcp"]
-include = ["addon/**"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"addon" = "mathematica_mcp/addon"
 
 [tool.hatch.build.targets.sdist]
 include = [
