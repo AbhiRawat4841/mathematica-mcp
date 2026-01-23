@@ -49,7 +49,7 @@ uvx mathematica-mcp-full setup claude-desktop
 # For Cursor
 uvx mathematica-mcp-full setup cursor
 
-# For VS Code
+# For VS Code (requires GitHub Copilot Chat extension)
 uvx mathematica-mcp-full setup vscode
 
 # For OpenAI Codex CLI
@@ -60,6 +60,21 @@ uvx mathematica-mcp-full setup gemini
 ```
 
 Then restart Mathematica and your editor. Done!
+
+<details>
+<summary>VS Code: Alternative setup via Command Palette</summary>
+
+> **Prerequisite:** [GitHub Copilot Chat](https://marketplace.visualstudio.com/items?itemName=GitHub.copilot-chat) extension must be installed - MCP support is built into Copilot.
+
+1. Press `Cmd+Shift+P` (Mac) / `Ctrl+Shift+P` (Windows)
+2. Type "MCP" → Select **"MCP: Add Server"**
+3. Choose **"Command (stdio)"** — *not "pip"*
+4. Enter command: `uvx`
+5. Enter args: `mathematica-mcp-full`
+6. Name it: `mathematica`
+7. Choose scope: Workspace or User
+
+</details>
 
 ### Alternative: Interactive Installer
 
@@ -125,6 +140,8 @@ uvx mathematica-mcp-full doctor
     ```
 
     **VS Code** (`~/.vscode/mcp.json`):
+    > **Note:** VS Code MCP requires [GitHub Copilot Chat](https://marketplace.visualstudio.com/items?itemName=GitHub.copilot-chat) extension.
+
     ```json
     {
       "servers": {
