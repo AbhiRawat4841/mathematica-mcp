@@ -471,18 +471,18 @@ main() {
     header "${GREEN}Installation complete!${NC}"
     echo ""
     echo "Next steps:"
-    echo "  1. ${BOLD}Restart Mathematica${NC} (for the addon to load)"
-    
+    echo -e "  1. ${BOLD}Restart Mathematica${NC} (for the addon to load)"
+
     case "$client" in
-        claude-desktop) echo "  2. ${BOLD}Restart Claude Desktop${NC}" ;;
-        cursor)         echo "  2. ${BOLD}Restart Cursor${NC}" ;;
-        vscode)         echo "  2. ${BOLD}Restart VS Code${NC}" ;;
-        claude-code)    echo "  2. ${BOLD}Restart Claude Code${NC}" ;;
+        claude-desktop) echo -e "  2. ${BOLD}Restart Claude Desktop${NC}" ;;
+        cursor)         echo -e "  2. ${BOLD}Restart Cursor${NC}" ;;
+        vscode)         echo -e "  2. ${BOLD}Restart VS Code${NC}" ;;
+        claude-code)    echo -e "  2. ${BOLD}Restart Claude Code${NC}" ;;
     esac
-    
+
     echo ""
     echo "To verify installation:"
-    echo "  cd $repo_path && uv run mathematica-mcp doctor"
+    echo -e "  cd $repo_path && uv run ${BOLD}mathematica-mcp-full doctor${NC}"
     echo ""
 }
 
