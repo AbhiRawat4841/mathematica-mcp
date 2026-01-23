@@ -272,23 +272,25 @@ select_client() {
         return
     fi
 
-    header "Select your MCP client:"
+    # Print menu to stderr so it displays even when stdout is captured
+    echo -e "\n${BOLD}Select your MCP client:${NC}\n" >&2
 
     local i=1
     for client in "${CLIENTS[@]}"; do
         case "$client" in
-            claude-desktop) echo "  $i) Claude Desktop" ;;
-            cursor)         echo "  $i) Cursor" ;;
-            vscode)         echo "  $i) VS Code" ;;
-            claude-code)    echo "  $i) Claude Code (CLI)" ;;
-            codex)          echo "  $i) OpenAI Codex CLI" ;;
-            gemini)         echo "  $i) Google Gemini CLI" ;;
+            claude-desktop) echo "  $i) Claude Desktop" >&2 ;;
+            cursor)         echo "  $i) Cursor" >&2 ;;
+            vscode)         echo "  $i) VS Code" >&2 ;;
+            claude-code)    echo "  $i) Claude Code (CLI)" >&2 ;;
+            codex)          echo "  $i) OpenAI Codex CLI" >&2 ;;
+            gemini)         echo "  $i) Google Gemini CLI" >&2 ;;
         esac
         ((i++))
     done
 
-    echo ""
-    read -p "Enter number (1-${#CLIENTS[@]}): " choice
+    echo "" >&2
+    echo -n "Enter number (1-${#CLIENTS[@]}): " >&2
+    read choice
 
     if [[ "$choice" =~ ^[1-6]$ ]]; then
         echo "${CLIENTS[$((choice-1))]}"
