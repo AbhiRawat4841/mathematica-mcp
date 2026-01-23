@@ -140,8 +140,12 @@ def get_config_path(client: str) -> Optional[Path]:
 
 
 def get_package_dir() -> Path:
-    """Get the directory where this package is installed."""
-    return Path(__file__).parent.parent.parent
+    """Get the project root when running from source, otherwise site-packages."""
+    current = Path(__file__).resolve()
+    for parent in current.parents:
+        if (parent / "pyproject.toml").exists() and (parent / "addon").exists():
+            return parent
+    return current.parent.parent
 
 
 def get_addon_dir() -> Path:

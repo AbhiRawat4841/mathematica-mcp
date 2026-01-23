@@ -11,6 +11,11 @@ from pathlib import Path
 
 README_PATH = Path(__file__).resolve().parents[1] / "README.md"
 REPO_ROOT = Path(__file__).resolve().parents[1]
+ALLOW_NETWORK = os.environ.get("README_RUN_NETWORK") == "1"
+NETWORK_COMMAND_RE = re.compile(
+    r"\b(curl|wget|uvx|git\s+clone|uv\s+sync)\b",
+    re.IGNORECASE,
+)
 
 
 @dataclass
@@ -26,6 +31,10 @@ def _extract_fenced_blocks(text: str):
     """Return list of (lang, body) for fenced code blocks."""
     pattern = re.compile(r"```(?P<lang>\w+)?\n(?P<body>.*?)\n```", re.S)
     return [(m.group("lang") or "", m.group("body")) for m in pattern.finditer(text)]
+
+
+def _requires_network(script: str) -> bool:
+    return bool(NETWORK_COMMAND_RE.search(script))
 
 
 def _make_isolated_home(tmp_path: Path) -> Path:
@@ -209,6 +218,18 @@ def test_readme_commands_smoke(tmp_path: Path):
             script_lines = [ln for ln in body.splitlines() if "<PID>" not in ln]
             script = "\n".join(script_lines).strip()
             if not script:
+                continue
+
+            if _requires_network(script) and not ALLOW_NETWORK:
+                results.append(
+                    CommandResult(
+                        kind="bash",
+                        source="README bash",
+                        code=script,
+                        ok=True,
+                        detail="skipped (network command)",
+                    )
+                )
                 continue
 
             # Avoid installing into the user's global Python environment.

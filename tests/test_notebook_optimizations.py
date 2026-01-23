@@ -6,6 +6,7 @@ Requires Mathematica to be running with StartMCPServer[].
 """
 
 import json
+import os
 import socket
 import time
 import pytest
@@ -14,6 +15,7 @@ import pytest
 DEFAULT_HOST = "localhost"
 DEFAULT_PORT = 9881
 SOCKET_TIMEOUT = 30.0
+REQUIRE_LIVE_ADDON = os.environ.get("MCP_REQUIRE_LIVE_ADDON") == "1"
 
 
 class MCPTestClient:
@@ -78,6 +80,21 @@ def mcp_client():
         result = client.send_command("ping")
         if not result.get("pong"):
             pytest.skip("Ping failed - addon not responding correctly")
+
+        try:
+            probe = client.send_command(
+                "execute_code_notebook",
+                {"code": "1 + 1", "mode": "kernel"}
+            )
+        except Exception as e:
+            if REQUIRE_LIVE_ADDON:
+                raise
+            pytest.skip(f"Addon running but notebook execution unavailable: {e}")
+
+        if not probe.get("success"):
+            if REQUIRE_LIVE_ADDON:
+                pytest.fail("Addon running but notebook execution failed")
+            pytest.skip("Addon running but notebook execution failed")
     except Exception as e:
         pytest.skip(f"Cannot connect to addon: {e}")
     
