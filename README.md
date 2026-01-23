@@ -27,6 +27,19 @@ This **MCP Server** empowers **AI Agents & IDEs** (like Claude Desktop, Cursor, 
 
 ## Quick Start
 
+### Prerequisites
+
+Before installing, you need:
+
+1. **Mathematica 14.0+** with `wolframscript` in your PATH
+   - [Download Mathematica](https://www.wolfram.com/mathematica/)
+   - macOS: Add to `~/.zshrc`: `export PATH="/Applications/Mathematica.app/Contents/MacOS:$PATH"`
+
+2. **uv package manager**
+   ```bash
+   curl -LsSf https://astral.sh/uv/install.sh | sh
+   ```
+
 ### One-Command Setup (Recommended)
 
 ```bash

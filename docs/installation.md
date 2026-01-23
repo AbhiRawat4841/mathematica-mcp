@@ -2,7 +2,33 @@
 
 ## Quick Start (Recommended)
 
-The easiest way to install is using our automated setup:
+### Prerequisites
+
+Before running the setup command, ensure you have:
+
+1. **Mathematica 14.0+** with `wolframscript` in your PATH
+   ```bash
+   # Verify wolframscript is available
+   wolframscript -version
+   ```
+   
+   If not found, add to your PATH:
+   - **macOS**: Add to `~/.zshrc`: `export PATH="/Applications/Mathematica.app/Contents/MacOS:$PATH"`
+   - **Linux**: Add to `~/.bashrc`: `export PATH="/usr/local/Wolfram/Mathematica/14.0/Executables:$PATH"`
+   - **Windows**: Add `C:\Program Files\Wolfram Research\Mathematica\14.0\` to system PATH
+
+2. **uv package manager**
+   ```bash
+   # macOS/Linux
+   curl -LsSf https://astral.sh/uv/install.sh | sh
+   
+   # Windows
+   powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+   ```
+
+### One-Command Setup
+
+Once prerequisites are installed, run:
 
 ```bash
 # For Claude Desktop
