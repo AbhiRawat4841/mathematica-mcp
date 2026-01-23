@@ -1,5 +1,14 @@
 # Installation Guide
 
+There are two ways to install mathematica-mcp:
+
+| Method | Best For | Time |
+|--------|----------|------|
+| [Quick Start](#quick-start-recommended) | Most users | ~2 minutes |
+| [Manual Installation](#manual-installation) | Developers, custom setups | ~10 minutes |
+
+---
+
 ## Quick Start (Recommended)
 
 ### Prerequisites
@@ -28,7 +37,7 @@ Before running the setup command, ensure you have:
 
 ### One-Command Setup
 
-Once prerequisites are installed, run:
+Once prerequisites are installed, run **one** of these commands based on your editor:
 
 ```bash
 # For Claude Desktop
@@ -50,23 +59,31 @@ uvx mathematica-mcp-full setup gemini
 uvx mathematica-mcp-full setup claude-code
 ```
 
-Then restart Mathematica and your editor. **Done!**
+Then **restart Mathematica** and **restart your editor**. Done!
 
-To verify your installation:
+### Verify Installation
+
 ```bash
 uvx mathematica-mcp-full doctor
 ```
 
 ---
 
-## Prerequisites
+## Manual Installation
+
+Use this method if you want to:
+- Modify or extend the MCP server code
+- Use a development version
+- Have more control over the installation
+
+### Prerequisites
 
 - **Mathematica 14.0+** — [Download](https://www.wolfram.com/mathematica/)
 - **Python 3.10+** — [Download](https://www.python.org/downloads/)
 - **wolframscript in your PATH** — See [below](#add-wolframscript-to-path)
-- **uv package manager** (Recommended) — [Docs](https://docs.astral.sh/uv/)
+- **uv package manager** — [Docs](https://docs.astral.sh/uv/)
 
-### Install uv
+#### Install uv
 
 **Mac/Linux:**
 ```bash
@@ -78,7 +95,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
 
-### Add wolframscript to PATH
+#### Add wolframscript to PATH
 
 After installing Mathematica, ensure `wolframscript` is accessible from your terminal.
 
@@ -104,9 +121,8 @@ wolframscript -version
 
 ---
 
-## 1. Server Setup
+### Step 1: Clone and Install the Package
 
-### Step 1: Install the Package
 ```bash
 # Clone the repository
 git clone https://github.com/AbhiRawat4841/mathematica-mcp.git
@@ -117,38 +133,37 @@ uv sync
 ```
 
 ### Step 2: Install Mathematica Addon
-**CRITICAL**: This addon allows the server to talk to the Wolfram Kernel.
+
+**CRITICAL**: This addon allows the server to communicate with the Wolfram Kernel.
+
 ```bash
 wolframscript -file addon/install.wl
 ```
 
 ### Step 3: Restart Mathematica
+
 **Close and reopen Mathematica** for the addon to load automatically.
 
-### Step 4: Verify Installation
-After restarting Mathematica, check the **Messages** window (⌘+Shift+M on macOS). You should see:
+After restarting, check the **Messages** window (⌘+Shift+M on macOS). You should see:
 ```
 [MathematicaMCP] Server started on port 9881
 ```
 
-If the server didn't start, you can manually start it in any Mathematica notebook:
+If the server didn't start, manually start it in any Mathematica notebook:
 ```mathematica
 Needs["MathematicaMCP`"]
 StartMCPServer[]
 ```
 
----
+### Step 4: Configure Your Editor
 
-## 2. Client Integration
-
-Choose your editor below. You need the **Absolute Path** to this repository.
-Run this command to get your path:
+Choose your editor below. First, get the **absolute path** to the repository:
 ```bash
 pwd
 ```
 *(Replace `/YOUR/PATH/TO/mathematica-mcp` in the examples below with this output)*
 
-### Claude for Desktop
+#### Claude Desktop
 
 **Config file location:**
 | Platform | Path |
@@ -157,33 +172,38 @@ pwd
 | Windows | `%APPDATA%\Claude\claude_desktop_config.json` |
 | Linux | `~/.config/Claude/claude_desktop_config.json` |
 
-1. Open Claude Desktop → **Settings** (gear icon) → **Developer** → **Edit Config**
-2. Add `mathematica` to your `mcpServers`:
+Add to your config:
+```json
+{
+  "mcpServers": {
+    "mathematica": {
+      "command": "uv",
+      "args": ["--directory", "/YOUR/PATH/TO/mathematica-mcp", "run", "mathematica-mcp"]
+    }
+  }
+}
+```
+
+#### Cursor
+
+**Config file:** `~/.cursor/mcp.json`
 
 ```json
 {
   "mcpServers": {
     "mathematica": {
       "command": "uv",
-      "args": [
-        "--directory",
-        "/YOUR/PATH/TO/mathematica-mcp",
-        "run",
-        "mathematica-mcp"
-      ]
+      "args": ["--directory", "/YOUR/PATH/TO/mathematica-mcp", "run", "mathematica-mcp"]
     }
   }
 }
 ```
 
-3. Save and **restart Claude Desktop**
-4. Look for the 🔨 hammer icon in the chat input to confirm MCP is loaded
+Or use the UI: **Settings > Features > MCP > Add New MCP Server**
 
-### Visual Studio Code
+#### VS Code
 
-> Requires **VS Code 1.102+** with GitHub Copilot
-
-Create `.vscode/mcp.json` in your workspace:
+**Config file:** `~/.vscode/mcp.json`
 
 ```json
 {
@@ -191,33 +211,17 @@ Create `.vscode/mcp.json` in your workspace:
     "mathematica": {
       "type": "stdio",
       "command": "uv",
-      "args": [
-        "--directory",
-        "/YOUR/PATH/TO/mathematica-mcp",
-        "run",
-        "mathematica-mcp"
-      ]
+      "args": ["--directory", "/YOUR/PATH/TO/mathematica-mcp", "run", "mathematica-mcp"]
     }
   }
 }
 ```
 
-Alternatively, run **MCP: Add Server** from the Command Palette and select **Workspace**.
-
 > **Note**: VS Code uses `"servers"` (not `"mcpServers"`) and requires `"type": "stdio"`.
-> 
-> See [VS Code MCP documentation](https://code.visualstudio.com/docs/copilot/customization/mcp-servers) for advanced options.
 
-### OpenAI Codex CLI
+#### OpenAI Codex CLI
 
-Codex stores MCP configuration in `~/.codex/config.toml`.
-
-```bash
-codex mcp add mathematica -- uv --directory /YOUR/PATH/TO/mathematica-mcp run mathematica-mcp
-```
-
-<details>
-<summary>Alternative: Edit config.toml directly</summary>
+**Config file:** `~/.codex/config.toml`
 
 ```toml
 [mcp_servers.mathematica]
@@ -225,32 +229,14 @@ command = "uv"
 args = ["--directory", "/YOUR/PATH/TO/mathematica-mcp", "run", "mathematica-mcp"]
 ```
 
-</details>
-
-Verify with `/mcp` in the Codex TUI.
-
-> See [Codex MCP documentation](https://developers.openai.com/codex/mcp/) for authentication and advanced options.
-
-### Claude Code (CLI)
-
+Or use the CLI:
 ```bash
-claude mcp add mathematica --scope user -- uv --directory /YOUR/PATH/TO/mathematica-mcp run mathematica-mcp
+codex mcp add mathematica -- uv --directory /YOUR/PATH/TO/mathematica-mcp run mathematica-mcp
 ```
 
-<details>
-<summary>Alternative: Add via JSON</summary>
+#### Google Gemini CLI
 
-```bash
-claude mcp add-json mathematica --scope user '{
-  "command": "uv",
-  "args": ["--directory", "/YOUR/PATH/TO/mathematica-mcp", "run", "mathematica-mcp"]
-}'
-```
-
-</details>
-
-<details>
-<summary>Alternative: Edit ~/.claude.json directly</summary>
+**Config file:** `~/.gemini/settings.json`
 
 ```json
 {
@@ -263,46 +249,14 @@ claude mcp add-json mathematica --scope user '{
 }
 ```
 
-</details>
-
-Verify with `/mcp` inside Claude Code.
-
-**Scopes:**
-| Scope | Flag | Use case |
-|-------|------|----------|
-| Local | (default) | Current project only |
-| User | `--scope user` | All projects on your machine |
-| Project | `--scope project` | Shared via `.mcp.json` in repo |
-
-> See [Claude Code MCP documentation](https://docs.anthropic.com/en/docs/claude-code/mcp) for remote servers and OAuth.
-
-### Cursor Integration
-
-[**Download Cursor**](https://cursor.com)
-
-1. Go to **Settings > Features > MCP**.
-2. Click **Add New MCP Server**.
-3. Enter the following details:
-
-| Field | Value |
-|-------|-------|
-| **Name** | `mathematica` |
-| **Type** | `stdio` |
-| **Command** | `uv` |
-| **Args** | `--directory /YOUR/PATH/TO/mathematica-mcp run mathematica-mcp` |
-
-**Note**: Paste the *entire* string above into the "Args" field (or add them as separate arguments if the UI provides a list).
-
-### Google Gemini CLI
-
-Gemini CLI stores MCP configuration in `~/.gemini/settings.json`.
-
+Or use the CLI:
 ```bash
 gemini mcp add mathematica -- uv --directory /YOUR/PATH/TO/mathematica-mcp run mathematica-mcp
 ```
 
-<details>
-<summary>Alternative: Edit settings.json directly</summary>
+#### Claude Code (CLI)
+
+**Config file:** `~/.claude.json`
 
 ```json
 {
@@ -315,15 +269,18 @@ gemini mcp add mathematica -- uv --directory /YOUR/PATH/TO/mathematica-mcp run m
 }
 ```
 
-</details>
+Or use the CLI:
+```bash
+claude mcp add mathematica --scope user -- uv --directory /YOUR/PATH/TO/mathematica-mcp run mathematica-mcp
+```
 
-Verify with `/mcp` in Gemini CLI.
+### Step 5: Restart Your Editor
 
-> See [Gemini CLI MCP documentation](https://geminicli.com/docs/tools/mcp-server/) for advanced options.
+Restart your editor to load the MCP server. Look for the MCP indicator (e.g., 🔨 hammer icon in Claude Desktop).
 
 ---
 
-## 3. Troubleshooting
+## Troubleshooting
 
 ### Server didn't start automatically
 Manually start it in any Mathematica notebook:
@@ -344,7 +301,7 @@ export MATHEMATICA_PORT=9882
 ```
 
 ### wolframscript not found
-See [Add wolframscript to PATH](#add-wolframscript-to-path) in Prerequisites.
+See [Add wolframscript to PATH](#add-wolframscript-to-path) above.
 
 ### MCP client can't connect
 1. Verify Mathematica is running with the addon loaded
@@ -353,7 +310,7 @@ See [Add wolframscript to PATH](#add-wolframscript-to-path) in Prerequisites.
 
 ---
 
-## 4. Advanced Configuration
+## Advanced Configuration
 
 ### Session Isolation
 
