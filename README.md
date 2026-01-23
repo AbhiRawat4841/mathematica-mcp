@@ -106,7 +106,7 @@ uvx mathematica-mcp-full doctor
       "mcpServers": {
         "mathematica": {
           "command": "uv",
-          "args": ["--directory", "/path/to/mathematica-mcp", "run", "mathematica-mcp"]
+          "args": ["--directory", "/path/to/mathematica-mcp", "run", "mathematica-mcp-full"]
         }
       }
     }
@@ -118,7 +118,7 @@ uvx mathematica-mcp-full doctor
       "mcpServers": {
         "mathematica": {
           "command": "uv",
-          "args": ["--directory", "/path/to/mathematica-mcp", "run", "mathematica-mcp"]
+          "args": ["--directory", "/path/to/mathematica-mcp", "run", "mathematica-mcp-full"]
         }
       }
     }
@@ -131,7 +131,7 @@ uvx mathematica-mcp-full doctor
         "mathematica": {
           "type": "stdio",
           "command": "uv",
-          "args": ["--directory", "/path/to/mathematica-mcp", "run", "mathematica-mcp"]
+          "args": ["--directory", "/path/to/mathematica-mcp", "run", "mathematica-mcp-full"]
         }
       }
     }

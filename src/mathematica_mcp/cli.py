@@ -472,7 +472,7 @@ def cmd_setup(args: argparse.Namespace) -> int:
         return 1
     
     client_name = CLIENT_CONFIGS[client]["name"]
-    print(f"\n{color(f'Setting up mathematica-mcp for {client_name}', BOLD)}\n")
+    print(f"\n{color(f'Setting up mathematica-mcp-full for {client_name}', BOLD)}\n")
     
     # Step 1: Check wolframscript
     info("Checking wolframscript...")
@@ -548,7 +548,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         success(msg)
     else:
         warn(msg)
-        print(f"    Run: {color('mathematica-mcp setup <client>', BLUE)}")
+        print(f"    Run: {color('uvx mathematica-mcp-full setup <client>', BLUE)}")
     
     # MCP server port
     ok, msg = check_mcp_server_port()
@@ -627,17 +627,17 @@ def cmd_config(args: argparse.Namespace) -> int:
 def main_cli() -> int:
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
-        prog="mathematica-mcp",
+        prog="mathematica-mcp-full",
         description="Mathematica MCP Server - Give your AI Agent the power of Wolfram Language",
     )
-    
+
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
-    
+
     # setup command
     setup_parser = subparsers.add_parser(
         "setup",
-        help="Configure mathematica-mcp for an MCP client",
-        description="Automatically configure mathematica-mcp for your editor/AI assistant"
+        help="Configure mathematica-mcp-full for an MCP client",
+        description="Automatically configure mathematica-mcp-full for your editor/AI assistant"
     )
     setup_parser.add_argument(
         "client",

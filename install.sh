@@ -166,14 +166,14 @@ update_toml_config() {
 
 [mcp_servers.mathematica]
 command = "uvx"
-args = ["mathematica-mcp"]
+args = ["mathematica-mcp-full"]
 EOF
     else
         cat >> "$config_path" << EOF
 
 [mcp_servers.mathematica]
 command = "uv"
-args = ["--directory", "$repo_path", "run", "mathematica-mcp"]
+args = ["--directory", "$repo_path", "run", "mathematica-mcp-full"]
 EOF
     fi
 }
@@ -206,9 +206,9 @@ update_config() {
     
     # Generate server config
     if [ "$use_uvx" = "true" ]; then
-        local server_config='{"command": "uvx", "args": ["mathematica-mcp"]}'
+        local server_config='{"command": "uvx", "args": ["mathematica-mcp-full"]}'
     else
-        local server_config="{\"command\": \"uv\", \"args\": [\"--directory\", \"$repo_path\", \"run\", \"mathematica-mcp\"]}"
+        local server_config="{\"command\": \"uv\", \"args\": [\"--directory\", \"$repo_path\", \"run\", \"mathematica-mcp-full\"]}"
     fi
     
     # Add type: stdio for VS Code

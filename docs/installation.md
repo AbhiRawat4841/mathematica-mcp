@@ -178,7 +178,7 @@ Add to your config:
   "mcpServers": {
     "mathematica": {
       "command": "uv",
-      "args": ["--directory", "/YOUR/PATH/TO/mathematica-mcp", "run", "mathematica-mcp"]
+      "args": ["--directory", "/YOUR/PATH/TO/mathematica-mcp", "run", "mathematica-mcp-full"]
     }
   }
 }
@@ -193,7 +193,7 @@ Add to your config:
   "mcpServers": {
     "mathematica": {
       "command": "uv",
-      "args": ["--directory", "/YOUR/PATH/TO/mathematica-mcp", "run", "mathematica-mcp"]
+      "args": ["--directory", "/YOUR/PATH/TO/mathematica-mcp", "run", "mathematica-mcp-full"]
     }
   }
 }
@@ -211,7 +211,7 @@ Or use the UI: **Settings > Features > MCP > Add New MCP Server**
     "mathematica": {
       "type": "stdio",
       "command": "uv",
-      "args": ["--directory", "/YOUR/PATH/TO/mathematica-mcp", "run", "mathematica-mcp"]
+      "args": ["--directory", "/YOUR/PATH/TO/mathematica-mcp", "run", "mathematica-mcp-full"]
     }
   }
 }
@@ -226,12 +226,12 @@ Or use the UI: **Settings > Features > MCP > Add New MCP Server**
 ```toml
 [mcp_servers.mathematica]
 command = "uv"
-args = ["--directory", "/YOUR/PATH/TO/mathematica-mcp", "run", "mathematica-mcp"]
+args = ["--directory", "/YOUR/PATH/TO/mathematica-mcp", "run", "mathematica-mcp-full"]
 ```
 
 Or use the CLI:
 ```bash
-codex mcp add mathematica -- uv --directory /YOUR/PATH/TO/mathematica-mcp run mathematica-mcp
+codex mcp add mathematica -- uv --directory /YOUR/PATH/TO/mathematica-mcp run mathematica-mcp-full
 ```
 
 #### Google Gemini CLI
@@ -243,7 +243,7 @@ codex mcp add mathematica -- uv --directory /YOUR/PATH/TO/mathematica-mcp run ma
   "mcpServers": {
     "mathematica": {
       "command": "uv",
-      "args": ["--directory", "/YOUR/PATH/TO/mathematica-mcp", "run", "mathematica-mcp"]
+      "args": ["--directory", "/YOUR/PATH/TO/mathematica-mcp", "run", "mathematica-mcp-full"]
     }
   }
 }
@@ -251,7 +251,7 @@ codex mcp add mathematica -- uv --directory /YOUR/PATH/TO/mathematica-mcp run ma
 
 Or use the CLI:
 ```bash
-gemini mcp add mathematica -- uv --directory /YOUR/PATH/TO/mathematica-mcp run mathematica-mcp
+gemini mcp add mathematica -- uv --directory /YOUR/PATH/TO/mathematica-mcp run mathematica-mcp-full
 ```
 
 #### Claude Code (CLI)
@@ -263,7 +263,7 @@ gemini mcp add mathematica -- uv --directory /YOUR/PATH/TO/mathematica-mcp run m
   "mcpServers": {
     "mathematica": {
       "command": "uv",
-      "args": ["--directory", "/YOUR/PATH/TO/mathematica-mcp", "run", "mathematica-mcp"]
+      "args": ["--directory", "/YOUR/PATH/TO/mathematica-mcp", "run", "mathematica-mcp-full"]
     }
   }
 }
@@ -271,7 +271,7 @@ gemini mcp add mathematica -- uv --directory /YOUR/PATH/TO/mathematica-mcp run m
 
 Or use the CLI:
 ```bash
-claude mcp add mathematica --scope user -- uv --directory /YOUR/PATH/TO/mathematica-mcp run mathematica-mcp
+claude mcp add mathematica --scope user -- uv --directory /YOUR/PATH/TO/mathematica-mcp run mathematica-mcp-full
 ```
 
 ### Step 5: Restart Your Editor

@@ -71,7 +71,7 @@ Config file (macOS): `~/Library/Application Support/Claude/claude_desktop_config
   "mcpServers": {
     "mathematica": {
       "command": "uv",
-      "args": ["--directory", "/path/to/mathematica-mcp", "run", "mathematica-mcp"]
+      "args": ["--directory", "/path/to/mathematica-mcp", "run", "mathematica-mcp-full"]
     }
   }
 }
@@ -84,7 +84,7 @@ Config file (macOS): `~/Library/Application Support/Claude/claude_desktop_config
   "mcpServers": {
     "mathematica": {
       "command": "uv",
-      "args": ["--directory", "/path/to/mathematica-mcp", "run", "mathematica-mcp"]
+      "args": ["--directory", "/path/to/mathematica-mcp", "run", "mathematica-mcp-full"]
     }
   }
 }
