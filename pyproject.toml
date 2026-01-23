@@ -1,6 +1,6 @@
 [project]
-name = "mathematica-mcp"
-version = "0.1.0"
+name = "mathematica-mcp-full"
+version = "0.1.1"
 description = "Full GUI control of Mathematica notebooks and kernel via Model Context Protocol"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -41,7 +41,7 @@ Repository = "https://github.com/AbhiRawat4841/mathematica-mcp"
 Issues = "https://github.com/AbhiRawat4841/mathematica-mcp/issues"
 
 [project.scripts]
-mathematica-mcp = "mathematica_mcp.cli:main_cli"
+mathematica-mcp-full = "mathematica_mcp.cli:main_cli"
 
 [build-system]
 requires = ["hatchling"]

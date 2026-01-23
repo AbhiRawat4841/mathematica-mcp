@@ -31,19 +31,19 @@ This **MCP Server** empowers **AI Agents & IDEs** (like Claude Desktop, Cursor, 
 
 ```bash
 # For Claude Desktop
-uvx mathematica-mcp setup claude-desktop
+uvx mathematica-mcp-full setup claude-desktop
 
 # For Cursor
-uvx mathematica-mcp setup cursor
+uvx mathematica-mcp-full setup cursor
 
 # For VS Code
-uvx mathematica-mcp setup vscode
+uvx mathematica-mcp-full setup vscode
 
 # For OpenAI Codex CLI
-uvx mathematica-mcp setup codex
+uvx mathematica-mcp-full setup codex
 
 # For Google Gemini CLI
-uvx mathematica-mcp setup gemini
+uvx mathematica-mcp-full setup gemini
 ```
 
 Then restart Mathematica and your editor. Done!
@@ -51,13 +51,13 @@ Then restart Mathematica and your editor. Done!
 ### Alternative: Interactive Installer
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/AbhiRawat4841/mathematica-mcp/main/install.sh | bash
+bash <(curl -sSL https://raw.githubusercontent.com/AbhiRawat4841/mathematica-mcp/main/install.sh)
 ```
 
 ### Verify Installation
 
 ```bash
-uvx mathematica-mcp doctor
+uvx mathematica-mcp-full doctor
 ```
 
 ---

@@ -6,29 +6,29 @@ The easiest way to install is using our automated setup:
 
 ```bash
 # For Claude Desktop
-uvx mathematica-mcp setup claude-desktop
+uvx mathematica-mcp-full setup claude-desktop
 
 # For Cursor
-uvx mathematica-mcp setup cursor
+uvx mathematica-mcp-full setup cursor
 
 # For VS Code
-uvx mathematica-mcp setup vscode
+uvx mathematica-mcp-full setup vscode
 
 # For OpenAI Codex CLI
-uvx mathematica-mcp setup codex
+uvx mathematica-mcp-full setup codex
 
 # For Google Gemini CLI
-uvx mathematica-mcp setup gemini
+uvx mathematica-mcp-full setup gemini
 
 # For Claude Code CLI
-uvx mathematica-mcp setup claude-code
+uvx mathematica-mcp-full setup claude-code
 ```
 
 Then restart Mathematica and your editor. **Done!**
 
 To verify your installation:
 ```bash
-uvx mathematica-mcp doctor
+uvx mathematica-mcp-full doctor
 ```
 
 ---
