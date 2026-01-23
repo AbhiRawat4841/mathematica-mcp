@@ -73,6 +73,11 @@ bash <(curl -sSL https://raw.githubusercontent.com/AbhiRawat4841/mathematica-mcp
 uvx mathematica-mcp-full doctor
 ```
 
+> **Tip:** If you encounter errors after updating, clear the cache:
+> ```bash
+> uv cache clean mathematica-mcp-full && uvx mathematica-mcp-full setup <client>
+> ```
+
 ---
 
 ## Manual Installation

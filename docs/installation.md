@@ -282,6 +282,18 @@ Restart your editor to load the MCP server. Look for the MCP indicator (e.g., ðŸ
 
 ## Troubleshooting
 
+### "Addon directory not found" error with uvx
+If you see this error after updating, clear the uvx cache:
+```bash
+uv cache clean mathematica-mcp-full
+uvx mathematica-mcp-full setup <your-client>
+```
+
+Or force reinstall:
+```bash
+uvx --reinstall mathematica-mcp-full setup <your-client>
+```
+
 ### Server didn't start automatically
 Manually start it in any Mathematica notebook:
 ```mathematica

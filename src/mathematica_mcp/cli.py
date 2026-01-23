@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-CLI for mathematica-mcp setup and diagnostics.
+CLI for mathematica-mcp-full setup and diagnostics.
 
 Usage:
-    mathematica-mcp setup claude-desktop
-    mathematica-mcp setup cursor
-    mathematica-mcp setup vscode
-    mathematica-mcp doctor
+    uvx mathematica-mcp-full setup claude-desktop
+    uvx mathematica-mcp-full setup cursor
+    uvx mathematica-mcp-full setup vscode
+    uvx mathematica-mcp-full doctor
 """
 
 import argparse
@@ -515,14 +515,14 @@ def cmd_setup(args: argparse.Namespace) -> int:
     print("Next steps:")
     print(f"  1. {color('Restart Mathematica', BOLD)} (for the addon to load)")
     print(f"  2. {color(f'Restart {client_name}', BOLD)} (to load the MCP server)")
-    print(f"\nTo verify: {color('mathematica-mcp doctor', BLUE)}")
+    print(f"\nTo verify: {color('uvx mathematica-mcp-full doctor', BLUE)}")
     
     return 0
 
 
 def cmd_doctor(args: argparse.Namespace) -> int:
     """Run diagnostics to verify installation."""
-    print(f"\n{color('mathematica-mcp doctor', BOLD)}\n")
+    print(f"\n{color('mathematica-mcp-full doctor', BOLD)}\n")
     
     all_ok = True
     
