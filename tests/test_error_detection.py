@@ -10,13 +10,13 @@ This test suite covers:
 """
 
 import pytest
-from src.mathematica_mcp.error_analyzer import (
+from mathematica_mcp.error_analyzer import (
     analyze_error,
     analyze_messages,
     format_error_for_llm,
     ERROR_PATTERNS,
 )
-from src.mathematica_mcp.session import execute_in_kernel
+from mathematica_mcp.session import execute_in_kernel
 
 
 class TestErrorAnalyzer:
@@ -226,6 +226,7 @@ class TestFormatErrorForLLM:
         assert "Length[list]" in result
 
 
+@pytest.mark.usefixtures("require_wolfram_runtime")
 class TestInlineErrorDetection:
     """Test error detection in inline code execution."""
 
@@ -348,6 +349,7 @@ class TestErrorPatternCoverage:
         assert len(ERROR_PATTERNS) >= 8
 
 
+@pytest.mark.usefixtures("require_wolfram_runtime")
 class TestRealWorldScenarios:
     """Test real-world error scenarios."""
 

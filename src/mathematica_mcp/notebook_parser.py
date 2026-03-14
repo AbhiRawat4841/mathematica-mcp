@@ -17,6 +17,7 @@ This parser works offline without requiring wolframscript.
 from __future__ import annotations
 
 import re
+from functools import lru_cache
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -262,21 +263,19 @@ SPECIAL_CHARS = {
     r"\[BlankNullSequence]": "___",
 }
 
+SPECIAL_CHAR_PATTERN = re.compile(
+    "|".join(re.escape(token) for token in sorted(SPECIAL_CHARS, key=len, reverse=True))
+)
+SPECIAL_CHAR_FALLBACK_PATTERN = re.compile(r"\\\\?\[([A-Z][A-Za-z]+)\]")
+
 
 def convert_special_chars(text: str) -> str:
     """Convert Mathematica special character codes to readable form."""
-    result = text
-    for pattern, replacement in SPECIAL_CHARS.items():
-        result = result.replace(pattern, replacement)
+    if "\\" not in text and "[" not in text:
+        return text
 
-    # Fallback for any remaining [Name]
-    remaining = re.findall(r"\\\\?\[([A-Z][A-Za-z]+)\]", result)
-    for name in remaining:
-        # Keep name but strip brackets for readability
-        result = result.replace(f"\\[{name}]", name)
-        result = result.replace(f"[{name}]", name)
-
-    return result
+    result = SPECIAL_CHAR_PATTERN.sub(lambda match: SPECIAL_CHARS[match.group(0)], text)
+    return SPECIAL_CHAR_FALLBACK_PATTERN.sub(lambda match: match.group(1), result)
 
 
 def clean_commutators(text: str) -> str:
@@ -347,14 +346,7 @@ class BoxDataParser:
             result = self._parse_expression(content)
             result = convert_special_chars(result)
             return result
-        except Exception as e:
-            try:
-                with open("/tmp/parser_error.log", "a") as f:
-                    f.write(
-                        f"Parsing error in mode {self.mode}: {str(e)}\nContext: {content[:200]}...\n"
-                    )
-            except:
-                pass
+        except Exception:
             return self._basic_cleanup(content)
 
     def _parse_expression(self, expr: str) -> str:
@@ -548,12 +540,6 @@ class BoxDataParser:
         return content
 
     def _parse_grid_box(self, expr: str) -> str:
-        try:
-            with open("/tmp/parser_debug.log", "a") as f:
-                f.write(f"Parsing GridBox in mode: {self.mode}\n")
-        except:
-            pass
-
         content = self._extract_box_content(expr, "GridBox")
 
         # Extract matrix content
@@ -979,24 +965,9 @@ class NotebookParser:
         return Cell(style, trunc, raw_content, label, index, was_trunc, orig_len)
 
     def _detect_style(self, cell_text: str) -> CellStyle:
-        style_map = {
-            "Title": CellStyle.TITLE,
-            "Chapter": CellStyle.CHAPTER,
-            "Section": CellStyle.SECTION,
-            "Subsection": CellStyle.SUBSECTION,
-            "Subsubsection": CellStyle.SUBSUBSECTION,
-            "Text": CellStyle.TEXT,
-            "Input": CellStyle.INPUT,
-            "Output": CellStyle.OUTPUT,
-            "Code": CellStyle.CODE,
-            "Message": CellStyle.MESSAGE,
-            "Print": CellStyle.PRINT,
-            "Item": CellStyle.ITEM,
-            "ItemNumbered": CellStyle.ITEM_NUMBERED,
-        }
         try:
-            for name, style in style_map.items():
-                if re.search(rf', \s*"{name}"', cell_text):
+            for pattern, style in STYLE_PATTERNS:
+                if pattern.search(cell_text):
                     return style
         except Exception:
             pass
@@ -1081,6 +1052,59 @@ class NotebookParser:
                     )
                 lines.append("")
         return "\n".join(lines).rstrip()
+
+    def to_plain_text(self, notebook: NotebookStructure) -> str:
+        lines: list[str] = []
+        if notebook.title:
+            lines.append(notebook.title)
+            lines.append("")
+
+        for cell in notebook.cells:
+            if cell.content.strip():
+                lines.append(cell.content)
+                lines.append("")
+
+        return "\n".join(lines).rstrip()
+
+
+STYLE_PATTERNS = [
+    (re.compile(r',\s*"Title"'), CellStyle.TITLE),
+    (re.compile(r',\s*"Chapter"'), CellStyle.CHAPTER),
+    (re.compile(r',\s*"Section"'), CellStyle.SECTION),
+    (re.compile(r',\s*"Subsection"'), CellStyle.SUBSECTION),
+    (re.compile(r',\s*"Subsubsection"'), CellStyle.SUBSUBSECTION),
+    (re.compile(r',\s*"Text"'), CellStyle.TEXT),
+    (re.compile(r',\s*"Input"'), CellStyle.INPUT),
+    (re.compile(r',\s*"Output"'), CellStyle.OUTPUT),
+    (re.compile(r',\s*"Code"'), CellStyle.CODE),
+    (re.compile(r',\s*"Message"'), CellStyle.MESSAGE),
+    (re.compile(r',\s*"Print"'), CellStyle.PRINT),
+    (re.compile(r',\s*"Item"'), CellStyle.ITEM),
+    (re.compile(r',\s*"ItemNumbered"'), CellStyle.ITEM_NUMBERED),
+]
+
+
+@lru_cache(maxsize=16)
+def _parse_notebook_cached(
+    resolved_path: str, mtime_ns: int, file_size: int, truncation_threshold: int
+) -> NotebookStructure:
+    del mtime_ns, file_size
+    return NotebookParser(truncation_threshold=truncation_threshold).parse_file(
+        resolved_path
+    )
+
+
+def parse_notebook_cached(
+    path: str | Path, truncation_threshold: int = TRUNCATION_THRESHOLD
+) -> NotebookStructure:
+    resolved = Path(path).resolve()
+    stat = resolved.stat()
+    return _parse_notebook_cached(
+        str(resolved),
+        stat.st_mtime_ns,
+        stat.st_size,
+        truncation_threshold,
+    )
 
 
 def parse_notebook(path: str | Path) -> NotebookStructure:

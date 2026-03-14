@@ -6,7 +6,10 @@ can be validated using Mathematica's Simplify function.
 """
 
 import pytest
-from src.mathematica_mcp.session import execute_in_kernel
+from mathematica_mcp.session import execute_in_kernel
+
+
+pytestmark = pytest.mark.usefixtures("require_wolfram_runtime")
 
 
 class TestDerivationVerification:

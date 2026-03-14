@@ -226,24 +226,39 @@ def check_wolframscript() -> Tuple[bool, str]:
 
 def check_mathematica_addon() -> Tuple[bool, str]:
     """Check if Mathematica addon is installed."""
-    home = Path.home()
     system = get_system()
-    
-    if system == "Darwin":
-        init_path = home / "Library/Mathematica/Kernel/init.m"
-    elif system == "Linux":
-        init_path = home / ".Mathematica/Kernel/init.m"
-    elif system == "Windows":
-        init_path = home / "AppData/Roaming/Mathematica/Kernel/init.m"
-    else:
+    init_paths = get_addon_init_paths(Path.home(), system)
+    if not init_paths:
         return False, "Unknown OS"
-    
-    if init_path.exists():
-        content = init_path.read_text()
-        if "MathematicaMCP" in content:
-            return True, f"Addon configured in {init_path}"
-    
-    return False, f"Addon not found in {init_path}"
+
+    for init_path in init_paths:
+        if init_path.exists():
+            content = init_path.read_text()
+            if "MathematicaMCP" in content:
+                return True, f"Addon configured in {init_path}"
+
+    return False, "Addon not found in any known init.m location"
+
+
+def get_addon_init_paths(home: Path, system: str) -> list[Path]:
+    """Return likely Mathematica/Wolfram init.m locations for the OS."""
+    if system == "Darwin":
+        return [
+            home / "Library/Wolfram/Kernel/init.m",
+            home / "Library/Mathematica/Kernel/init.m",
+        ]
+    if system == "Linux":
+        return [
+            home / ".Wolfram/Kernel/init.m",
+            home / ".Mathematica/Kernel/init.m",
+        ]
+    if system == "Windows":
+        roaming = home / "AppData/Roaming"
+        return [
+            roaming / "Wolfram/Kernel/init.m",
+            roaming / "Mathematica/Kernel/init.m",
+        ]
+    return []
 
 
 def check_mcp_server_port() -> Tuple[bool, str]:

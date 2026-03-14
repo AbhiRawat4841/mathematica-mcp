@@ -3,6 +3,7 @@ import socket
 import logging
 import os
 import threading
+import time
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -28,19 +29,30 @@ class MathematicaConnection:
     _auth_token: str = field(
         default_factory=lambda: os.getenv("MATHEMATICA_MCP_TOKEN", "")
     )
+    retry_backoff_seconds: float = field(
+        default_factory=lambda: float(os.getenv("MATHEMATICA_RETRY_BACKOFF", "2.0"))
+    )
+    _next_retry_at: float = field(default=0.0, repr=False)
+    _last_error: str = field(default="", repr=False)
 
     def connect(self) -> bool:
         if self._socket:
             return True
+        if not self.can_retry():
+            return False
 
         try:
             self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self._socket.settimeout(SOCKET_TIMEOUT)
             self._socket.connect((self.host, self.port))
+            self._last_error = ""
+            self._next_retry_at = 0.0
             logger.info(f"Connected to Mathematica at {self.host}:{self.port}")
             return True
         except Exception as e:
             logger.error(f"Failed to connect to Mathematica: {e}")
+            self._last_error = str(e)
+            self._next_retry_at = time.monotonic() + self.retry_backoff_seconds
             self._socket = None
             return False
 
@@ -52,6 +64,13 @@ class MathematicaConnection:
                 pass
             self._socket = None
             logger.info("Disconnected from Mathematica")
+
+    def can_retry(self) -> bool:
+        return time.monotonic() >= self._next_retry_at
+
+    @property
+    def last_error(self) -> str:
+        return self._last_error
 
     def is_connected(self) -> bool:
         if not self._socket:
@@ -99,11 +118,15 @@ class MathematicaConnection:
                 return response.get("result", {})
 
             except socket.timeout:
+                self._last_error = "Timeout waiting for Mathematica response"
+                self._next_retry_at = time.monotonic() + self.retry_backoff_seconds
                 self._socket = None
                 raise TimeoutError(
                     "Timeout waiting for Mathematica response. The computation may be too slow."
                 )
             except (ConnectionError, BrokenPipeError, ConnectionResetError) as e:
+                self._last_error = str(e)
+                self._next_retry_at = time.monotonic() + self.retry_backoff_seconds
                 self._socket = None
                 raise ConnectionError(f"Connection to Mathematica lost: {e}")
             except json.JSONDecodeError as e:
@@ -139,17 +162,13 @@ def get_mathematica_connection() -> MathematicaConnection:
         _global_connection = MathematicaConnection()
 
     if not _global_connection.is_connected():
-        try:
-            result = _global_connection.send_command("ping")
-            if not result.get("pong"):
-                raise ConnectionError("Ping failed")
-        except Exception:
-            _global_connection = MathematicaConnection()
-            if not _global_connection.connect():
-                raise ConnectionError(
-                    "Could not connect to Mathematica addon."
-                    "Ensure Mathematica is running and execute: StartMCPServer[]"
-                )
+        if not _global_connection.connect():
+            error_detail = f" Last error: {_global_connection.last_error}." if _global_connection.last_error else ""
+            raise ConnectionError(
+                "Could not connect to Mathematica addon. "
+                "Ensure Mathematica is running and execute: StartMCPServer[]."
+                f"{error_detail}"
+            )
 
     return _global_connection
 

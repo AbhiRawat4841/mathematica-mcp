@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import os
@@ -19,7 +20,7 @@ from .session import (
     _wrap_code_for_determinism,
 )
 from .config import FEATURES
-from .telemetry import telemetry_tool, get_usage_stats, reset_stats
+from .telemetry import get_usage_stats, reset_stats
 from .cache import (
     cache_expression as _cache_expr,
     get_cached_expression as _get_cached,
@@ -35,6 +36,35 @@ logging.basicConfig(
 logger = logging.getLogger("mathematica_mcp")
 
 mcp = FastMCP("mathematica-mcp")
+
+
+def _json_response(payload: Any) -> str:
+    return json.dumps(payload, indent=2)
+
+
+async def _run_blocking(func, *args, **kwargs):
+    return await asyncio.to_thread(func, *args, **kwargs)
+
+
+async def _addon_result(command: str, params: Optional[dict] = None) -> dict:
+    return await _run_blocking(_try_addon_command, command, params)
+
+
+async def _addon_json(command: str, params: Optional[dict] = None) -> str:
+    return _json_response(await _addon_result(command, params))
+
+
+async def _image_from_result(result: dict) -> Image:
+    image_path = result["path"]
+
+    def _read_and_remove() -> bytes:
+        with open(image_path, "rb") as f:
+            image_bytes = f.read()
+        os.remove(image_path)
+        return image_bytes
+
+    image_bytes = await _run_blocking(_read_and_remove)
+    return Image(data=image_bytes, format="png")
 
 
 def _prepare_raster_code(
@@ -191,41 +221,40 @@ def _try_addon_command(command: str, params: Optional[dict] = None) -> dict:
 async def get_mathematica_status() -> str:
     """Get connection status and system info."""
     try:
-        result = _try_addon_command("get_status")
+        result = await _addon_result("get_status")
+        if result.get("success") is False and result.get("error"):
+            raise RuntimeError(result["error"])
         result["connection_mode"] = "addon"
-        return json.dumps(result, indent=2)
+        return _json_response(result)
     except Exception as e:
         try:
-            session = get_kernel_session()
+            session = await _run_blocking(get_kernel_session)
             if session is None:
                 raise RuntimeError("No kernel session available")
             from wolframclient.language import wlexpr
 
             version = session.evaluate(wlexpr("$VersionNumber"))
-            return json.dumps(
+            return _json_response(
                 {
                     "connection_mode": "kernel_only",
                     "kernel_version": float(version),
                     "note": "Addon not running - notebook control unavailable. Execute StartMCPServer[] in Mathematica.",
                     "error": str(e),
-                },
-                indent=2,
+                }
             )
         except Exception as e2:
-            return json.dumps(
+            return _json_response(
                 {
                     "connection_mode": "disconnected",
                     "error": f"No connection available: {e2}",
-                },
-                indent=2,
+                }
             )
 
 
 @mcp.tool()
 async def get_notebooks() -> str:
     """List all open Mathematica notebooks. Returns ID, filename, title."""
-    result = _try_addon_command("get_notebooks")
-    return json.dumps(result, indent=2)
+    return await _addon_json("get_notebooks")
 
 
 @mcp.tool()
@@ -233,10 +262,10 @@ async def get_notebook_info(
     notebook: Optional[str] = None, session_id: Optional[str] = None
 ) -> str:
     """Get details about a notebook (filename, directory, cell count)."""
-    result = _try_addon_command(
+    result = await _addon_result(
         "get_notebook_info", {"notebook": notebook, "session_id": session_id}
     )
-    return json.dumps(result, indent=2)
+    return _json_response(result)
 
 
 @mcp.tool()
@@ -246,10 +275,10 @@ async def create_notebook(title: str = "Untitled", session_id: Optional[str] = N
     NOTE: For executing code in a notebook, prefer execute_code(code, output_target="notebook")
     which handles notebook creation, cell writing, and evaluation atomically.
     """
-    result = _try_addon_command(
+    result = await _addon_result(
         "create_notebook", {"title": title, "session_id": session_id}
     )
-    return json.dumps(result, indent=2)
+    return _json_response(result)
 
 
 @mcp.tool()
@@ -260,7 +289,7 @@ async def save_notebook(
     session_id: Optional[str] = None,
 ) -> str:
     """Save a notebook to disk."""
-    result = _try_addon_command(
+    result = await _addon_result(
         "save_notebook",
         {
             "notebook": notebook,
@@ -269,7 +298,7 @@ async def save_notebook(
             "session_id": session_id,
         },
     )
-    return json.dumps(result, indent=2)
+    return _json_response(result)
 
 
 @mcp.tool()
@@ -277,10 +306,10 @@ async def close_notebook(
     notebook: Optional[str] = None, session_id: Optional[str] = None
 ) -> str:
     """Close a notebook."""
-    result = _try_addon_command(
+    result = await _addon_result(
         "close_notebook", {"notebook": notebook, "session_id": session_id}
     )
-    return json.dumps(result, indent=2)
+    return _json_response(result)
 
 
 @mcp.tool()
@@ -293,7 +322,7 @@ async def get_cells(
     include_content: bool = True,
 ) -> str:
     """Get list of cells in a notebook."""
-    result = _try_addon_command(
+    result = await _addon_result(
         "get_cells",
         {
             "notebook": notebook,
@@ -304,7 +333,7 @@ async def get_cells(
             "include_content": include_content,
         },
     )
-    return json.dumps(result, indent=2)
+    return _json_response(result)
 
 
 @mcp.tool()
@@ -314,11 +343,11 @@ async def get_cell_content(
     session_id: Optional[str] = None,
 ) -> str:
     """Get the full content of a specific cell."""
-    result = _try_addon_command(
+    result = await _addon_result(
         "get_cell_content",
         {"cell_id": cell_id, "notebook": notebook, "session_id": session_id},
     )
-    return json.dumps(result, indent=2)
+    return _json_response(result)
 
 
 @mcp.tool()
@@ -336,7 +365,7 @@ async def write_cell(
     NOTE: For executing code, prefer execute_code(code, output_target="notebook")
     which writes AND evaluates the cell atomically.
     """
-    result = _try_addon_command(
+    result = await _addon_result(
         "write_cell",
         {
             "notebook": notebook,
@@ -348,7 +377,7 @@ async def write_cell(
             "sync_wait": sync_wait,
         },
     )
-    return json.dumps(result, indent=2)
+    return _json_response(result)
 
 
 @mcp.tool()
@@ -358,11 +387,11 @@ async def delete_cell(
     session_id: Optional[str] = None,
 ) -> str:
     """Delete a cell from a notebook."""
-    result = _try_addon_command(
+    result = await _addon_result(
         "delete_cell",
         {"cell_id": cell_id, "notebook": notebook, "session_id": session_id},
     )
-    return json.dumps(result, indent=2)
+    return _json_response(result)
 
 
 @mcp.tool()
@@ -375,7 +404,7 @@ async def evaluate_cell(
     sync_wait: float = 2,
 ) -> str:
     """Evaluate a specific cell."""
-    result = _try_addon_command(
+    result = await _addon_result(
         "evaluate_cell",
         {
             "cell_id": cell_id,
@@ -386,7 +415,7 @@ async def evaluate_cell(
             "sync_wait": sync_wait,
         },
     )
-    return json.dumps(result, indent=2)
+    return _json_response(result)
 
 
 @mcp.tool()
@@ -445,7 +474,7 @@ async def execute_code(
             }
             if deterministic_seed is not None:
                 params["deterministic_seed"] = deterministic_seed
-            result = _try_addon_command("execute_code_notebook", params)
+            result = await _addon_result("execute_code_notebook", params)
 
             if result.get("success"):
                 response = {
@@ -530,7 +559,7 @@ async def execute_code(
                         if result.get("output_preview"):
                             response["output_preview"] = result.get("output_preview")
 
-                return json.dumps(response, indent=2)
+                return _json_response(response)
             else:
                 raise RuntimeError(
                     result.get("error", "Atomic notebook execution failed")
@@ -550,7 +579,7 @@ async def execute_code(
                 }
                 if deterministic_seed is not None:
                     params["deterministic_seed"] = deterministic_seed
-                result = _try_addon_command("execute_code", params)
+                result = await _addon_result("execute_code", params)
                 if isinstance(result, dict):
                     result["note"] = "Executed via CLI (notebook error)."
                     output = result.get("output", "")
@@ -573,10 +602,11 @@ async def execute_code(
                             )
                             result["is_graphics"] = True
                             result["tip"] = "Use Read tool to view image."
-                    return json.dumps(result, indent=2)
+                    return _json_response(result)
                 return f"{result}\n(Note: Executed via CLI due to notebook error)"
             except Exception:
-                result = execute_in_kernel(
+                result = await _run_blocking(
+                    execute_in_kernel,
                     code,
                     format,
                     render_graphics=render_graphics,
@@ -593,7 +623,7 @@ async def execute_code(
                 if result.get("is_graphics") and result.get("image_path"):
                     result["rendered_image"] = result["image_path"]
                     result["tip"] = "Use Read tool to view image."
-                return json.dumps(result, indent=2)
+                return _json_response(result)
 
     params = {
         "code": code,
@@ -604,10 +634,11 @@ async def execute_code(
     }
     if deterministic_seed is not None:
         params["deterministic_seed"] = deterministic_seed
-    result = _try_addon_command("execute_code", params)
+    result = await _addon_result("execute_code", params)
     # Check if addon command succeeded, otherwise fall back to kernel
     if result.get("success") is False or "error" in result:
-        result = execute_in_kernel(
+        result = await _run_blocking(
+            execute_in_kernel,
             code,
             format,
             render_graphics=render_graphics,
@@ -647,14 +678,13 @@ async def execute_code(
                         if len(output_inputform) > 200
                         else output_inputform
                     )
-    return json.dumps(result, indent=2)
+    return _json_response(result)
 
 
 @mcp.tool()
 async def batch_commands(commands: List[Dict[str, Any]]) -> str:
     """Execute multiple commands in one round-trip."""
-    result = _try_addon_command("batch_commands", {"commands": commands})
-    return json.dumps(result, indent=2)
+    return await _addon_json("batch_commands", {"commands": commands})
 
 
 @mcp.tool()
@@ -671,7 +701,7 @@ async def evaluate_selection(
     Args:
         notebook: Notebook ID. If None, uses selected notebook.
     """
-    result = _try_addon_command(
+    result = await _addon_result(
         "execute_selection",
         {
             "notebook": notebook,
@@ -681,7 +711,7 @@ async def evaluate_selection(
             "sync_wait": sync_wait,
         },
     )
-    return json.dumps(result, indent=2)
+    return _json_response(result)
 
 
 @mcp.tool()
@@ -701,7 +731,7 @@ async def screenshot_notebook(
 
     Returns the screenshot as an image that can be viewed directly.
     """
-    result = _try_addon_command(
+    result = await _addon_result(
         "screenshot_notebook",
         {
             "notebook": notebook,
@@ -712,12 +742,7 @@ async def screenshot_notebook(
         },
     )
 
-    image_path = result["path"]
-    with open(image_path, "rb") as f:
-        image_bytes = f.read()
-
-    os.remove(image_path)
-    return Image(data=image_bytes, format="png")
+    return await _image_from_result(result)
 
 
 @mcp.tool()
@@ -735,7 +760,7 @@ async def screenshot_cell(
     Args:
         cell_id: The cell object ID to screenshot
     """
-    result = _try_addon_command(
+    result = await _addon_result(
         "screenshot_cell",
         {
             "cell_id": cell_id,
@@ -745,12 +770,7 @@ async def screenshot_cell(
         },
     )
 
-    image_path = result["path"]
-    with open(image_path, "rb") as f:
-        image_bytes = f.read()
-
-    os.remove(image_path)
-    return Image(data=image_bytes, format="png")
+    return await _image_from_result(result)
 
 
 @mcp.tool()
@@ -770,16 +790,10 @@ async def rasterize_expression(expression: str, image_size: int = 400) -> Image:
         rasterize_expression("MatrixForm[{{1, 2}, {3, 4}}]")
         rasterize_expression("Graphics[Circle[]]", image_size=200)
     """
-    result = _try_addon_command(
+    result = await _addon_result(
         "rasterize_expression", {"expression": expression, "image_size": image_size}
     )
-
-    image_path = result["path"]
-    with open(image_path, "rb") as f:
-        image_bytes = f.read()
-
-    os.remove(image_path)
-    return Image(data=image_bytes, format="png")
+    return await _image_from_result(result)
 
 
 @mcp.tool()
@@ -789,11 +803,11 @@ async def select_cell(
     session_id: Optional[str] = None,
 ) -> str:
     """Select a cell in the notebook (moves cursor to it)."""
-    result = _try_addon_command(
+    result = await _addon_result(
         "select_cell",
         {"cell_id": cell_id, "notebook": notebook, "session_id": session_id},
     )
-    return json.dumps(result, indent=2)
+    return _json_response(result)
 
 
 @mcp.tool()
@@ -803,11 +817,11 @@ async def scroll_to_cell(
     session_id: Optional[str] = None,
 ) -> str:
     """Scroll the notebook view to make a cell visible."""
-    result = _try_addon_command(
+    result = await _addon_result(
         "scroll_to_cell",
         {"cell_id": cell_id, "notebook": notebook, "session_id": session_id},
     )
-    return json.dumps(result, indent=2)
+    return _json_response(result)
 
 
 @mcp.tool()
@@ -818,161 +832,11 @@ async def export_notebook(
     session_id: Optional[str] = None,
 ) -> str:
     """Export a notebook to PDF, HTML, TeX, or Markdown."""
-    result = _try_addon_command(
+    result = await _addon_result(
         "export_notebook",
         {"notebook": notebook, "path": path, "format": format, "session_id": session_id},
     )
-    return json.dumps(result, indent=2)
-
-
-@mcp.tool()
-async def resolve_function(
-    query: str,
-    expression: Optional[str] = None,
-    auto_execute: bool = True,
-    max_candidates: int = 5,
-    output_target: Literal["cli", "notebook"] = "cli",
-) -> str:
-    """Search for Wolfram Language functions and optionally auto-execute."""
-    SCORE_THRESHOLD = 80
-    SCORE_GAP_THRESHOLD = 15
-
-    lookup_result = _lookup_symbols_in_kernel(query)
-
-    if not lookup_result.get("success"):
-        return json.dumps(
-            {
-                "status": "error",
-                "error": lookup_result.get("error", "Lookup failed"),
-                "query": query,
-            },
-            indent=2,
-        )
-
-    raw_output = lookup_result.get("raw_output", "")
-    if not raw_output:
-        return json.dumps(
-            {
-                "status": "not_found",
-                "query": query,
-                "message": f"No functions found matching '{query}'",
-            },
-            indent=2,
-        )
-
-    candidates_raw = []
-    try:
-        lines = raw_output.split("\n")
-        for line in lines:
-            if '"symbol"' in line and "->" in line:
-                symbol_match = re.search(r'"symbol"\s*->\s*"([^"]+)"', line)
-                usage_match = re.search(r'"usage"\s*->\s*"([^"]*)"', line)
-                if symbol_match:
-                    candidates_raw.append(
-                        {
-                            "symbol": symbol_match.group(1),
-                            "usage": usage_match.group(1) if usage_match else "",
-                        }
-                    )
-    except Exception:
-        pass
-
-    if not candidates_raw:
-        try:
-            import subprocess
-            import shutil
-
-            wolframscript = shutil.which("wolframscript")
-            if wolframscript:
-                simple_code = f'Names["*{query}*"]'
-                result = subprocess.run(
-                    [wolframscript, "-code", simple_code],
-                    capture_output=True,
-                    text=True,
-                    timeout=15,
-                )
-                if result.returncode == 0:
-                    names = re.findall(r'"([^"]+)"', result.stdout)
-                    for name in names[:20]:
-                        candidates_raw.append({"symbol": name, "usage": ""})
-        except Exception:
-            pass
-
-    if not candidates_raw:
-        return json.dumps(
-            {
-                "status": "not_found",
-                "query": query,
-                "message": f"No functions found matching '{query}'",
-            },
-            indent=2,
-        )
-
-    ranked = _rank_candidates(query, candidates_raw)
-    top_candidates = ranked[:max_candidates]
-
-    formatted_candidates = []
-    for c in top_candidates:
-        symbol_name = c.get("symbol_name", c.get("symbol", ""))
-        usage = c.get("usage", "")
-        formatted_candidates.append(
-            {
-                "symbol": symbol_name,
-                "full_name": c.get("symbol", symbol_name),
-                "description": _extract_short_description(usage),
-                "example": _extract_example_signature(usage, symbol_name),
-                "score": round(c.get("_score", 0), 2),
-            }
-        )
-
-    is_resolved = False
-    if len(formatted_candidates) >= 1:
-        top_score = formatted_candidates[0]["score"]
-        if top_score >= SCORE_THRESHOLD:
-            if len(formatted_candidates) == 1:
-                is_resolved = True
-            else:
-                second_score = formatted_candidates[1]["score"]
-                if top_score - second_score >= SCORE_GAP_THRESHOLD:
-                    is_resolved = True
-
-    if is_resolved:
-        resolved_symbol = formatted_candidates[0]
-        response = {
-            "status": "resolved",
-            "query": query,
-            "resolved_symbol": resolved_symbol["symbol"],
-            "description": resolved_symbol["description"],
-            "example": resolved_symbol["example"],
-            "other_candidates": formatted_candidates[1:]
-            if len(formatted_candidates) > 1
-            else [],
-        }
-
-        if auto_execute and expression:
-            exec_result = await execute_code(
-                code=expression, format="text", output_target=output_target
-            )
-            response["execution"] = {
-                "executed": True,
-                "expression": expression,
-                "result": json.loads(exec_result)
-                if exec_result.startswith("{")
-                else exec_result,
-            }
-
-        return json.dumps(response, indent=2)
-
-    return json.dumps(
-        {
-            "status": "ambiguous",
-            "query": query,
-            "message": f"Multiple functions match '{query}'. Please clarify which one you need.",
-            "candidates": formatted_candidates,
-            "hint": "Provide more specific query or select from candidates above",
-        },
-        indent=2,
-    )
+    return _json_response(result)
 
 
 @mcp.tool()
@@ -982,1244 +846,44 @@ async def verify_derivation(
     timeout: int = 120,
 ) -> str:
     """Verify a sequence of mathematical expressions steps."""
-    import subprocess
-    import shutil
+    from . import lazy_wolfram_tools as _lazy_wolfram_tools
 
-    if len(steps) < 2:
-        return json.dumps(
-            {
-                "success": False,
-                "error": "At least two steps are required for verification",
-                "steps_provided": len(steps),
-            },
-            indent=2,
-        )
-
-    wolframscript = shutil.which("wolframscript")
-    if not wolframscript:
-        return json.dumps(
-            {"success": False, "error": "wolframscript not found in PATH"}, indent=2
-        )
-
-    steps_list = ", ".join([f'"{step}"' for step in steps])
-
-    if format == "latex":
-        format_fn = "TeXForm"
-    elif format == "mathematica":
-        format_fn = "InputForm"
-    else:
-        format_fn = "ToString"
-
-    verification_code = f"""
-Module[{{steps, results, i, prev, current, isEqual, simplified, formatExpr}},
-  steps = {{{steps_list}}};
-  formatExpr = {format_fn};
-  results = <|"success" -> True, "steps" -> {{}}, "summary" -> ""|>;
-  
-  Do[
-    prev = ToExpression[steps[[i]]];
-    current = ToExpression[steps[[i + 1]]];
-    
-    (* Check equivalence using multiple methods *)
-    isEqual = Quiet[Check[
-      TrueQ[Simplify[prev == current]] || 
-      TrueQ[FullSimplify[prev == current]] ||
-      TrueQ[Simplify[prev - current] == 0],
-      False
-    ]];
-    
-    simplified = Quiet[Check[Simplify[current], current]];
-    
-    AppendTo[results["steps"], <|
-      "from" -> i,
-      "to" -> i + 1,
-      "expr_from" -> steps[[i]],
-      "expr_to" -> steps[[i + 1]],
-      "valid" -> isEqual,
-      "simplified" -> ToString[formatExpr[simplified]]
-    |>];
-  , {{i, 1, Length[steps] - 1}}];
-  
-  (* Generate summary *)
-  results["all_valid"] = AllTrue[results["steps"], #["valid"] &];
-  results["valid_count"] = Count[results["steps"], _?(#["valid"] &)];
-  results["total_steps"] = Length[steps] - 1;
-  
-  results
-]
-"""
-
-    try:
-        result = subprocess.run(
-            [wolframscript, "-code", verification_code],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
-
-        if result.returncode != 0:
-            return json.dumps(
-                {
-                    "success": False,
-                    "error": result.stderr or "Verification failed",
-                    "stdout": result.stdout,
-                },
-                indent=2,
-            )
-
-        raw_output = result.stdout.strip()
-        parsed = _parse_wolfram_association(raw_output)
-        report_lines = ["## Derivation Verification Report\n"]
-
-        if isinstance(parsed, dict) and "steps" in parsed:
-            steps_data = parsed.get("steps", [])
-            all_valid = parsed.get("all_valid", False)
-
-            for step_info in steps_data:
-                if isinstance(step_info, dict):
-                    from_idx = step_info.get("from", "?")
-                    to_idx = step_info.get("to", "?")
-                    valid = step_info.get("valid", False)
-                    expr_from = step_info.get("expr_from", "")
-                    expr_to = step_info.get("expr_to", "")
-
-                    status = "✓ VALID" if valid else "✗ INVALID"
-                    report_lines.append(f"Step {from_idx} → {to_idx}: {status}")
-                    report_lines.append(f"  From: {expr_from}")
-                    report_lines.append(f"  To:   {expr_to}")
-                    report_lines.append("")
-
-            summary = (
-                "All steps are valid!"
-                if all_valid
-                else "Some steps failed verification."
-            )
-            report_lines.append(f"**Summary**: {summary}")
-            report_lines.append(
-                f"Valid: {parsed.get('valid_count', 0)}/{parsed.get('total_steps', 0)} steps"
-            )
-        else:
-            report_lines.append("Could not parse verification results.")
-            report_lines.append(f"Raw output: {raw_output}")
-
-        return json.dumps(
-            {
-                "success": True,
-                "report": "\n".join(report_lines),
-                "raw_data": parsed,
-                "format": format,
-            },
-            indent=2,
-        )
-
-    except subprocess.TimeoutExpired:
-        return json.dumps(
-            {
-                "success": False,
-                "error": f"Verification timed out after {timeout} seconds",
-            },
-            indent=2,
-        )
-    except Exception as e:
-        return json.dumps(
-            {"success": False, "error": f"Verification failed: {str(e)}"}, indent=2
-        )
-
-
-@mcp.tool()
-async def get_symbol_info(symbol: str) -> str:
-    """Get comprehensive information about a Wolfram Language symbol."""
-    import subprocess
-    import shutil
-
-    wolframscript = shutil.which("wolframscript")
-    if not wolframscript:
-        return json.dumps(
-            {"success": False, "error": "wolframscript not found in PATH"}, indent=2
-        )
-
-    info_code = f"""
-Module[{{sym, info, usage, opts, attrs, syntaxInfo, relatedSyms, examples}},
-  sym = ToExpression["{symbol}"];
-  
-  (* Get usage string *)
-  usage = Quiet[Check[
-    ToString[sym::usage],
-    "No usage information available"
-  ]];
-  
-  (* Get options with defaults *)
-  opts = Quiet[Check[
-    Map[
-      {{ToString[#[[1]]], ToString[#[[2]]]}} &,
-      Options[sym]
-    ],
-    {{}}
-  ]];
-  
-  (* Get attributes *)
-  attrs = Quiet[Check[
-    ToString /@ Attributes[sym],
-    {{}}
-  ]];
-  
-  (* Get syntax information *)
-  syntaxInfo = Quiet[Check[
-    SyntaxInformation[sym],
-    {{}}
-  ]];
-  
-  (* Get related symbols via WolframLanguageData if available *)
-  relatedSyms = Quiet[Check[
-    Take[
-      ToString /@ WolframLanguageData["{symbol}", "RelatedSymbols"],
-      UpTo[10]
-    ],
-    {{}}
-  ]];
-  
-  (* Build result *)
-  <|
-    "success" -> True,
-    "symbol" -> "{symbol}",
-    "usage" -> usage,
-    "options" -> opts,
-    "options_count" -> Length[opts],
-    "attributes" -> attrs,
-    "syntax_info" -> ToString[syntaxInfo],
-    "related_symbols" -> relatedSyms,
-    "is_function" -> MemberQ[Attributes[sym], Protected],
-    "context" -> Quiet[Check[Context[sym], "Unknown"]]
-  |>
-]
-"""
-
-    try:
-        result = subprocess.run(
-            [wolframscript, "-code", info_code],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-
-        if result.returncode != 0:
-            return json.dumps(
-                {
-                    "success": False,
-                    "error": result.stderr or "Symbol lookup failed",
-                    "symbol": symbol,
-                },
-                indent=2,
-            )
-
-        raw_output = result.stdout.strip()
-        parsed = _parse_wolfram_association(raw_output)
-
-        if isinstance(parsed, dict) and parsed.get("success"):
-            formatted = {
-                "success": True,
-                "symbol": symbol,
-                "usage": parsed.get("usage", ""),
-                "attributes": parsed.get("attributes", []),
-                "options_count": parsed.get("options_count", 0),
-                "options": parsed.get("options", [])[:10],
-                "related_symbols": parsed.get("related_symbols", []),
-                "context": parsed.get("context", "Unknown"),
-            }
-            return json.dumps(formatted, indent=2)
-        else:
-            return json.dumps(
-                {
-                    "success": True,
-                    "symbol": symbol,
-                    "raw_output": raw_output,
-                    "note": "Partial parsing - see raw output",
-                },
-                indent=2,
-            )
-
-    except subprocess.TimeoutExpired:
-        return json.dumps(
-            {"success": False, "error": "Symbol lookup timed out", "symbol": symbol},
-            indent=2,
-        )
-    except Exception as e:
-        return json.dumps(
-            {"success": False, "error": str(e), "symbol": symbol}, indent=2
-        )
+    return await _lazy_wolfram_tools.verify_derivation(
+        steps,
+        format,
+        timeout,
+        parse_wolfram_association=_parse_wolfram_association,
+    )
 
 
 @mcp.tool()
 async def get_kernel_state() -> str:
     """Get current Wolfram kernel session state (memory, uptime, version)."""
-    import subprocess
-    import shutil
+    from . import lazy_wolfram_tools as _lazy_wolfram_tools
 
-    wolframscript = shutil.which("wolframscript")
-    if not wolframscript:
-        return json.dumps(
-            {"success": False, "error": "wolframscript not found in PATH"}, indent=2
-        )
-
-    state_code = """
-<|
-  "success" -> True,
-  "kernel_version" -> $VersionNumber,
-  "version_string" -> $Version,
-  "system_id" -> $SystemID,
-  "machine_name" -> $MachineName,
-  "memory_in_use" -> MemoryInUse[],
-  "memory_in_use_mb" -> Round[MemoryInUse[] / 1024.0 / 1024.0, 0.1],
-  "max_memory_used" -> MaxMemoryUsed[],
-  "loaded_packages" -> Quiet[Check[
-    Select[Contexts[], StringMatchQ[#, __ ~~ "`"] && !StringStartsQ[#, "System`"] && !StringStartsQ[#, "Global`"] &],
-    {}
-  ]],
-  "global_symbols" -> Quiet[Check[
-    Take[Names["Global`*"], UpTo[50]],
-    {}
-  ]],
-  "global_symbol_count" -> Length[Names["Global`*"]],
-  "session_time" -> SessionTime[],
-  "process_id" -> $ProcessID
-|>
-"""
-
-    try:
-        result = subprocess.run(
-            [wolframscript, "-code", state_code],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-
-        if result.returncode != 0:
-            return json.dumps(
-                {"success": False, "error": result.stderr or "State query failed"},
-                indent=2,
-            )
-
-        raw_output = result.stdout.strip()
-        parsed = _parse_wolfram_association(raw_output)
-
-        return json.dumps(
-            parsed if isinstance(parsed, dict) else {"raw": raw_output}, indent=2
-        )
-
-    except Exception as e:
-        return json.dumps({"success": False, "error": str(e)}, indent=2)
+    return await _lazy_wolfram_tools.get_kernel_state(
+        parse_wolfram_association=_parse_wolfram_association
+    )
 
 
 @mcp.tool()
 async def load_package(package_name: str) -> str:
     """Load a Mathematica package (e.g., "Developer`")."""
-    import subprocess
-    import shutil
+    from . import lazy_wolfram_tools as _lazy_wolfram_tools
 
-    wolframscript = shutil.which("wolframscript")
-    if not wolframscript:
-        return json.dumps(
-            {"success": False, "error": "wolframscript not found in PATH"}, indent=2
-        )
-
-    # Ensure package name ends with `
-    if not package_name.endswith("`"):
-        package_name = package_name + "`"
-
-    load_code = f"""
-Module[{{beforeContexts, afterContexts, newSymbols, result}},
-  beforeContexts = Contexts[];
-  
-  result = Quiet[Check[
-    Needs["{package_name}"];
-    "loaded",
-    "failed"
-  ]];
-  
-  afterContexts = Contexts[];
-  newSymbols = Complement[afterContexts, beforeContexts];
-  
-  <|
-    "success" -> (result === "loaded"),
-    "package" -> "{package_name}",
-    "new_contexts" -> newSymbols,
-    "message" -> If[result === "loaded", 
-      "Package loaded successfully", 
-      "Failed to load package"
-    ]
-  |>
-]
-"""
-
-    try:
-        result = subprocess.run(
-            [wolframscript, "-code", load_code],
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-
-        raw_output = result.stdout.strip()
-        parsed = _parse_wolfram_association(raw_output)
-
-        return json.dumps(
-            parsed if isinstance(parsed, dict) else {"raw": raw_output}, indent=2
-        )
-
-    except Exception as e:
-        return json.dumps(
-            {"success": False, "error": str(e), "package": package_name}, indent=2
-        )
+    return await _lazy_wolfram_tools.load_package(
+        package_name,
+        parse_wolfram_association=_parse_wolfram_association,
+    )
 
 
 @mcp.tool()
 async def list_loaded_packages() -> str:
     """List all currently loaded packages and contexts."""
-    import subprocess
-    import shutil
+    from . import lazy_wolfram_tools as _lazy_wolfram_tools
 
-    wolframscript = shutil.which("wolframscript")
-    if not wolframscript:
-        return json.dumps(
-            {"success": False, "error": "wolframscript not found in PATH"}, indent=2
-        )
-
-    list_code = """
-Module[{pkgs},
-  pkgs = Select[
-    Contexts[],
-    StringMatchQ[#, __ ~~ "`"] && 
-    !StringStartsQ[#, "System`"] && 
-    !StringStartsQ[#, "Global`"] &&
-    !StringStartsQ[#, "Internal`"] &
-  ];
-  <|
-    "success" -> True,
-    "packages" -> Sort[pkgs],
-    "count" -> Length[pkgs]
-  |>
-]
-"""
-
-    try:
-        result = subprocess.run(
-            [wolframscript, "-code", list_code],
-            capture_output=True,
-            text=True,
-            timeout=15,
-        )
-
-        raw_output = result.stdout.strip()
-        parsed = _parse_wolfram_association(raw_output)
-
-        return json.dumps(
-            parsed if isinstance(parsed, dict) else {"raw": raw_output}, indent=2
-        )
-
-    except Exception as e:
-        return json.dumps({"success": False, "error": str(e)}, indent=2)
-
-
-# ============================================================================
-# Named Math Operation Aliases (more discoverable for LLMs)
-# ============================================================================
-
-
-@mcp.tool()
-async def mathematica_integrate(
-    expression: str,
-    variable: str,
-    lower_bound: Optional[str] = None,
-    upper_bound: Optional[str] = None,
-) -> str:
-    """Compute integral using Integrate."""
-    if lower_bound is not None and upper_bound is not None:
-        code = f"Integrate[{expression}, {{{variable}, {lower_bound}, {upper_bound}}}]"
-    else:
-        code = f"Integrate[{expression}, {variable}]"
-
-    result = await execute_code(code=code, format="text", output_target="cli")
-    return result
-
-
-@mcp.tool()
-async def mathematica_solve(
-    equation: str,
-    variable: str,
-    domain: Optional[str] = None,
-) -> str:
-    """Solve an equation using Solve."""
-    if domain:
-        code = f"Solve[{equation}, {variable}, {domain}]"
-    else:
-        code = f"Solve[{equation}, {variable}]"
-
-    result = await execute_code(code=code, format="text", output_target="cli")
-    return result
-
-
-@mcp.tool()
-async def mathematica_simplify(
-    expression: str,
-    assumptions: Optional[str] = None,
-    full: bool = False,
-) -> str:
-    """Simplify a mathematical expression."""
-    func = "FullSimplify" if full else "Simplify"
-
-    if assumptions:
-        code = f"{func}[{expression}, Assumptions -> {assumptions}]"
-    else:
-        code = f"{func}[{expression}]"
-
-    result = await execute_code(code=code, format="text", output_target="cli")
-    return result
-
-
-@mcp.tool()
-async def mathematica_differentiate(
-    expression: str,
-    variable: str,
-    order: int = 1,
-) -> str:
-    """Compute derivative using D."""
-    if order == 1:
-        code = f"D[{expression}, {variable}]"
-    else:
-        code = f"D[{expression}, {{{variable}, {order}}}]"
-
-    result = await execute_code(code=code, format="text", output_target="cli")
-    return result
-
-
-@mcp.tool()
-async def mathematica_expand(expression: str) -> str:
-    """Expand a mathematical expression."""
-    code = f"Expand[{expression}]"
-    result = await execute_code(code=code, format="text", output_target="cli")
-    return result
-
-
-@mcp.tool()
-async def mathematica_factor(expression: str) -> str:
-    """Factor a mathematical expression."""
-    code = f"Factor[{expression}]"
-    result = await execute_code(code=code, format="text", output_target="cli")
-    return result
-
-
-@mcp.tool()
-async def mathematica_limit(
-    expression: str,
-    variable: str,
-    point: str,
-    direction: Optional[Literal["Left", "Right"]] = None,
-) -> str:
-    """Compute limit using Limit."""
-    if direction:
-        code = f'Limit[{expression}, {variable} -> {point}, Direction -> "{direction}"]'
-    else:
-        code = f"Limit[{expression}, {variable} -> {point}]"
-
-    result = await execute_code(code=code, format="text", output_target="cli")
-    return result
-
-
-@mcp.tool()
-async def mathematica_series(
-    expression: str,
-    variable: str,
-    point: str = "0",
-    order: int = 5,
-) -> str:
-    """Compute Taylor/power series expansion."""
-    code = f"Series[{expression}, {{{variable}, {point}, {order}}}]"
-    result = await execute_code(code=code, format="text", output_target="cli")
-    return result
-
-
-# ============================================================================
-# Wolfram Repository Integration
-# ============================================================================
-
-
-@mcp.tool()
-async def search_function_repository(
-    query: str,
-    max_results: int = 10,
-) -> str:
-    """Search the Wolfram Function Repository."""
-    import subprocess
-    import shutil
-
-    wolframscript = shutil.which("wolframscript")
-    if not wolframscript:
-        return json.dumps(
-            {"success": False, "error": "wolframscript not found in PATH"}, indent=2
-        )
-
-    safe_query = query.replace('"', '\\"')
-
-    search_code = f"""
-Module[{{results, query, clean, fetch, maxRes}},
-  query = "{safe_query}";
-  maxRes = {max_results};
-  fetch[q_, field_] := Quiet[Check[
-    Normal@ResourceSearch[{{"ResourceType" -> "Function", field -> q}}, "Associations"],
-    {{}}
-  ]];
-
-  results = Quiet[Check[Take[fetch[query, "Name"], UpTo[maxRes]], {{}}]];
-
-  If[results === {{}},
-    results = Quiet[Check[Take[fetch[query, "Keyword"], UpTo[maxRes]], {{}}]]
-  ];
-
-  clean[res_] := <|
-    "name" -> ToString[Lookup[res, "Name", ""]],
-    "short_description" -> ToString[Lookup[res, "ShortDescription", ""]],
-    "repository_location" -> "Wolfram Function Repository"
-  |>;
-
-  ExportString[
-    <|
-      "success" -> True,
-      "query" -> query,
-      "count" -> Length[results],
-      "results" -> Map[clean, results]
-    |>,
-    "JSON"
-  ]
-]
-"""
-
-    try:
-        result = subprocess.run(
-            [wolframscript, "-code", search_code],
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-
-        if result.returncode != 0:
-            return json.dumps(
-                {
-                    "success": False,
-                    "error": result.stderr or "Search failed",
-                    "query": query,
-                },
-                indent=2,
-            )
-
-        raw_output = result.stdout.strip()
-        if not raw_output:
-            return json.dumps(
-                {"success": False, "error": "Empty search response", "query": query},
-                indent=2,
-            )
-
-        try:
-            parsed = json.loads(raw_output)
-        except json.JSONDecodeError as e:
-            return json.dumps(
-                {
-                    "success": False,
-                    "error": f"Failed to parse search response: {e}",
-                    "raw": raw_output,
-                },
-                indent=2,
-            )
-
-        return json.dumps(parsed, indent=2)
-
-    except subprocess.TimeoutExpired:
-        return json.dumps(
-            {"success": False, "error": "Search timed out", "query": query}, indent=2
-        )
-    except Exception as e:
-        return json.dumps({"success": False, "error": str(e), "query": query}, indent=2)
-
-
-@mcp.tool()
-async def get_function_repository_info(function_name: str) -> str:
-    """Get details about a Wolfram Function Repository function."""
-    import subprocess
-    import shutil
-
-    wolframscript = shutil.which("wolframscript")
-    if not wolframscript:
-        return json.dumps(
-            {"success": False, "error": "wolframscript not found in PATH"}, indent=2
-        )
-
-    info_code = f"""
-Module[{{ro, info}},
-  ro = Quiet[Check[
-    ResourceObject["{function_name}"],
-    $Failed
-  ]];
-  
-  If[ro === $Failed,
-    <|"success" -> False, "error" -> "Function not found in repository"|>,
-    
-    info = <|
-      "success" -> True,
-      "name" -> "{function_name}",
-      "description" -> Quiet[Check[ro["Description"], ""]],
-      "documentation_link" -> Quiet[Check[ro["DocumentationLink"], ""]],
-      "version" -> Quiet[Check[ToString[ro["Version"]], ""]],
-      "author" -> Quiet[Check[ro["ContributorInformation"], ""]],
-      "keywords" -> Quiet[Check[ro["Keywords"], {{}}]],
-      "usage_example" -> Quiet[Check[
-        ToString[First[ro["BasicExamples"], ""]],
-        ""
-      ]]
-    |>;
-    info
-  ]
-]
-"""
-
-    try:
-        result = subprocess.run(
-            [wolframscript, "-code", info_code],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-
-        raw_output = result.stdout.strip()
-        parsed = _parse_wolfram_association(raw_output)
-
-        return json.dumps(
-            parsed if isinstance(parsed, dict) else {"raw": raw_output}, indent=2
-        )
-
-    except Exception as e:
-        return json.dumps(
-            {"success": False, "error": str(e), "function": function_name}, indent=2
-        )
-
-
-@mcp.tool()
-async def load_resource_function(function_name: str) -> str:
-    """Load a function from the Wolfram Function Repository."""
-    import subprocess
-    import shutil
-
-    wolframscript = shutil.which("wolframscript")
-    if not wolframscript:
-        return json.dumps(
-            {"success": False, "error": "wolframscript not found in PATH"}, indent=2
-        )
-
-    load_code = f"""
-Module[{{fn, result}},
-  fn = Quiet[Check[
-    ResourceFunction["{function_name}"],
-    $Failed
-  ]];
-  
-  If[fn === $Failed,
-    <|"success" -> False, "error" -> "Failed to load function from repository"|>,
-    <|
-      "success" -> True,
-      "function" -> "{function_name}",
-      "loaded" -> True,
-      "usage" -> "Use ResourceFunction[\\"{function_name}\\"][args] to call the function",
-      "message" -> "Function loaded successfully from Wolfram Function Repository"
-    |>
-  ]
-]
-"""
-
-    try:
-        result = subprocess.run(
-            [wolframscript, "-code", load_code],
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-
-        raw_output = result.stdout.strip()
-        parsed = _parse_wolfram_association(raw_output)
-
-        return json.dumps(
-            parsed if isinstance(parsed, dict) else {"raw": raw_output}, indent=2
-        )
-
-    except Exception as e:
-        return json.dumps(
-            {"success": False, "error": str(e), "function": function_name}, indent=2
-        )
-
-
-@mcp.tool()
-async def search_data_repository(
-    query: str,
-    max_results: int = 10,
-) -> str:
-    """Search the Wolfram Data Repository."""
-    import subprocess
-    import shutil
-
-    wolframscript = shutil.which("wolframscript")
-    if not wolframscript:
-        return json.dumps(
-            {"success": False, "error": "wolframscript not found in PATH"}, indent=2
-        )
-
-    search_code = f"""
-Module[{{results}},
-  results = Quiet[Check[
-    Take[
-      ResourceSearch[{{"ResourceType" -> "DataResource", "Name" -> "{query}"}}, "SnippetData"],
-      UpTo[{max_results}]
-    ],
-    {{}}
-  ]];
-  
-  If[results === {{}},
-    results = Quiet[Check[
-      Take[
-        ResourceSearch[{{"ResourceType" -> "DataResource", "Keyword" -> "{query}"}}, "SnippetData"],
-        UpTo[{max_results}]
-      ],
-      {{}}
-    ]]
-  ];
-  
-  <|
-    "success" -> True,
-    "query" -> "{query}",
-    "count" -> Length[results],
-    "datasets" -> Map[
-      <|
-        "name" -> #["Name"],
-        "description" -> Quiet[Check[#["ShortDescription"], ""]]
-      |> &,
-      results
-    ]
-  |>
-]
-"""
-
-    try:
-        result = subprocess.run(
-            [wolframscript, "-code", search_code],
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-
-        raw_output = result.stdout.strip()
-        parsed = _parse_wolfram_association(raw_output)
-
-        return json.dumps(
-            parsed if isinstance(parsed, dict) else {"raw": raw_output}, indent=2
-        )
-
-    except Exception as e:
-        return json.dumps({"success": False, "error": str(e), "query": query}, indent=2)
-
-
-@mcp.tool()
-async def get_dataset_info(dataset_name: str) -> str:
-    """Get detailed information about a Wolfram Data Repository dataset."""
-    import subprocess
-    import shutil
-
-    wolframscript = shutil.which("wolframscript")
-    if not wolframscript:
-        return json.dumps(
-            {"success": False, "error": "wolframscript not found in PATH"}, indent=2
-        )
-
-    info_code = f"""
-Module[{{rd, info}},
-  rd = Quiet[Check[
-    ResourceObject["{dataset_name}"],
-    $Failed
-  ]];
-  
-  If[rd === $Failed,
-    <|"success" -> False, "error" -> "Dataset not found"|>,
-    <|
-      "success" -> True,
-      "name" -> "{dataset_name}",
-      "description" -> Quiet[Check[rd["Description"], ""]],
-      "content_types" -> Quiet[Check[rd["ContentTypes"], {{}}]],
-      "documentation_link" -> Quiet[Check[rd["DocumentationLink"], ""]],
-      "keywords" -> Quiet[Check[rd["Keywords"], {{}}]]
-    |>
-  ]
-]
-"""
-
-    try:
-        result = subprocess.run(
-            [wolframscript, "-code", info_code],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-
-        raw_output = result.stdout.strip()
-        parsed = _parse_wolfram_association(raw_output)
-
-        return json.dumps(
-            parsed if isinstance(parsed, dict) else {"raw": raw_output}, indent=2
-        )
-
-    except Exception as e:
-        return json.dumps(
-            {"success": False, "error": str(e), "dataset": dataset_name}, indent=2
-        )
-
-
-@mcp.tool()
-async def load_dataset(
-    dataset_name: str,
-    sample_size: Optional[int] = None,
-) -> str:
-    """Load a dataset from the Wolfram Data Repository."""
-    import subprocess
-    import shutil
-
-    wolframscript = shutil.which("wolframscript")
-    if not wolframscript:
-        return json.dumps(
-            {"success": False, "error": "wolframscript not found in PATH"}, indent=2
-        )
-
-    sample_clause = f"Take[#, UpTo[{sample_size}]]&" if sample_size else "Identity"
-
-    load_code = f"""
-Module[{{data, info}},
-  data = Quiet[Check[
-    ResourceData["{dataset_name}"],
-    $Failed
-  ]];
-  
-  If[data === $Failed,
-    <|"success" -> False, "error" -> "Failed to load dataset"|>,
-    <|
-      "success" -> True,
-      "name" -> "{dataset_name}",
-      "loaded" -> True,
-      "type" -> Head[data],
-      "dimensions" -> If[Head[data] === Dataset,
-        Quiet[Check[Dimensions[Normal[data]], "Unknown"]],
-        Quiet[Check[Dimensions[data], "Unknown"]]
-      ],
-      "sample" -> ToString[{sample_clause}[data], InputForm],
-      "columns" -> If[Head[data] === Dataset,
-        Quiet[Check[Keys[First[Normal[data]]], {{}}]],
-        {{}}
-      ]
-    |>
-  ]
-]
-"""
-
-    try:
-        result = subprocess.run(
-            [wolframscript, "-code", load_code],
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
-
-        raw_output = result.stdout.strip()
-        parsed = _parse_wolfram_association(raw_output)
-
-        return json.dumps(
-            parsed if isinstance(parsed, dict) else {"raw": raw_output}, indent=2
-        )
-
-    except subprocess.TimeoutExpired:
-        return json.dumps(
-            {
-                "success": False,
-                "error": "Dataset loading timed out - dataset may be large",
-                "dataset": dataset_name,
-            },
-            indent=2,
-        )
-    except Exception as e:
-        return json.dumps(
-            {"success": False, "error": str(e), "dataset": dataset_name}, indent=2
-        )
-
-
-# ============================================================================
-# Long Computation Async Workflow
-# ============================================================================
-
-# In-memory job storage (would use persistent storage in production)
-_computation_jobs: Dict[str, Dict[str, Any]] = {}
-import threading as _threading
-
-_computation_jobs_lock = _threading.Lock()
-_MAX_JOBS = 100
-_MAX_JOB_AGE_SECONDS = 3600
-
-
-@mcp.tool()
-async def submit_computation(
-    code: str,
-    name: Optional[str] = None,
-    timeout: int = 300,
-) -> str:
-    """Submit a long-running computation for background execution."""
-    import subprocess
-    import shutil
-    import uuid
-    import threading
-    import time
-
-    def _prune_jobs(now: float) -> None:
-        expired = [
-            job_id
-            for job_id, job in _computation_jobs.items()
-            if now - job.get("submitted_at", now) > _MAX_JOB_AGE_SECONDS
-        ]
-        for job_id in expired:
-            _computation_jobs.pop(job_id, None)
-
-    job_id = str(uuid.uuid4())[:8]
-
-    wolframscript = shutil.which("wolframscript")
-    if not wolframscript:
-        return json.dumps(
-            {"success": False, "error": "wolframscript not found in PATH"}, indent=2
-        )
-
-    now = time.time()
-    with _computation_jobs_lock:
-        _prune_jobs(now)
-        if len(_computation_jobs) >= _MAX_JOBS:
-            return json.dumps(
-                {
-                    "success": False,
-                    "error": "Too many active jobs. Try again later.",
-                },
-                indent=2,
-            )
-        _computation_jobs[job_id] = {
-            "id": job_id,
-            "name": name or f"Job {job_id}",
-            "code": code,
-            "status": "running",
-            "submitted_at": now,
-            "timeout": timeout,
-            "result": None,
-            "error": None,
-        }
-
-    def run_computation():
-        try:
-            result = subprocess.run(
-                [wolframscript, "-code", code],
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-            )
-
-            with _computation_jobs_lock:
-                if result.returncode == 0:
-                    _computation_jobs[job_id]["status"] = "completed"
-                    _computation_jobs[job_id]["result"] = result.stdout.strip()
-                else:
-                    _computation_jobs[job_id]["status"] = "failed"
-                    _computation_jobs[job_id]["error"] = (
-                        result.stderr or "Execution failed"
-                    )
-
-        except subprocess.TimeoutExpired:
-            with _computation_jobs_lock:
-                _computation_jobs[job_id]["status"] = "timeout"
-                _computation_jobs[job_id]["error"] = (
-                    f"Computation timed out after {timeout}s"
-                )
-        except Exception as e:
-            with _computation_jobs_lock:
-                _computation_jobs[job_id]["status"] = "failed"
-                _computation_jobs[job_id]["error"] = str(e)
-
-        with _computation_jobs_lock:
-            _computation_jobs[job_id]["completed_at"] = time.time()
-
-    thread = threading.Thread(target=run_computation, daemon=True)
-    thread.start()
-
-    return json.dumps(
-        {
-            "success": True,
-            "job_id": job_id,
-            "name": name or f"Job {job_id}",
-            "status": "submitted",
-            "message": f"Computation submitted. Use poll_computation('{job_id}') to check status.",
-        },
-        indent=2,
-    )
-
-
-@mcp.tool()
-async def poll_computation(job_id: str) -> str:
-    """Check the status of a submitted computation."""
-    import time
-
-    with _computation_jobs_lock:
-        if job_id not in _computation_jobs:
-            return json.dumps(
-                {"success": False, "error": f"Job '{job_id}' not found"}, indent=2
-            )
-
-        job = _computation_jobs[job_id]
-
-    elapsed = time.time() - job["submitted_at"]
-
-    return json.dumps(
-        {
-            "success": True,
-            "job_id": job_id,
-            "name": job["name"],
-            "status": job["status"],
-            "elapsed_seconds": round(elapsed, 1),
-            "has_result": job["result"] is not None,
-        },
-        indent=2,
-    )
-
-
-@mcp.tool()
-async def get_computation_result(job_id: str) -> str:
-    """Retrieve the result of a completed computation."""
-    with _computation_jobs_lock:
-        if job_id not in _computation_jobs:
-            return json.dumps(
-                {"success": False, "error": f"Job '{job_id}' not found"}, indent=2
-            )
-
-        job = _computation_jobs[job_id]
-
-    if job["status"] == "running":
-        return json.dumps(
-            {
-                "success": False,
-                "status": "running",
-                "message": "Computation still in progress. Use poll_computation to check status.",
-            },
-            indent=2,
-        )
-
-    return json.dumps(
-        {
-            "success": job["status"] == "completed",
-            "job_id": job_id,
-            "name": job["name"],
-            "status": job["status"],
-            "result": job["result"],
-            "error": job["error"],
-        },
-        indent=2,
-    )
-
-
-# ============================================================================
-# Expression Caching
-# ============================================================================
-
-
-@mcp.tool()
-async def cache_expression(name: str, expression: str) -> str:
-    """Evaluate and cache a Wolfram expression for later reuse."""
-    if not FEATURES.expression_cache:
-        return json.dumps(
-            {"success": False, "error": "Expression caching is disabled"}, indent=2
-        )
-
-    result = await execute_code(code=expression, format="text", output_target="cli")
-
-    try:
-        result_data = json.loads(result)
-        output = result_data.get("output", result)
-    except (json.JSONDecodeError, TypeError):
-        output = result
-
-    success = _cache_expr(name, expression, str(output))
-
-    return json.dumps(
-        {
-            "success": success,
-            "name": name,
-            "expression": expression,
-            "result": str(output)[:500],
-            "cached": success,
-        },
-        indent=2,
-    )
-
-
-@mcp.tool()
-async def get_cached(name: str) -> str:
-    """Retrieve a previously cached expression result."""
-    if not FEATURES.expression_cache:
-        return json.dumps(
-            {"success": False, "error": "Expression caching is disabled"}, indent=2
-        )
-
-    cached = _get_cached(name)
-
-    if cached is None:
-        return json.dumps(
-            {"success": False, "error": f"No cached expression named '{name}'"},
-            indent=2,
-        )
-
-    return json.dumps(
-        {
-            "success": True,
-            "name": name,
-            "expression": cached.expression,
-            "result": cached.result,
-            "access_count": cached.access_count,
-        },
-        indent=2,
-    )
-
-
-@mcp.tool()
-async def list_cache() -> str:
-    """List all cached expressions with their metadata."""
-    if not FEATURES.expression_cache:
-        return json.dumps(
-            {"success": False, "error": "Expression caching is disabled"}, indent=2
-        )
-
-    cached = list_cached_expressions()
-    return json.dumps(
-        {
-            "success": True,
-            "count": len(cached),
-            "expressions": cached,
-        },
-        indent=2,
-    )
-
-
-@mcp.tool()
-async def clear_expression_cache() -> str:
-    """Clear all cached expressions."""
-    if not FEATURES.expression_cache:
-        return json.dumps(
-            {"success": False, "error": "Expression caching is disabled"}, indent=2
-        )
-
-    clear_cache()
-    return json.dumps(
-        {"success": True, "message": "Expression cache cleared"}, indent=2
+    return await _lazy_wolfram_tools.list_loaded_packages(
+        parse_wolfram_association=_parse_wolfram_association
     )
 
 
@@ -2231,23 +895,23 @@ async def clear_expression_cache() -> str:
 @mcp.tool()
 async def list_variables(include_system: bool = False) -> str:
     """List all user-defined variables in the current Mathematica kernel session."""
-    result = _try_addon_command("list_variables", {"include_system": include_system})
+    result = await _addon_result("list_variables", {"include_system": include_system})
 
     if result.get("error"):
-        return json.dumps({"success": False, "error": result["error"]}, indent=2)
+        return _json_response({"success": False, "error": result["error"]})
 
-    return json.dumps(result, indent=2)
+    return _json_response(result)
 
 
 @mcp.tool()
 async def get_variable(name: str) -> str:
     """Get detailed information about a specific variable."""
-    result = _try_addon_command("get_variable", {"name": name})
+    result = await _addon_result("get_variable", {"name": name})
 
     if result.get("error"):
-        return json.dumps({"success": False, "error": result["error"]}, indent=2)
+        return _json_response({"success": False, "error": result["error"]})
 
-    return json.dumps(result, indent=2)
+    return _json_response(result)
 
 
 @mcp.tool()
@@ -2265,12 +929,12 @@ async def set_variable(name: str, value: str) -> str:
     Example:
         set_variable("x", "Range[10]") -> {success: true, value: "{1,2,3,4,5,6,7,8,9,10}"}
     """
-    result = _try_addon_command("set_variable", {"name": name, "value": value})
+    result = await _addon_result("set_variable", {"name": name, "value": value})
 
     if result.get("error"):
-        return json.dumps({"success": False, "error": result["error"]}, indent=2)
+        return _json_response({"success": False, "error": result["error"]})
 
-    return json.dumps(result, indent=2)
+    return _json_response(result)
 
 
 @mcp.tool()
@@ -2304,12 +968,12 @@ async def clear_variables(
     if clear_all:
         params["clear_all"] = True
 
-    result = _try_addon_command("clear_variables", params)
+    result = await _addon_result("clear_variables", params)
 
     if result.get("error"):
-        return json.dumps({"success": False, "error": result["error"]}, indent=2)
+        return _json_response({"success": False, "error": result["error"]})
 
-    return json.dumps(result, indent=2)
+    return _json_response(result)
 
 
 @mcp.tool()
@@ -2330,12 +994,12 @@ async def get_expression_info(expression: str) -> str:
         get_expression_info("{{1,2},{3,4}}") -> {head: "List", depth: 3, dimensions: [2,2]}
         get_expression_info("Sin[x] + Cos[x]") -> {head: "Plus", leaf_count: 3}
     """
-    result = _try_addon_command("get_expression_info", {"expression": expression})
+    result = await _addon_result("get_expression_info", {"expression": expression})
 
     if result.get("error"):
-        return json.dumps({"success": False, "error": result["error"]}, indent=2)
+        return _json_response({"success": False, "error": result["error"]})
 
-    return json.dumps(result, indent=2)
+    return _json_response(result)
 
 
 # ============================================================================
@@ -2360,12 +1024,12 @@ async def get_messages(count: int = 10) -> str:
         After a failed computation:
         get_messages() -> [{timestamp: "...", message: "Power::infy: Infinite expression 1/0 encountered."}]
     """
-    result = _try_addon_command("get_messages", {"count": count})
+    result = await _addon_result("get_messages", {"count": count})
 
     if result.get("error"):
-        return json.dumps({"success": False, "error": result["error"]}, indent=2)
+        return _json_response({"success": False, "error": result["error"]})
 
-    return json.dumps(result, indent=2)
+    return _json_response(result)
 
 
 @mcp.tool()
@@ -2379,17 +1043,16 @@ async def restart_kernel() -> str:
     Returns:
         Confirmation of kernel restart
     """
-    close_kernel_session()
+    await _run_blocking(close_kernel_session)
     # Force reconnection
-    result = _try_addon_command("ping")
+    result = await _addon_result("ping")
 
-    return json.dumps(
+    return _json_response(
         {
             "success": True,
             "message": "Kernel session cleared. Fresh session will be created on next execution.",
             "ping_result": result,
-        },
-        indent=2,
+        }
     )
 
 
@@ -2402,6 +1065,72 @@ def _expand_path(path: str) -> str:
     """Expand ~ and make path absolute."""
     expanded = os.path.expanduser(path)
     return os.path.abspath(expanded)
+
+
+def _load_cached_notebook(path: str, truncation_threshold: int = 25000):
+    from .notebook_parser import parse_notebook_cached
+
+    return parse_notebook_cached(path, truncation_threshold=truncation_threshold)
+
+
+def _register_optional_tools() -> None:
+    if FEATURES.symbol_lookup:
+        from .optional_symbol_tools import register_symbol_lookup_tools
+
+        register_symbol_lookup_tools(
+            mcp,
+            lookup_symbols_in_kernel=_lookup_symbols_in_kernel,
+            extract_short_description=_extract_short_description,
+            extract_example_signature=_extract_example_signature,
+            rank_candidates=_rank_candidates,
+            parse_wolfram_association=_parse_wolfram_association,
+            execute_code=execute_code,
+        )
+
+    if FEATURES.math_aliases:
+        from .optional_math_aliases import register_math_alias_tools
+
+        register_math_alias_tools(mcp, execute_code)
+
+    if FEATURES.function_repository:
+        from .optional_repository_tools import register_function_repository_tools
+
+        register_function_repository_tools(
+            mcp, parse_wolfram_association=_parse_wolfram_association
+        )
+
+    if FEATURES.data_repository:
+        from .optional_repository_tools import register_data_repository_tools
+
+        register_data_repository_tools(
+            mcp, parse_wolfram_association=_parse_wolfram_association
+        )
+
+    if FEATURES.async_computation:
+        from .optional_async_jobs import register_async_computation_tools
+
+        register_async_computation_tools(mcp)
+
+    if FEATURES.expression_cache:
+        from .optional_cache_tools import register_cache_tools
+
+        register_cache_tools(
+            mcp,
+            cache_expression_fn=_cache_expr,
+            get_cached_expression_fn=_get_cached,
+            list_cached_expressions_fn=list_cached_expressions,
+            clear_cache_fn=clear_cache,
+            execute_code=execute_code,
+        )
+
+    if FEATURES.telemetry:
+        from .optional_telemetry_tools import register_telemetry_tools
+
+        register_telemetry_tools(
+            mcp,
+            get_usage_stats=get_usage_stats,
+            reset_stats=reset_stats,
+        )
 
 
 @mcp.tool()
@@ -2426,16 +1155,16 @@ async def open_notebook_file(
         open_notebook_file("~/Documents/analysis.nb") -> {id: "NotebookObject[...]", cell_count: 15}
     """
     expanded = _expand_path(path)
-    result = _try_addon_command(
+    result = await _addon_result(
         "open_notebook_file", {"path": expanded, "session_id": session_id}
     )
 
     if result.get("error"):
-        return json.dumps(
-            {"success": False, "error": result["error"], "path": expanded}, indent=2
+        return _json_response(
+            {"success": False, "error": result["error"], "path": expanded}
         )
 
-    return json.dumps(result, indent=2)
+    return _json_response(result)
 
 
 @mcp.tool()
@@ -2456,14 +1185,14 @@ async def run_script(path: str) -> str:
         run_script("~/scripts/setup.wl") -> {result: "Null", timing_ms: 150}
     """
     expanded = _expand_path(path)
-    result = _try_addon_command("run_script", {"path": expanded})
+    result = await _addon_result("run_script", {"path": expanded})
 
     if result.get("error"):
-        return json.dumps(
-            {"success": False, "error": result["error"], "path": expanded}, indent=2
+        return _json_response(
+            {"success": False, "error": result["error"], "path": expanded}
         )
 
-    return json.dumps(result, indent=2)
+    return _json_response(result)
 
 
 @mcp.tool()
@@ -2481,9 +1210,6 @@ async def read_notebook_content(path: str, include_outputs: bool = False) -> str
     Returns:
         Structured list of cells with their content and styles
     """
-    import subprocess
-    import shutil
-
     expanded = _expand_path(path)
 
     if not os.path.exists(expanded):
@@ -2491,12 +1217,12 @@ async def read_notebook_content(path: str, include_outputs: bool = False) -> str
             {"success": False, "error": f"File not found: {expanded}"}, indent=2
         )
 
-    def _parse_with_python_parser(expanded_path: str) -> str:
-        from .notebook_parser import NotebookParser, CellStyle
+    try:
+        from .notebook_parser import CellStyle
 
-        parser = NotebookParser(truncation_threshold=25000)
-        notebook = parser.parse_file(expanded_path)
-
+        notebook = await _run_blocking(
+            _load_cached_notebook, expanded, truncation_threshold=25000
+        )
         allowed_styles = {
             CellStyle.INPUT,
             CellStyle.CODE,
@@ -2511,86 +1237,16 @@ async def read_notebook_content(path: str, include_outputs: bool = False) -> str
             if include_outputs or cell.style in allowed_styles:
                 cells.append({"content": cell.content, "style": cell.style.value})
 
-        return json.dumps(
+        return _json_response(
             {
                 "success": True,
-                "path": expanded_path,
+                "path": expanded,
                 "cell_count": len(cells),
                 "cells": cells[:50],
-            },
-            indent=2,
+            }
         )
-
-    wolframscript = shutil.which("wolframscript")
-    if not wolframscript:
-        try:
-            return _parse_with_python_parser(expanded)
-        except Exception as e:
-            return json.dumps(
-                {
-                    "success": False,
-                    "error": f"wolframscript not found and python parser failed: {e}",
-                },
-                indent=2,
-            )
-
-    style_filter = (
-        "True"
-        if include_outputs
-        else 'MemberQ[{"Input", "Code", "Text", "Section", "Subsection", "Title"}, #["style"]]'
-    )
-
-    safe_path = expanded.replace("\\", "\\\\").replace('"', '\\"')
-
-    code = f'''
-Module[{{nb, cells, filtered}},
-  nb = Quiet[Check[Import["{safe_path}", "Notebook"], $Failed]];
-  If[nb === $Failed,
-    ExportString[<|"success" -> False, "error" -> "Failed to read notebook"|>, "JSON"],
-    cells = Cases[nb, Cell[content_, style_, ___] :> <|
-      "content" -> ToString[content, InputForm],
-      "style" -> ToString[style]
-    |>, Infinity];
-    filtered = Select[cells, {style_filter} &];
-    ExportString[<|
-      "success" -> True,
-      "path" -> "{safe_path}",
-      "cell_count" -> Length[filtered],
-      "cells" -> Take[filtered, UpTo[50]]
-    |>, "JSON"]
-  ]
-]
-'''
-
-    try:
-        result = subprocess.run(
-            [wolframscript, "-code", code],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        if result.returncode != 0:
-            raise RuntimeError(result.stderr or "wolframscript failed")
-
-        output = result.stdout.strip()
-        if not output:
-            raise RuntimeError("Empty response from wolframscript")
-
-        try:
-            return json.dumps(json.loads(output), indent=2)
-        except json.JSONDecodeError as e:
-            raise RuntimeError(f"Failed to parse wolframscript JSON: {e}")
     except Exception as e:
-        try:
-            return _parse_with_python_parser(expanded)
-        except Exception as parser_error:
-            return json.dumps(
-                {
-                    "success": False,
-                    "error": f"{e}; fallback parser failed: {parser_error}",
-                },
-                indent=2,
-            )
+        return _json_response({"success": False, "error": str(e)})
 
 
 @mcp.tool()
@@ -2614,9 +1270,6 @@ async def convert_notebook(
     Returns:
         Converted content as a string
     """
-    import subprocess
-    import shutil
-
     expanded = _expand_path(path)
 
     if not os.path.exists(expanded):
@@ -2624,39 +1277,51 @@ async def convert_notebook(
             {"success": False, "error": f"File not found: {expanded}"}, indent=2
         )
 
-    wolframscript = shutil.which("wolframscript")
-    if not wolframscript:
-        return json.dumps(
-            {"success": False, "error": "wolframscript not found"}, indent=2
+    try:
+        from .notebook_parser import NotebookParser
+
+        notebook = await _run_blocking(
+            _load_cached_notebook, expanded, truncation_threshold=25000
         )
+        parser = NotebookParser(truncation_threshold=25000)
 
-    format_map = {
-        "markdown": '"Text"',
-        "latex": '"TeX"',
-        "plain": '"Text"',
-        "wolfram": '"Text"',
-    }
+        if output_format == "markdown":
+            content = parser.to_markdown(notebook)
+        elif output_format == "wolfram":
+            content = parser.to_wolfram_code(notebook)
+        elif output_format == "plain":
+            content = parser.to_plain_text(notebook)
+        else:
+            import shutil
+            import subprocess
 
-    code = f'''
+            wolframscript = shutil.which("wolframscript")
+            if not wolframscript:
+                return _json_response({"success": False, "error": "wolframscript not found"})
+
+            code = f'''
 Module[{{nb, content}},
   nb = Import["{expanded}"];
-  content = ExportString[nb, {format_map.get(output_format, '"Text"')}];
+  content = ExportString[nb, "TeX"];
   <|"success" -> True, "format" -> "{output_format}", "content" -> content|>
 ]
 '''
+            result = await _run_blocking(
+                subprocess.run,
+                [wolframscript, "-code", code],
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            output = result.stdout.strip()
+            parsed = _parse_wolfram_association(output)
+            return _json_response(parsed)
 
-    try:
-        result = subprocess.run(
-            [wolframscript, "-code", code],
-            capture_output=True,
-            text=True,
-            timeout=60,
+        return _json_response(
+            {"success": True, "format": output_format, "content": content}
         )
-        output = result.stdout.strip()
-        parsed = _parse_wolfram_association(output)
-        return json.dumps(parsed, indent=2)
     except Exception as e:
-        return json.dumps({"success": False, "error": str(e)}, indent=2)
+        return _json_response({"success": False, "error": str(e)})
 
 
 @mcp.tool()
@@ -2672,9 +1337,6 @@ async def get_notebook_outline(path: str) -> str:
     Returns:
         Hierarchical outline of notebook sections
     """
-    import subprocess
-    import shutil
-
     expanded = _expand_path(path)
 
     if not os.path.exists(expanded):
@@ -2682,46 +1344,21 @@ async def get_notebook_outline(path: str) -> str:
             {"success": False, "error": f"File not found: {expanded}"}, indent=2
         )
 
-    wolframscript = shutil.which("wolframscript")
-    if not wolframscript:
-        return json.dumps(
-            {"success": False, "error": "wolframscript not found"}, indent=2
-        )
-
-    code = f'''
-Module[{{nb, sections}},
-  nb = Quiet[Check[Import["{expanded}", "Notebook"], $Failed]];
-  If[nb === $Failed,
-    <|"success" -> False, "error" -> "Failed to read notebook"|>,
-    sections = Cases[nb, 
-      Cell[content_, style:"Title"|"Section"|"Subsection"|"Subsubsection"|"Chapter", ___] :> <|
-        "level" -> style,
-        "title" -> If[StringQ[content], content, ToString[content]]
-      |>, 
-      Infinity
-    ];
-    <|
-      "success" -> True,
-      "path" -> "{expanded}",
-      "sections" -> sections,
-      "count" -> Length[sections]
-    |>
-  ]
-]
-'''
-
     try:
-        result = subprocess.run(
-            [wolframscript, "-code", code],
-            capture_output=True,
-            text=True,
-            timeout=30,
+        notebook = await _run_blocking(
+            _load_cached_notebook, expanded, truncation_threshold=25000
         )
-        output = result.stdout.strip()
-        parsed = _parse_wolfram_association(output)
-        return json.dumps(parsed, indent=2)
+        sections = notebook.get_outline()
+        return _json_response(
+            {
+                "success": True,
+                "path": expanded,
+                "sections": sections,
+                "count": len(sections),
+            }
+        )
     except Exception as e:
-        return json.dumps({"success": False, "error": str(e)}, indent=2)
+        return _json_response({"success": False, "error": str(e)})
 
 
 @mcp.tool()
@@ -2759,15 +1396,13 @@ async def parse_notebook_python(
         )
 
     try:
-        effective_threshold = (
-            truncation_threshold if truncation_threshold > 0 else float("inf")
+        effective_threshold = truncation_threshold if truncation_threshold > 0 else 10**9
+        parser = NotebookParser(truncation_threshold=effective_threshold)
+        notebook = await _run_blocking(
+            _load_cached_notebook,
+            expanded,
+            truncation_threshold=effective_threshold,
         )
-        parser = NotebookParser(
-            truncation_threshold=int(effective_threshold)
-            if effective_threshold != float("inf")
-            else 10**9
-        )
-        notebook = parser.parse_file(expanded)
 
         if output_format == "markdown":
             content = parser.to_markdown(notebook)
@@ -2878,8 +1513,9 @@ async def get_notebook_cell(
 
     try:
         threshold = 10**9 if full else 25000
-        parser = NotebookParser(truncation_threshold=threshold)
-        notebook = parser.parse_file(expanded)
+        notebook = await _run_blocking(
+            _load_cached_notebook, expanded, truncation_threshold=threshold
+        )
 
         if cell_index < 0 or cell_index >= len(notebook.cells):
             return json.dumps(
@@ -2945,64 +1581,13 @@ async def wolfram_alpha(
         wolfram_alpha("population of Tokyo") -> "13.96 million people (2021)"
         wolfram_alpha("derivative of sin(x^2)", "data") -> {result: "2 x cos(x^2)"}
     """
-    import subprocess
-    import shutil
+    from . import lazy_wolfram_tools as _lazy_wolfram_tools
 
-    wolframscript = shutil.which("wolframscript")
-    if not wolframscript:
-        return json.dumps(
-            {"success": False, "error": "wolframscript not found"}, indent=2
-        )
-
-    # Escape quotes in query
-    safe_query = query.replace('"', '\\"')
-
-    if return_type == "full":
-        code = f'''
-Module[{{result}},
-  result = Quiet[Check[WolframAlpha["{safe_query}", "FullOutput"], $Failed]];
-  If[result === $Failed,
-    <|"success" -> False, "error" -> "Query failed"|>,
-    <|"success" -> True, "query" -> "{safe_query}", "result" -> ToString[result, InputForm]|>
-  ]
-]
-'''
-    elif return_type == "data":
-        code = f'''
-Module[{{result}},
-  result = Quiet[Check[WolframAlpha["{safe_query}", {{"Result", "Input"}}], $Failed]];
-  If[result === $Failed,
-    <|"success" -> False, "error" -> "Query failed"|>,
-    <|"success" -> True, "query" -> "{safe_query}", 
-      "result" -> ToString[result, InputForm]|>
-  ]
-]
-'''
-    else:
-        code = f'''
-Module[{{result}},
-  result = Quiet[Check[WolframAlpha["{safe_query}", "Result"], $Failed]];
-  If[result === $Failed,
-    <|"success" -> False, "error" -> "Query failed"|>,
-    <|"success" -> True, "query" -> "{safe_query}", "result" -> ToString[result]|>
-  ]
-]
-'''
-
-    try:
-        result = subprocess.run(
-            [wolframscript, "-code", code],
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-        output = result.stdout.strip()
-        parsed = _parse_wolfram_association(output)
-        return json.dumps(parsed, indent=2)
-    except subprocess.TimeoutExpired:
-        return json.dumps({"success": False, "error": "Query timed out"}, indent=2)
-    except Exception as e:
-        return json.dumps({"success": False, "error": str(e)}, indent=2)
+    return await _lazy_wolfram_tools.wolfram_alpha(
+        query,
+        return_type,
+        parse_wolfram_association=_parse_wolfram_association,
+    )
 
 
 @mcp.tool()
@@ -3023,92 +1608,9 @@ async def interpret_natural_language(text: str) -> str:
         interpret_natural_language("the derivative of e to the x")
         -> {code: "D[E^x, x]", result: "E^x"}
     """
-    import subprocess
-    import shutil
+    from . import lazy_wolfram_tools as _lazy_wolfram_tools
 
-    wolframscript = shutil.which("wolframscript")
-    if not wolframscript:
-        return json.dumps(
-            {"success": False, "error": "wolframscript not found"}, indent=2
-        )
-
-    safe_text = text.replace('"', '\\"')
-
-    code = '''
-Module[{query, props, inputSpec, inputExpr, inputForm, resultExpr},
-  query = "__MCP_QUERY__";
-  props = Quiet[Check[WolframAlpha[query, "Properties"], {}]];
-  inputSpec = SelectFirst[
-    props,
-    (Length[#] == 2 && #[[2]] === "Input") &,
-    Missing["NotAvailable"]
-  ];
-  inputExpr = If[inputSpec === Missing["NotAvailable"],
-    Missing["NotAvailable"],
-    Quiet[Check[WolframAlpha[query, {inputSpec[[1]], "Input"}], Missing["NotAvailable"]]]
-  ];
-
-  inputForm = Which[
-    inputExpr === Missing["NotAvailable"] || inputExpr === {}, "",
-    Head[inputExpr] === HoldComplete,
-      ToString[Unevaluated[inputExpr /. HoldComplete[x_] :> x], InputForm],
-    True,
-      ToString[Unevaluated[inputExpr], InputForm]
-  ];
-
-  resultExpr = Quiet[Check[WolframAlpha[query, "Result"], $Failed]];
-  If[resultExpr === $Failed || resultExpr === Missing["NotAvailable"] || resultExpr === {},
-    ExportString[<|"success" -> False, "error" -> "Could not interpret text"|>, "JSON"],
-    ExportString[
-      <|
-        "success" -> True,
-        "input" -> query,
-        "wolfram_code" -> inputForm,
-        "result" -> ToString[resultExpr, InputForm],
-        "tex" -> Quiet[Check[ToString[TeXForm[resultExpr]], ""]]
-      |>,
-      "JSON"
-    ]
-  ]
-]
-'''
-    code = code.replace("__MCP_QUERY__", safe_text)
-
-    try:
-        result = subprocess.run(
-            [wolframscript, "-code", code],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        if result.returncode != 0:
-            return json.dumps(
-                {"success": False, "error": result.stderr or "Query failed"},
-                indent=2,
-            )
-
-        output = result.stdout.strip()
-        if not output:
-            return json.dumps(
-                {"success": False, "error": "Empty WolframAlpha response"},
-                indent=2,
-            )
-
-        try:
-            parsed = json.loads(output)
-        except json.JSONDecodeError as e:
-            return json.dumps(
-                {
-                    "success": False,
-                    "error": f"Failed to parse WolframAlpha response: {e}",
-                    "raw": output,
-                },
-                indent=2,
-            )
-
-        return json.dumps(parsed, indent=2)
-    except Exception as e:
-        return json.dumps({"success": False, "error": str(e)}, indent=2)
+    return await _lazy_wolfram_tools.interpret_natural_language(text)
 
 
 @mcp.tool()
@@ -3135,64 +1637,14 @@ async def entity_lookup(
         entity_lookup("Country", "Japan", ["Population", "Capital", "GDP"])
         -> {name: "Japan", Population: "125.8 million", Capital: "Tokyo", GDP: "$4.94 trillion"}
     """
-    import subprocess
-    import shutil
+    from . import lazy_wolfram_tools as _lazy_wolfram_tools
 
-    wolframscript = shutil.which("wolframscript")
-    if not wolframscript:
-        return json.dumps(
-            {"success": False, "error": "wolframscript not found"}, indent=2
-        )
-
-    safe_name = name.replace('"', '\\"')
-
-    if properties:
-        props_str = "{" + ", ".join(f'"{p}"' for p in properties) + "}"
-        code = f'''
-Module[{{entity, data}},
-  entity = Quiet[Check[Entity["{entity_type}", "{safe_name}"], $Failed]];
-  If[entity === $Failed || !EntityQ[entity],
-    <|"success" -> False, "error" -> "Entity not found"|>,
-    data = EntityValue[entity, {props_str}];
-    <|
-      "success" -> True,
-      "entity_type" -> "{entity_type}",
-      "name" -> "{safe_name}",
-      "properties" -> Map[ToString, data]
-    |>
-  ]
-]
-'''
-    else:
-        code = f'''
-Module[{{entity, props, data}},
-  entity = Quiet[Check[Entity["{entity_type}", "{safe_name}"], $Failed]];
-  If[entity === $Failed || !EntityQ[entity],
-    <|"success" -> False, "error" -> "Entity not found"|>,
-    props = Take[EntityProperties[entity], UpTo[10]];
-    data = EntityValue[entity, props];
-    <|
-      "success" -> True,
-      "entity_type" -> "{entity_type}",
-      "name" -> EntityValue[entity, "Name"],
-      "properties" -> MapThread[Rule, {{props, Map[ToString, data]}}]
-    |>
-  ]
-]
-'''
-
-    try:
-        result = subprocess.run(
-            [wolframscript, "-code", code],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        output = result.stdout.strip()
-        parsed = _parse_wolfram_association(output)
-        return json.dumps(parsed, indent=2)
-    except Exception as e:
-        return json.dumps({"success": False, "error": str(e)}, indent=2)
+    return await _lazy_wolfram_tools.entity_lookup(
+        entity_type,
+        name,
+        properties,
+        parse_wolfram_association=_parse_wolfram_association,
+    )
 
 
 @mcp.tool()
@@ -3211,50 +1663,13 @@ async def convert_units(quantity: str, target_unit: str) -> str:
         convert_units("100 kilometers", "miles") -> "62.1371 miles"
         convert_units("0 Celsius", "Fahrenheit") -> "32 Fahrenheit"
     """
-    import subprocess
-    import shutil
+    from . import lazy_wolfram_tools as _lazy_wolfram_tools
 
-    wolframscript = shutil.which("wolframscript")
-    if not wolframscript:
-        return json.dumps(
-            {"success": False, "error": "wolframscript not found"}, indent=2
-        )
-
-    safe_qty = quantity.replace('"', '\\"')
-    safe_unit = target_unit.replace('"', '\\"')
-
-    code = f'''
-Module[{{input, result}},
-  input = Quiet[Check[Interpreter["Quantity"]["{safe_qty}"], $Failed]];
-  If[input === $Failed,
-    <|"success" -> False, "error" -> "Could not parse quantity"|>,
-    result = Quiet[Check[UnitConvert[input, "{safe_unit}"], $Failed]];
-    If[result === $Failed,
-      <|"success" -> False, "error" -> "Conversion failed"|>,
-      <|
-        "success" -> True,
-        "input" -> "{safe_qty}",
-        "target_unit" -> "{safe_unit}",
-        "result" -> ToString[result],
-        "numeric" -> ToString[QuantityMagnitude[result]]
-      |>
-    ]
-  ]
-]
-'''
-
-    try:
-        result = subprocess.run(
-            [wolframscript, "-code", code],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        output = result.stdout.strip()
-        parsed = _parse_wolfram_association(output)
-        return json.dumps(parsed, indent=2)
-    except Exception as e:
-        return json.dumps({"success": False, "error": str(e)}, indent=2)
+    return await _lazy_wolfram_tools.convert_units(
+        quantity,
+        target_unit,
+        parse_wolfram_association=_parse_wolfram_association,
+    )
 
 
 @mcp.tool()
@@ -3272,46 +1687,11 @@ async def get_constant(name: str) -> str:
     Example:
         get_constant("SpeedOfLight") -> {value: "299792458 m/s", numeric: "2.998e8"}
     """
-    import subprocess
-    import shutil
+    from . import lazy_wolfram_tools as _lazy_wolfram_tools
 
-    wolframscript = shutil.which("wolframscript")
-    if not wolframscript:
-        return json.dumps(
-            {"success": False, "error": "wolframscript not found"}, indent=2
-        )
-
-    code = f'''
-Module[{{constant, val, numeric}},
-  constant = Quiet[Check[ToExpression["{name}"], $Failed]];
-  If[constant === $Failed,
-    constant = Quiet[Check[Quantity["{name}"], $Failed]]
-  ];
-  If[constant === $Failed,
-    <|"success" -> False, "error" -> "Constant not found"|>,
-    <|
-      "success" -> True,
-      "name" -> "{name}",
-      "exact" -> ToString[constant, InputForm],
-      "numeric" -> ToString[N[constant, 15]],
-      "tex" -> Quiet[Check[ToString[TeXForm[constant]], ""]]
-    |>
-  ]
-]
-'''
-
-    try:
-        result = subprocess.run(
-            [wolframscript, "-code", code],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        output = result.stdout.strip()
-        parsed = _parse_wolfram_association(output)
-        return json.dumps(parsed, indent=2)
-    except Exception as e:
-        return json.dumps({"success": False, "error": str(e)}, indent=2)
+    return await _lazy_wolfram_tools.get_constant(
+        name, parse_wolfram_association=_parse_wolfram_association
+    )
 
 
 # ============================================================================
@@ -3322,87 +1702,33 @@ Module[{{constant, val, numeric}},
 @mcp.tool()
 async def trace_evaluation(expression: str, max_depth: int = 5) -> str:
     """Trace the step-by-step evaluation of an expression."""
-    result = _try_addon_command(
-        "trace_evaluation", {"expression": expression, "max_depth": max_depth}
+    from . import lazy_wolfram_tools as _lazy_wolfram_tools
+
+    return await _lazy_wolfram_tools.trace_evaluation(
+        expression,
+        max_depth,
+        addon_result=_addon_result,
     )
-
-    if result.get("error"):
-        return json.dumps({"success": False, "error": result["error"]}, indent=2)
-
-    return json.dumps(result, indent=2)
 
 
 @mcp.tool()
 async def time_expression(expression: str) -> str:
     """Time the evaluation of an expression with memory tracking."""
-    result = _try_addon_command("time_expression", {"expression": expression})
+    from . import lazy_wolfram_tools as _lazy_wolfram_tools
 
-    if result.get("error"):
-        return json.dumps({"success": False, "error": result["error"]}, indent=2)
-
-    return json.dumps(result, indent=2)
+    return await _lazy_wolfram_tools.time_expression(
+        expression, addon_result=_addon_result
+    )
 
 
 @mcp.tool()
 async def check_syntax(code: str) -> str:
     """Validate Wolfram Language code syntax without executing it."""
-    result = _try_addon_command("check_syntax", {"code": code})
+    from . import lazy_wolfram_tools as _lazy_wolfram_tools
 
-    if result.get("error"):
-        return json.dumps({"success": False, "error": result["error"]}, indent=2)
-
-    return json.dumps(result, indent=2)
-
-
-@mcp.tool()
-async def suggest_similar_functions(query: str) -> str:
-    """Find Wolfram functions similar to a query using fuzzy matching."""
-    import subprocess
-    import shutil
-
-    wolframscript = shutil.which("wolframscript")
-    if not wolframscript:
-        return json.dumps(
-            {"success": False, "error": "wolframscript not found"}, indent=2
-        )
-
-    code = f'''
-Module[{{query, matches}},
-  query = "{query}";
-  matches = Select[
-    Names["System`*"],
-    StringContainsQ[#, query, IgnoreCase -> True] &
-  ];
-  matches = Take[matches, UpTo[20]];
-  <|
-    "success" -> True,
-    "query" -> query,
-    "matches" -> Map[
-      <|
-        "name" -> #,
-        "usage" -> StringTake[
-          ToString[ToExpression[# <> "::usage"] /. _MessageName -> ""],
-          UpTo[100]
-        ]
-      |> &,
-      matches
-    ]
-  |>
-]
-'''
-
-    try:
-        result = subprocess.run(
-            [wolframscript, "-code", code],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        output = result.stdout.strip()
-        parsed = _parse_wolfram_association(output)
-        return json.dumps(parsed, indent=2)
-    except Exception as e:
-        return json.dumps({"success": False, "error": str(e)}, indent=2)
+    return await _lazy_wolfram_tools.check_syntax(
+        code, addon_result=_addon_result
+    )
 
 
 # ============================================================================
@@ -3416,16 +1742,14 @@ async def import_data(
     format: Optional[str] = None,
 ) -> str:
     """Import data from a file or URL into Mathematica."""
-    expanded = _expand_path(path) if not path.startswith("http") else path
+    from . import lazy_wolfram_tools as _lazy_wolfram_tools
 
-    result = _try_addon_command(
-        "import_data", {"path": expanded, "format": format or "Automatic"}
+    return await _lazy_wolfram_tools.import_data(
+        path,
+        format,
+        addon_result=_addon_result,
+        expand_path=_expand_path,
     )
-
-    if result.get("error"):
-        return json.dumps({"success": False, "error": result["error"]}, indent=2)
-
-    return json.dumps(result, indent=2)
 
 
 @mcp.tool()
@@ -3435,58 +1759,26 @@ async def export_data(
     format: Optional[str] = None,
 ) -> str:
     """Export data or graphics to a file."""
-    expanded = _expand_path(path)
+    from . import lazy_wolfram_tools as _lazy_wolfram_tools
 
-    result = _try_addon_command(
-        "export_data",
-        {"expression": expression, "path": expanded, "format": format or "Automatic"},
+    return await _lazy_wolfram_tools.export_data(
+        expression,
+        path,
+        format,
+        addon_result=_addon_result,
+        expand_path=_expand_path,
     )
-
-    if result.get("error"):
-        return json.dumps({"success": False, "error": result["error"]}, indent=2)
-
-    return json.dumps(result, indent=2)
 
 
 @mcp.tool()
 async def list_supported_formats() -> str:
     """List all supported import/export formats."""
-    result = _try_addon_command("list_import_formats", {})
+    from . import lazy_wolfram_tools as _lazy_wolfram_tools
 
-    if result.get("error"):
-        # Fallback to wolframscript
-        import subprocess
-        import shutil
-
-        wolframscript = shutil.which("wolframscript")
-        if not wolframscript:
-            return json.dumps(
-                {"success": False, "error": "wolframscript not found"}, indent=2
-            )
-
-        code = """
-<|
-  "success" -> True,
-  "import_formats" -> $ImportFormats,
-  "export_formats" -> $ExportFormats,
-  "import_count" -> Length[$ImportFormats],
-  "export_count" -> Length[$ExportFormats]
-|>
-"""
-        try:
-            result = subprocess.run(
-                [wolframscript, "-code", code],
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-            output = result.stdout.strip()
-            parsed = _parse_wolfram_association(output)
-            return json.dumps(parsed, indent=2)
-        except Exception as e:
-            return json.dumps({"success": False, "error": str(e)}, indent=2)
-
-    return json.dumps(result, indent=2)
+    return await _lazy_wolfram_tools.list_supported_formats(
+        addon_result=_addon_result,
+        parse_wolfram_association=_parse_wolfram_association,
+    )
 
 
 # ============================================================================
@@ -3497,44 +1789,11 @@ async def list_supported_formats() -> str:
 @mcp.tool()
 async def inspect_graphics(expression: str) -> str:
     """Analyze the structure of a graphics object."""
-    import subprocess
-    import shutil
+    from . import lazy_wolfram_tools as _lazy_wolfram_tools
 
-    wolframscript = shutil.which("wolframscript")
-    if not wolframscript:
-        return json.dumps(
-            {"success": False, "error": "wolframscript not found"}, indent=2
-        )
-
-    code = f'''
-Module[{{g, result}},
-  g = Quiet[Check[ToExpression["{expression}"], $Failed]];
-  If[g === $Failed || !MatchQ[Head[g], Graphics|Graphics3D|Graph|GeoGraphics],
-    <|"success" -> False, "error" -> "Not a graphics object"|>,
-    <|
-      "success" -> True,
-      "head" -> ToString[Head[g]],
-      "primitives" -> Union[Cases[g, h_Symbol /; Context[h] === "System`" :> ToString[h], Infinity]],
-      "options" -> ToString[Options[g], InputForm],
-      "plot_range" -> ToString[Quiet[PlotRange /. AbsoluteOptions[g]], InputForm],
-      "image_size" -> ToString[Quiet[ImageSize /. AbsoluteOptions[g]], InputForm]
-    |>
-  ]
-]
-'''
-
-    try:
-        result = subprocess.run(
-            [wolframscript, "-code", code],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        output = result.stdout.strip()
-        parsed = _parse_wolfram_association(output)
-        return json.dumps(parsed, indent=2)
-    except Exception as e:
-        return json.dumps({"success": False, "error": str(e)}, indent=2)
+    return await _lazy_wolfram_tools.inspect_graphics(
+        expression, parse_wolfram_association=_parse_wolfram_association
+    )
 
 
 @mcp.tool()
@@ -3545,17 +1804,16 @@ async def export_graphics(
     size: int = 600,
 ) -> str:
     """Export a graphics expression to an image file."""
-    expanded = _expand_path(path)
+    from . import lazy_wolfram_tools as _lazy_wolfram_tools
 
-    result = _try_addon_command(
-        "export_graphics",
-        {"expression": expression, "path": expanded, "format": format, "size": size},
+    return await _lazy_wolfram_tools.export_graphics(
+        expression,
+        path,
+        format,
+        size,
+        addon_result=_addon_result,
+        expand_path=_expand_path,
     )
-
-    if result.get("error"):
-        return json.dumps({"success": False, "error": result["error"]}, indent=2)
-
-    return json.dumps(result, indent=2)
 
 
 @mcp.tool()
@@ -3563,48 +1821,13 @@ async def compare_plots(
     expressions: List[str], labels: Optional[List[str]] = None
 ) -> str:
     """Generate a side-by-side comparison of multiple plots."""
-    import subprocess
-    import shutil
+    from . import lazy_wolfram_tools as _lazy_wolfram_tools
 
-    wolframscript = shutil.which("wolframscript")
-    if not wolframscript:
-        return json.dumps(
-            {"success": False, "error": "wolframscript not found"}, indent=2
-        )
-
-    plots_list = "{" + ", ".join(expressions) + "}"
-    labels_code = (
-        "None" if not labels else "{" + ", ".join(f'"{l}"' for l in labels) + "}"
+    return await _lazy_wolfram_tools.compare_plots(
+        expressions,
+        labels,
+        parse_wolfram_association=_parse_wolfram_association,
     )
-
-    code = f"""
-Module[{{plots, labels, grid}},
-  plots = {plots_list};
-  labels = {labels_code};
-  grid = If[labels === None,
-    GraphicsRow[plots],
-    GraphicsRow[MapThread[Labeled[#1, #2, Top] &, {{plots, labels}}]]
-  ];
-  <|
-    "success" -> True,
-    "combined_expression" -> ToString[grid, InputForm],
-    "plot_count" -> Length[plots]
-  |>
-]
-"""
-
-    try:
-        result = subprocess.run(
-            [wolframscript, "-code", code],
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-        output = result.stdout.strip()
-        parsed = _parse_wolfram_association(output)
-        return json.dumps(parsed, indent=2)
-    except Exception as e:
-        return json.dumps({"success": False, "error": str(e)}, indent=2)
 
 
 @mcp.tool()
@@ -3615,49 +1838,23 @@ async def create_animation(
     frames: int = 20,
 ) -> str:
     """Create an animation by varying a parameter."""
-    import subprocess
-    import shutil
+    from . import lazy_wolfram_tools as _lazy_wolfram_tools
 
-    wolframscript = shutil.which("wolframscript")
-    if not wolframscript:
-        return json.dumps(
-            {"success": False, "error": "wolframscript not found"}, indent=2
-        )
-
-    code = f'''
-Module[{{expr, param, range, anim}},
-  expr = Hold[{expression}];
-  range = {{{parameter}, {range_spec}}};
-  anim = Table[
-    ReleaseHold[expr /. {parameter} -> val],
-    {{val, range[[2]], range[[3]], (range[[3]] - range[[2]])/{frames}}}
-  ];
-  <|
-    "success" -> True,
-    "frame_count" -> Length[anim],
-    "parameter" -> "{parameter}",
-    "animation_expression" -> ToString[ListAnimate[anim], InputForm]
-  |>
-]
-'''
-
-    try:
-        result = subprocess.run(
-            [wolframscript, "-code", code],
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-        output = result.stdout.strip()
-        parsed = _parse_wolfram_association(output)
-        return json.dumps(parsed, indent=2)
-    except Exception as e:
-        return json.dumps({"success": False, "error": str(e)}, indent=2)
+    return await _lazy_wolfram_tools.create_animation(
+        expression,
+        parameter,
+        range_spec,
+        frames,
+        parse_wolfram_association=_parse_wolfram_association,
+    )
 
 
 # ============================================================================
 # Feature Flags and Telemetry
 # ============================================================================
+
+
+_register_optional_tools()
 
 
 @mcp.tool()
@@ -3669,42 +1866,6 @@ async def get_feature_status() -> str:
             "features": FEATURES.to_dict(),
         },
         indent=2,
-    )
-
-
-@mcp.tool()
-async def get_telemetry_stats() -> str:
-    """Get usage statistics for tools (if telemetry is enabled)."""
-    if not FEATURES.telemetry:
-        return json.dumps(
-            {
-                "success": False,
-                "error": "Telemetry is disabled. Set MATHEMATICA_ENABLE_TELEMETRY=true to enable.",
-            },
-            indent=2,
-        )
-
-    stats = get_usage_stats()
-    return json.dumps(
-        {
-            "success": True,
-            "tool_stats": stats,
-        },
-        indent=2,
-    )
-
-
-@mcp.tool()
-async def reset_telemetry() -> str:
-    """Reset all telemetry statistics to zero."""
-    if not FEATURES.telemetry:
-        return json.dumps(
-            {"success": False, "error": "Telemetry is disabled"}, indent=2
-        )
-
-    reset_stats()
-    return json.dumps(
-        {"success": True, "message": "Telemetry statistics reset"}, indent=2
     )
 
 

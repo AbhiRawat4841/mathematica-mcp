@@ -72,6 +72,7 @@ class MCPTestClient:
 def mcp_client():
     """Fixture to provide connected MCP client."""
     client = MCPTestClient()
+    session_id = "pytest-live-addon"
     if not client.connect():
         pytest.skip("Mathematica addon not running (StartMCPServer[] required)")
     
@@ -82,9 +83,13 @@ def mcp_client():
             pytest.skip("Ping failed - addon not responding correctly")
 
         try:
+            client.send_command(
+                "create_notebook",
+                {"title": "Pytest Live Addon", "session_id": session_id},
+            )
             probe = client.send_command(
                 "execute_code_notebook",
-                {"code": "1 + 1", "mode": "kernel"}
+                {"code": "1 + 1", "mode": "kernel", "session_id": session_id}
             )
         except Exception as e:
             if REQUIRE_LIVE_ADDON:
@@ -99,6 +104,10 @@ def mcp_client():
         pytest.skip(f"Cannot connect to addon: {e}")
     
     yield client
+    try:
+        client.send_command("close_notebook", {"session_id": session_id})
+    except Exception:
+        pass
     client.close()
 
 
@@ -194,6 +203,36 @@ class TestLazyRefresh:
         )
         
         assert result.get("written") is True
+
+    def test_get_cells_with_null_style_returns_notebook_cells(self, mcp_client):
+        """Regression test: JSON null style should behave like no style filter."""
+        exec_result = mcp_client.send_command(
+            "execute_code_notebook",
+            {"code": "2 + 2", "mode": "kernel"}
+        )
+
+        assert exec_result.get("success") is True
+
+        cells_result = mcp_client.send_command(
+            "get_cells",
+            {"style": None, "offset": 0, "limit": 10, "include_content": True}
+        )
+
+        assert cells_result.get("total", 0) > 0
+        assert cells_result.get("count", 0) > 0
+
+
+class TestStatusReporting:
+    """Live status reporting regressions."""
+
+    def test_status_reports_running_server(self, mcp_client):
+        """The status command should report an active frontend-backed listener."""
+        result = mcp_client.send_command("get_status")
+
+        assert result.get("mcp_server_running") is True
+        assert result.get("mcp_port") == DEFAULT_PORT
+        assert isinstance(result.get("frontend_version"), str)
+        assert "$FrontEndVersion" not in result.get("frontend_version", "")
 
 
 class TestScreenshotOptimization:

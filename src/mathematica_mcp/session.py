@@ -13,6 +13,8 @@ logger = logging.getLogger("mathematica_mcp.session")
 
 _kernel_session: Any = None
 _use_wolframscript: bool = False
+_last_kernel_health_check: float = 0.0
+KERNEL_HEALTH_CHECK_INTERVAL = 5.0
 
 
 def _session_context(session_id: Optional[str]) -> Optional[str]:
@@ -265,16 +267,19 @@ Module[{{startTime, result, messages, timing, response, outInput, outFull="", ou
 
 
 def get_kernel_session():
-    global _kernel_session, _use_wolframscript
+    global _kernel_session, _use_wolframscript, _last_kernel_health_check
 
     if _use_wolframscript:
         return None
 
     if _kernel_session is not None:
+        if time.monotonic() - _last_kernel_health_check < KERNEL_HEALTH_CHECK_INTERVAL:
+            return _kernel_session
         try:
             from wolframclient.language import wlexpr
 
             _kernel_session.evaluate(wlexpr("1"))
+            _last_kernel_health_check = time.monotonic()
             return _kernel_session
         except Exception:
             logger.warning("Kernel session unresponsive, recreating...")
@@ -303,6 +308,7 @@ def get_kernel_session():
         _kernel_session = WolframLanguageSession(kernel_path)
         _kernel_session.start()
         _kernel_session.evaluate(wlexpr("1+1"))
+        _last_kernel_health_check = time.monotonic()
         logger.info(f"Kernel session ready: {kernel_path}")
         return _kernel_session
     except Exception as e:
@@ -314,13 +320,14 @@ def get_kernel_session():
 
 
 def close_kernel_session():
-    global _kernel_session
+    global _kernel_session, _last_kernel_health_check
     if _kernel_session is not None:
         try:
             _kernel_session.terminate()
         except Exception:
             pass
         _kernel_session = None
+        _last_kernel_health_check = 0.0
         logger.info("Closed kernel session")
 
 

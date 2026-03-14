@@ -6,7 +6,7 @@ using wolframscript as the execution backend.
 """
 
 import pytest
-from src.mathematica_mcp.session import (
+from mathematica_mcp.session import (
     execute_in_kernel,
     _parse_association_output,
     _execute_via_wolframscript,
@@ -45,6 +45,7 @@ class TestParseAssociationOutput:
         assert result["failed"] is True
 
 
+@pytest.mark.usefixtures("require_wolfram_runtime")
 class TestCalculus:
     """Tests for calculus operations."""
 
@@ -98,6 +99,7 @@ class TestCalculus:
         assert "x^3/6" in result["output_inputform"]
 
 
+@pytest.mark.usefixtures("require_wolfram_runtime")
 class TestAlgebra:
     """Tests for algebraic operations."""
 
@@ -142,6 +144,7 @@ class TestAlgebra:
         assert result["output_inputform"] == "1"
 
 
+@pytest.mark.usefixtures("require_wolfram_runtime")
 class TestLinearAlgebra:
     """Tests for linear algebra operations."""
 
@@ -179,6 +182,7 @@ class TestLinearAlgebra:
         assert "2" in result["output_inputform"]
 
 
+@pytest.mark.usefixtures("require_wolfram_runtime")
 class TestSpecialFunctions:
     """Tests for special mathematical functions."""
 
@@ -225,6 +229,7 @@ class TestSpecialFunctions:
         assert "Pi^2/6" in result["output_inputform"]
 
 
+@pytest.mark.usefixtures("require_wolfram_runtime")
 class TestDifferentialEquations:
     """Tests for differential equation solving."""
 
@@ -248,6 +253,7 @@ class TestDifferentialEquations:
         assert "E^x" in result["output_inputform"]
 
 
+@pytest.mark.usefixtures("require_wolfram_runtime")
 class TestNumericalComputation:
     """Tests for numerical computation."""
 
@@ -268,6 +274,7 @@ class TestNumericalComputation:
         assert "0.739" in result["output_inputform"]
 
 
+@pytest.mark.usefixtures("require_wolfram_runtime")
 class TestStatistics:
     """Tests for statistical functions."""
 
@@ -296,6 +303,7 @@ class TestStatistics:
         assert "1" in result["output_inputform"]
 
 
+@pytest.mark.usefixtures("require_wolfram_runtime")
 class TestEdgeCases:
     """Tests for edge cases and special inputs."""
 
@@ -339,6 +347,7 @@ class TestEdgeCases:
         assert "Indeterminate" in result["output_inputform"]
 
 
+@pytest.mark.usefixtures("require_wolfram_runtime")
 class TestJSONParsingFix:
     """Tests specifically for the JSON parsing fix."""
 

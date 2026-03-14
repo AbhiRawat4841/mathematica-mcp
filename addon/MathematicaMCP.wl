@@ -11,17 +11,17 @@ RestartMCPServer::usage = "RestartMCPServer[] restarts the MCP socket server.";
 
 Begin["`Private`"];
 
-$MCPPort = 9881;
-$MCPListener = None;
-$MCPDebug = False;
-$MCPHost = "127.0.0.1";
-$MCPAuthToken = Quiet[Check[Environment["MATHEMATICA_MCP_TOKEN"], ""]];
-$MCPMaxMessageBytes = 5*1024*1024; (* 5MB max request *)
-$MCPMaxResponseBytes = 20*1024*1024; (* 20MB max response *)
-$MCPBuffers = <||>; (* per-socket input buffers *)
-$MCPActiveNotebook = None;
-$MCPSessionNotebooks = <||>;
-$MCPSessionContexts = <||>;
+If[!ValueQ[$MCPPort], $MCPPort = 9881];
+If[!ValueQ[$MCPListener], $MCPListener = None];
+If[!ValueQ[$MCPDebug], $MCPDebug = False];
+If[!ValueQ[$MCPHost], $MCPHost = "127.0.0.1"];
+If[!ValueQ[$MCPAuthToken], $MCPAuthToken = Quiet[Check[Environment["MATHEMATICA_MCP_TOKEN"], ""]]];
+If[!ValueQ[$MCPMaxMessageBytes], $MCPMaxMessageBytes = 5*1024*1024]; (* 5MB max request *)
+If[!ValueQ[$MCPMaxResponseBytes], $MCPMaxResponseBytes = 20*1024*1024]; (* 20MB max response *)
+If[!ValueQ[$MCPBuffers], $MCPBuffers = <||>]; (* per-socket input buffers *)
+If[!ValueQ[$MCPActiveNotebook], $MCPActiveNotebook = None];
+If[!ValueQ[$MCPSessionNotebooks], $MCPSessionNotebooks = <||>];
+If[!ValueQ[$MCPSessionContexts], $MCPSessionContexts = <||>];
 
 debugLog[msg_] := Module[{},
   If[$MCPDebug,
@@ -511,7 +511,12 @@ cmdPing[_] := <|
 |>;
 
 cmdGetStatus[_] := <|
-  "frontend_version" -> ToString[$FrontEndVersion],
+  "frontend_version" -> Quiet[
+    Check[
+      Lookup[SystemInformation["FrontEnd"], "Version", "Unavailable"],
+      "Unavailable"
+    ]
+  ],
   "kernel_version" -> $VersionNumber,
   "system_id" -> $SystemID,
   "notebooks_open" -> Length[Notebooks[]],
@@ -632,7 +637,7 @@ cmdGetCells[params_] := Module[{nb, style, cells, sessionId, offset, limit, incl
   returnMeta = KeyExistsQ[params, "offset"] || KeyExistsQ[params, "limit"] || KeyExistsQ[params, "include_content"];
 
   cells = Quiet[Check[
-    If[style === None,
+    If[style === None || style === Null,
       Cells[nb],
       Cells[nb, CellStyle -> style]
     ],
