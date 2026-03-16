@@ -1,0 +1,60 @@
+(* Content-type: application/vnd.wolfram.mathematica *)
+
+(*** Wolfram Notebook File ***)
+
+Notebook[{
+
+Cell[CellGroupData[{
+
+Cell["Analysis Notebook", "Title",
+ CellID->100001],
+
+Cell["This notebook demonstrates various cell types.", "Text",
+ CellID->100002],
+
+Cell["Setup", "Section",
+ CellID->100003],
+
+Cell[BoxData[
+ RowBox[{"f", "[",
+  RowBox[{"x_"}], "]"}]], "Input",
+ CellLabel->"In[1]:=",
+ CellID->100004],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"f", "[", "x_", "]"}], ":=",
+  RowBox[{
+   SuperscriptBox["x", "2"], "+",
+   RowBox[{"3", "x"}], "+", "1"}]}]], "Input",
+ CellLabel->"In[2]:=",
+ CellID->100005],
+
+Cell[BoxData[
+ RowBox[{
+  SuperscriptBox["x", "2"], "+",
+  RowBox[{"3", " ", "x"}], "+", "1"}]], "Output",
+ CellLabel->"Out[2]=",
+ CellID->100006,
+ GeneratedCell->True],
+
+Cell["Results", "Section",
+ CellID->100007],
+
+Cell["Detailed Analysis", "Subsection",
+ CellID->100008],
+
+Cell[BoxData[
+ RowBox[{"Integrate", "[",
+  RowBox[{
+   RowBox[{"f", "[", "x", "]"}], ",", "x"}], "]"}]], "Input",
+ CellLabel->"In[3]:=",
+ CellID->100009,
+ CellTags->{"integration"}]
+
+}, Open]],
+
+Cell["Appendix", "Section",
+ CellID->100010]
+
+}]

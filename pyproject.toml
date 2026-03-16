@@ -52,6 +52,7 @@ packages = ["src/mathematica_mcp"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "addon" = "mathematica_mcp/addon"
+"src/mathematica_mcp/helpers" = "mathematica_mcp/helpers"
 
 [tool.hatch.build.targets.sdist]
 include = [

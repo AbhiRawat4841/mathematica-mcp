@@ -1551,6 +1551,151 @@ async def get_notebook_cell(
 
 
 # ============================================================================
+# TIER 2b: Consolidated Notebook Reading (backend-aware)
+# ============================================================================
+
+
+@mcp.tool()
+async def read_notebook(
+    path: str,
+    output_format: Literal[
+        "markdown", "wolfram", "outline", "json", "plain"
+    ] = "markdown",
+    cell_types: Optional[List[str]] = None,
+    include_outputs: bool = True,
+    backend: Optional[str] = None,
+    view: str = "semantic",
+    include_alternates: bool = False,
+    truncation_threshold: int = 25000,
+) -> str:
+    """
+    Read a Mathematica notebook with capability-based backend dispatch.
+
+    Consolidates notebook reading into a single tool. Uses the best available
+    backend: kernel (accurate, via NotebookImport) or Python parser (offline).
+
+    Args:
+        path: Path to the .nb file
+        output_format:
+            - "markdown": Readable Markdown with code blocks (default)
+            - "wolfram": Pure executable Wolfram Language code only
+            - "outline": Hierarchical section outline
+            - "json": Structured JSON with cell data and metadata
+            - "plain": Plain text
+        cell_types: Optional filter — list of styles like ["Input", "Text", "Section"].
+                    If omitted, all cell types are included.
+        include_outputs: If True (default), include Output cells.
+                         If False, filters out Output/Message/Print cells.
+        backend: Force a specific backend: "python_syntax" or "kernel_semantic".
+                 If omitted, auto-selects based on capability and availability.
+        view: Primary view mode: "semantic" (default), "display", or "raw"
+        include_alternates: If True, include alternate views per cell (JSON only)
+        truncation_threshold: Max chars per cell before truncation (0 = no limit)
+
+    Returns:
+        Notebook content in the requested format
+    """
+    from .notebook_backend import extract_notebook, CellView
+
+    expanded = _expand_path(path)
+    if not os.path.exists(expanded):
+        return json.dumps(
+            {"success": False, "error": f"File not found: {expanded}"}, indent=2
+        )
+
+    # Build cell type filter
+    effective_types = list(cell_types) if cell_types else None
+    if not include_outputs:
+        # Remove output-like styles from whatever type list we have
+        output_styles = {"Output", "Message", "Print"}
+        if effective_types is not None:
+            effective_types = [t for t in effective_types if t not in output_styles]
+        else:
+            # No explicit types: include everything except output styles
+            effective_types = [
+                "Input", "Code", "Text", "Title", "Chapter",
+                "Section", "Subsection", "Subsubsection",
+                "Item", "ItemNumbered",
+            ]
+
+    # Map format to capability hint for dispatch
+    capability_map = {
+        "wolfram": "code",
+        "outline": "outline",
+        "plain": "text",
+        "markdown": "full",
+        "json": "full",
+    }
+    capability = capability_map.get(output_format, "full")
+
+    view_enum = {
+        "semantic": CellView.SEMANTIC,
+        "display": CellView.DISPLAY,
+        "raw": CellView.RAW,
+    }.get(view, CellView.SEMANTIC)
+
+    try:
+        result = await extract_notebook(
+            expanded,
+            capability=capability,
+            cell_types=effective_types,
+            view=view_enum,
+            include_alternates=include_alternates,
+            truncation_threshold=truncation_threshold,
+            force_backend=backend,
+        )
+
+        if result.error:
+            return _json_response({"success": False, "error": result.error})
+
+        if output_format == "markdown":
+            return _json_response({
+                "success": True,
+                "format": "markdown",
+                "backend": result.backend,
+                "path": expanded,
+                "cell_count": result.cell_count,
+                "code_cells": result.code_cell_count,
+                "content": result.to_markdown(),
+            })
+        elif output_format == "wolfram":
+            return _json_response({
+                "success": True,
+                "format": "wolfram",
+                "backend": result.backend,
+                "path": expanded,
+                "code_cells": result.code_cell_count,
+                "content": result.to_wolfram_code(),
+            })
+        elif output_format == "outline":
+            outline = result.to_outline()
+            return _json_response({
+                "success": True,
+                "format": "outline",
+                "backend": result.backend,
+                "path": expanded,
+                "section_count": len(outline),
+                "sections": outline,
+            })
+        elif output_format == "plain":
+            return _json_response({
+                "success": True,
+                "format": "plain",
+                "backend": result.backend,
+                "path": expanded,
+                "cell_count": result.cell_count,
+                "content": result.to_plain_text(),
+            })
+        elif output_format == "json":
+            return _json_response(result.to_dict(include_alternates))
+        else:
+            return _json_response({"success": False, "error": f"Unknown format: {output_format}"})
+
+    except Exception as e:
+        return _json_response({"success": False, "error": str(e)})
+
+
+# ============================================================================
 # TIER 3: Wolfram Alpha & Natural Language
 # ============================================================================
 
