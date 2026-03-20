@@ -1,0 +1,62 @@
+[
+  {
+    "id": "pure_symbolic_result",
+    "prompt": "Integrate x^2 from 0 to 1 and return the exact result.",
+    "preferred_tools": ["execute_code"],
+    "forbidden_sequences": []
+  },
+  {
+    "id": "multi_step_symbolic_context",
+    "prompt": "Define f[x_] := x^3 - 2 x, solve f[x] == 0, and keep the context for a follow-up.",
+    "preferred_tools": ["execute_code"],
+    "forbidden_sequences": []
+  },
+  {
+    "id": "plot_surface",
+    "prompt": "Plot Sin[x] from 0 to 2 Pi in a notebook.",
+    "preferred_tools": ["execute_code", "screenshot_notebook"],
+    "forbidden_sequences": [["create_notebook", "write_cell", "evaluate_cell"]]
+  },
+  {
+    "id": "plot_and_save",
+    "prompt": "Create a plot, save the notebook, and export it as PDF.",
+    "preferred_tools": ["execute_code", "save_notebook", "export_notebook"],
+    "forbidden_sequences": [["create_notebook", "write_cell", "evaluate_cell"]]
+  },
+  {
+    "id": "open_and_summarize_notebook",
+    "prompt": "Open a notebook file and summarize its methods section.",
+    "preferred_tools": ["open_notebook_file", "read_notebook"],
+    "forbidden_sequences": [["parse_notebook_python", "get_notebook_cell"]]
+  },
+  {
+    "id": "re_evaluate_existing_cell",
+    "prompt": "Re-run the existing input cell that produced the last plot.",
+    "preferred_tools": ["evaluate_cell", "evaluate_selection"],
+    "forbidden_sequences": []
+  },
+  {
+    "id": "function_lookup",
+    "prompt": "Find the Mathematica function for a matrix exponential and show an example.",
+    "preferred_tools": ["resolve_function", "get_symbol_info"],
+    "forbidden_sequences": []
+  },
+  {
+    "id": "unit_conversion",
+    "prompt": "Convert 5 miles to kilometers.",
+    "preferred_tools": ["convert_units"],
+    "forbidden_sequences": []
+  },
+  {
+    "id": "long_running_job",
+    "prompt": "Run a long optimization that may take several minutes.",
+    "preferred_tools": ["submit_computation", "poll_computation", "get_computation_result"],
+    "forbidden_sequences": []
+  },
+  {
+    "id": "derivation_check",
+    "prompt": "Check whether this derivation is valid.",
+    "preferred_tools": ["verify_derivation"],
+    "forbidden_sequences": []
+  }
+]

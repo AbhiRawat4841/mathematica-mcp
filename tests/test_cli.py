@@ -24,3 +24,41 @@ def test_check_mathematica_addon_finds_wolfram_init(monkeypatch, tmp_path: Path)
 
     assert ok is True
     assert str(init_path) in msg
+
+
+def test_generate_mcp_config_includes_profile_env():
+    config = cli.generate_mcp_config(use_uvx=True, profile="math")
+
+    assert config["command"] == "uvx"
+    assert config["args"] == ["mathematica-mcp-full"]
+    assert config["env"] == {"MATHEMATICA_PROFILE": "math"}
+
+
+def test_install_claude_code_guidance_writes_command_and_marked_block(tmp_path: Path):
+    written = cli.install_claude_code_guidance(tmp_path, profile="notebook")
+
+    command_path = tmp_path / ".claude" / "commands" / "mathematica.md"
+    claude_md_path = tmp_path / "CLAUDE.md"
+
+    assert command_path in written
+    assert claude_md_path in written
+    assert "Profile: `notebook`" in command_path.read_text()
+
+    claude_md = claude_md_path.read_text()
+    assert "<!-- mathematica-mcp:start -->" in claude_md
+    assert "<!-- mathematica-mcp:end -->" in claude_md
+    assert "Primary execution tool: `execute_code()`" in claude_md
+
+
+def test_install_claude_code_guidance_updates_existing_marked_block(tmp_path: Path):
+    claude_md_path = tmp_path / "CLAUDE.md"
+    claude_md_path.write_text(
+        "Project notes\n\n<!-- mathematica-mcp:start -->\nold\n<!-- mathematica-mcp:end -->\n"
+    )
+
+    cli.install_claude_code_guidance(tmp_path, profile="math")
+    updated = claude_md_path.read_text()
+
+    assert "Project notes" in updated
+    assert "old" not in updated
+    assert "Current profile default output target: `cli`" in updated

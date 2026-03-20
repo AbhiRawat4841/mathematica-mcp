@@ -4,7 +4,7 @@ import logging
 import os
 import re
 import difflib
-from typing import Literal, Optional, List, Dict, Any
+from typing import Callable, Literal, Optional, List, Dict, Any
 
 from mcp.server.fastmcp import FastMCP, Image
 
@@ -20,6 +20,16 @@ from .session import (
     _wrap_code_for_determinism,
 )
 from .config import FEATURES
+from .guidance import (
+    build_mathematica_expert_prompt,
+    create_notebook_doc,
+    evaluate_cell_doc,
+    evaluate_selection_doc,
+    execute_code_doc,
+    legacy_notebook_doc,
+    read_notebook_doc,
+    write_cell_doc,
+)
 from .telemetry import get_usage_stats, reset_stats
 from .cache import (
     cache_expression as _cache_expr,
@@ -36,6 +46,23 @@ logging.basicConfig(
 logger = logging.getLogger("mathematica_mcp")
 
 mcp = FastMCP("mathematica-mcp")
+_CORE_TOOL_REGISTRY: List[tuple[str, Callable[..., Any]]] = []
+
+
+def _tool(group: str):
+    """Tag a core tool with its exposure group."""
+
+    def decorator(func):
+        _CORE_TOOL_REGISTRY.append((group, func))
+        return func
+
+    return decorator
+
+
+def _register_core_tools() -> None:
+    for group, func in _CORE_TOOL_REGISTRY:
+        if FEATURES.tool_group_enabled(group):
+            mcp.tool()(func)
 
 
 def _json_response(payload: Any) -> str:
@@ -217,7 +244,7 @@ def _try_addon_command(command: str, params: Optional[dict] = None) -> dict:
         return {"success": False, "error": str(e)}
 
 
-@mcp.tool()
+@_tool("core")
 async def get_mathematica_status() -> str:
     """Get connection status and system info."""
     try:
@@ -251,13 +278,13 @@ async def get_mathematica_status() -> str:
             )
 
 
-@mcp.tool()
+@_tool("notebook_primary")
 async def get_notebooks() -> str:
     """List all open Mathematica notebooks. Returns ID, filename, title."""
     return await _addon_json("get_notebooks")
 
 
-@mcp.tool()
+@_tool("notebook_primary")
 async def get_notebook_info(
     notebook: Optional[str] = None, session_id: Optional[str] = None
 ) -> str:
@@ -268,7 +295,7 @@ async def get_notebook_info(
     return _json_response(result)
 
 
-@mcp.tool()
+@_tool("notebook_advanced")
 async def create_notebook(title: str = "Untitled", session_id: Optional[str] = None) -> str:
     """Create a new empty notebook. Returns notebook ID.
     
@@ -281,7 +308,7 @@ async def create_notebook(title: str = "Untitled", session_id: Optional[str] = N
     return _json_response(result)
 
 
-@mcp.tool()
+@_tool("notebook_primary")
 async def save_notebook(
     notebook: Optional[str] = None,
     path: Optional[str] = None,
@@ -301,7 +328,7 @@ async def save_notebook(
     return _json_response(result)
 
 
-@mcp.tool()
+@_tool("notebook_primary")
 async def close_notebook(
     notebook: Optional[str] = None, session_id: Optional[str] = None
 ) -> str:
@@ -312,7 +339,7 @@ async def close_notebook(
     return _json_response(result)
 
 
-@mcp.tool()
+@_tool("notebook_primary")
 async def get_cells(
     notebook: Optional[str] = None,
     style: Optional[str] = None,
@@ -336,7 +363,7 @@ async def get_cells(
     return _json_response(result)
 
 
-@mcp.tool()
+@_tool("notebook_primary")
 async def get_cell_content(
     cell_id: str,
     notebook: Optional[str] = None,
@@ -350,7 +377,7 @@ async def get_cell_content(
     return _json_response(result)
 
 
-@mcp.tool()
+@_tool("notebook_advanced")
 async def write_cell(
     content: str,
     style: str = "Input",
@@ -380,7 +407,7 @@ async def write_cell(
     return _json_response(result)
 
 
-@mcp.tool()
+@_tool("notebook_advanced")
 async def delete_cell(
     cell_id: str,
     notebook: Optional[str] = None,
@@ -394,7 +421,7 @@ async def delete_cell(
     return _json_response(result)
 
 
-@mcp.tool()
+@_tool("notebook_advanced")
 async def evaluate_cell(
     cell_id: str,
     notebook: Optional[str] = None,
@@ -418,11 +445,11 @@ async def evaluate_cell(
     return _json_response(result)
 
 
-@mcp.tool()
+@_tool("core")
 async def execute_code(
     code: str,
     format: Literal["text", "latex", "mathematica"] = "text",
-    output_target: Literal["cli", "notebook"] = "notebook",
+    output_target: Optional[Literal["cli", "notebook"]] = None,
     mode: Literal["kernel", "frontend"] = "kernel",
     render_graphics: bool = True,
     deterministic_seed: Optional[int] = None,
@@ -433,31 +460,10 @@ async def execute_code(
     sync: Literal["none", "refresh", "strict"] = "none",
     sync_wait: float = 2,
 ) -> str:
-    """Execute Wolfram Language code. THIS IS THE PRIMARY TOOL for running Mathematica code.
+    """Execute Wolfram Language code."""
+    if output_target is None:
+        output_target = FEATURES.default_output_target
 
-    Use this tool to evaluate integrals, solve equations, create plots, etc.
-    With output_target="notebook", it atomically creates/finds a notebook, writes the code,
-    and evaluates it - all in one fast operation.
-
-    Args:
-        code: Wolfram Language code (e.g., "Integrate[x^2, x]", "Plot[Sin[x], {x, 0, 2Pi}]")
-        format: Output format (text, latex, mathematica)
-        output_target: "notebook" (insert into active notebook) or "cli" (return text only)
-        mode: "kernel" (fast, synchronous) or "frontend" (legacy, for Manipulate/dynamic content)
-        render_graphics: Whether to auto-rasterize Graphics output to an image
-        deterministic_seed: Seed for deterministic random output (optional)
-        session_id: Optional session identifier for notebook routing and isolation
-        isolate_context: Use a dedicated Mathematica context per session_id
-        timeout: Max seconds for kernel evaluation (CLI paths)
-        max_wait: Max seconds for notebook frontend evaluation
-        sync: Notebook sync mode (none/refresh/strict)
-        sync_wait: Seconds to wait in strict sync mode
-    
-    Examples:
-        execute_code("Integrate[(2x+x^2)/x^5, x]") - Compute integral in notebook
-        execute_code("Plot[Sin[x], {x, 0, 2Pi}]") - Create plot in notebook
-        execute_code("Solve[x^2 - 4 == 0, x]", output_target="cli") - Get result as text
-    """
     if output_target == "notebook":
         try:
             # Use atomic command that combines find/create notebook + write + evaluate
@@ -681,13 +687,13 @@ async def execute_code(
     return _json_response(result)
 
 
-@mcp.tool()
+@_tool("admin")
 async def batch_commands(commands: List[Dict[str, Any]]) -> str:
     """Execute multiple commands in one round-trip."""
     return await _addon_json("batch_commands", {"commands": commands})
 
 
-@mcp.tool()
+@_tool("notebook_advanced")
 async def evaluate_selection(
     notebook: Optional[str] = None,
     session_id: Optional[str] = None,
@@ -714,7 +720,7 @@ async def evaluate_selection(
     return _json_response(result)
 
 
-@mcp.tool()
+@_tool("notebook_primary")
 async def screenshot_notebook(
     notebook: Optional[str] = None,
     max_height: int = 2000,
@@ -745,7 +751,7 @@ async def screenshot_notebook(
     return await _image_from_result(result)
 
 
-@mcp.tool()
+@_tool("notebook_primary")
 async def screenshot_cell(
     cell_id: str,
     notebook: Optional[str] = None,
@@ -773,7 +779,7 @@ async def screenshot_cell(
     return await _image_from_result(result)
 
 
-@mcp.tool()
+@_tool("notebook_primary")
 async def rasterize_expression(expression: str, image_size: int = 400) -> Image:
     """
     Render a Wolfram Language expression as an image.
@@ -796,7 +802,7 @@ async def rasterize_expression(expression: str, image_size: int = 400) -> Image:
     return await _image_from_result(result)
 
 
-@mcp.tool()
+@_tool("notebook_advanced")
 async def select_cell(
     cell_id: str,
     notebook: Optional[str] = None,
@@ -810,7 +816,7 @@ async def select_cell(
     return _json_response(result)
 
 
-@mcp.tool()
+@_tool("notebook_advanced")
 async def scroll_to_cell(
     cell_id: str,
     notebook: Optional[str] = None,
@@ -824,7 +830,7 @@ async def scroll_to_cell(
     return _json_response(result)
 
 
-@mcp.tool()
+@_tool("notebook_primary")
 async def export_notebook(
     path: str,
     notebook: Optional[str] = None,
@@ -839,7 +845,7 @@ async def export_notebook(
     return _json_response(result)
 
 
-@mcp.tool()
+@_tool("debug")
 async def verify_derivation(
     steps: List[str],
     format: Literal["text", "latex", "mathematica"] = "text",
@@ -856,7 +862,7 @@ async def verify_derivation(
     )
 
 
-@mcp.tool()
+@_tool("core")
 async def get_kernel_state() -> str:
     """Get current Wolfram kernel session state (memory, uptime, version)."""
     from . import lazy_wolfram_tools as _lazy_wolfram_tools
@@ -866,7 +872,7 @@ async def get_kernel_state() -> str:
     )
 
 
-@mcp.tool()
+@_tool("kernel_tools")
 async def load_package(package_name: str) -> str:
     """Load a Mathematica package (e.g., "Developer`")."""
     from . import lazy_wolfram_tools as _lazy_wolfram_tools
@@ -877,7 +883,7 @@ async def load_package(package_name: str) -> str:
     )
 
 
-@mcp.tool()
+@_tool("kernel_tools")
 async def list_loaded_packages() -> str:
     """List all currently loaded packages and contexts."""
     from . import lazy_wolfram_tools as _lazy_wolfram_tools
@@ -892,7 +898,7 @@ async def list_loaded_packages() -> str:
 # ============================================================================
 
 
-@mcp.tool()
+@_tool("session")
 async def list_variables(include_system: bool = False) -> str:
     """List all user-defined variables in the current Mathematica kernel session."""
     result = await _addon_result("list_variables", {"include_system": include_system})
@@ -903,7 +909,7 @@ async def list_variables(include_system: bool = False) -> str:
     return _json_response(result)
 
 
-@mcp.tool()
+@_tool("session")
 async def get_variable(name: str) -> str:
     """Get detailed information about a specific variable."""
     result = await _addon_result("get_variable", {"name": name})
@@ -914,7 +920,7 @@ async def get_variable(name: str) -> str:
     return _json_response(result)
 
 
-@mcp.tool()
+@_tool("session")
 async def set_variable(name: str, value: str) -> str:
     """
     Set a variable in the Mathematica kernel session.
@@ -937,7 +943,7 @@ async def set_variable(name: str, value: str) -> str:
     return _json_response(result)
 
 
-@mcp.tool()
+@_tool("session")
 async def clear_variables(
     names: Optional[List[str]] = None,
     pattern: Optional[str] = None,
@@ -976,7 +982,7 @@ async def clear_variables(
     return _json_response(result)
 
 
-@mcp.tool()
+@_tool("session")
 async def get_expression_info(expression: str) -> str:
     """
     Get detailed structural information about a Wolfram expression.
@@ -1007,7 +1013,7 @@ async def get_expression_info(expression: str) -> str:
 # ============================================================================
 
 
-@mcp.tool()
+@_tool("core")
 async def get_messages(count: int = 10) -> str:
     """
     Get recent Mathematica messages/warnings from the session.
@@ -1032,7 +1038,7 @@ async def get_messages(count: int = 10) -> str:
     return _json_response(result)
 
 
-@mcp.tool()
+@_tool("core")
 async def restart_kernel() -> str:
     """
     Restart the Mathematica kernel, clearing all state.
@@ -1111,7 +1117,7 @@ def _register_optional_tools() -> None:
 
         register_async_computation_tools(mcp)
 
-    if FEATURES.expression_cache:
+    if FEATURES.cache_tools:
         from .optional_cache_tools import register_cache_tools
 
         register_cache_tools(
@@ -1133,7 +1139,31 @@ def _register_optional_tools() -> None:
         )
 
 
-@mcp.tool()
+def _apply_guidance_docs() -> None:
+    execute_code.__doc__ = execute_code_doc(FEATURES.default_output_target)
+    create_notebook.__doc__ = create_notebook_doc()
+    write_cell.__doc__ = write_cell_doc()
+    evaluate_cell.__doc__ = evaluate_cell_doc()
+    evaluate_selection.__doc__ = evaluate_selection_doc()
+    read_notebook.__doc__ = read_notebook_doc()
+    read_notebook_content.__doc__ = legacy_notebook_doc(
+        "Read notebook content as structured text."
+    )
+    convert_notebook.__doc__ = legacy_notebook_doc(
+        "Convert a notebook into markdown, LaTeX, plain text, or Wolfram code."
+    )
+    get_notebook_outline.__doc__ = legacy_notebook_doc(
+        "Get the notebook's section outline."
+    )
+    parse_notebook_python.__doc__ = legacy_notebook_doc(
+        "Parse a notebook with the Python-native parser."
+    )
+    get_notebook_cell.__doc__ = legacy_notebook_doc(
+        "Read a single notebook cell by index."
+    )
+
+
+@_tool("notebook_primary")
 async def open_notebook_file(
     path: str, session_id: Optional[str] = None
 ) -> str:
@@ -1167,7 +1197,7 @@ async def open_notebook_file(
     return _json_response(result)
 
 
-@mcp.tool()
+@_tool("file_legacy")
 async def run_script(path: str) -> str:
     """
     Execute a Wolfram Language script file (.wl, .m) and return the result.
@@ -1195,7 +1225,7 @@ async def run_script(path: str) -> str:
     return _json_response(result)
 
 
-@mcp.tool()
+@_tool("file_legacy")
 async def read_notebook_content(path: str, include_outputs: bool = False) -> str:
     """
     Read the content of a notebook file as structured text.
@@ -1249,7 +1279,7 @@ async def read_notebook_content(path: str, include_outputs: bool = False) -> str
         return _json_response({"success": False, "error": str(e)})
 
 
-@mcp.tool()
+@_tool("file_legacy")
 async def convert_notebook(
     path: str,
     output_format: Literal["markdown", "latex", "plain", "wolfram"] = "markdown",
@@ -1324,7 +1354,7 @@ Module[{{nb, content}},
         return _json_response({"success": False, "error": str(e)})
 
 
-@mcp.tool()
+@_tool("file_legacy")
 async def get_notebook_outline(path: str) -> str:
     """
     Get the structural outline of a notebook (sections, subsections, titles).
@@ -1361,7 +1391,7 @@ async def get_notebook_outline(path: str) -> str:
         return _json_response({"success": False, "error": str(e)})
 
 
-@mcp.tool()
+@_tool("file_legacy")
 async def parse_notebook_python(
     path: str,
     output_format: Literal["markdown", "wolfram", "outline", "json"] = "markdown",
@@ -1483,7 +1513,7 @@ async def parse_notebook_python(
         return json.dumps({"success": False, "error": str(e)}, indent=2)
 
 
-@mcp.tool()
+@_tool("file_legacy")
 async def get_notebook_cell(
     path: str,
     cell_index: int,
@@ -1555,7 +1585,7 @@ async def get_notebook_cell(
 # ============================================================================
 
 
-@mcp.tool()
+@_tool("notebook_primary")
 async def read_notebook(
     path: str,
     output_format: Literal[
@@ -1700,7 +1730,7 @@ async def read_notebook(
 # ============================================================================
 
 
-@mcp.tool()
+@_tool("knowledge")
 async def wolfram_alpha(
     query: str,
     return_type: Literal["result", "data", "full"] = "result",
@@ -1735,7 +1765,7 @@ async def wolfram_alpha(
     )
 
 
-@mcp.tool()
+@_tool("knowledge")
 async def interpret_natural_language(text: str) -> str:
     """
     Convert natural language mathematical description to Wolfram Language code.
@@ -1758,7 +1788,7 @@ async def interpret_natural_language(text: str) -> str:
     return await _lazy_wolfram_tools.interpret_natural_language(text)
 
 
-@mcp.tool()
+@_tool("knowledge")
 async def entity_lookup(
     entity_type: str,
     name: str,
@@ -1792,7 +1822,7 @@ async def entity_lookup(
     )
 
 
-@mcp.tool()
+@_tool("knowledge")
 async def convert_units(quantity: str, target_unit: str) -> str:
     """
     Convert between units using Wolfram's comprehensive unit system.
@@ -1817,7 +1847,7 @@ async def convert_units(quantity: str, target_unit: str) -> str:
     )
 
 
-@mcp.tool()
+@_tool("knowledge")
 async def get_constant(name: str) -> str:
     """
     Get a physical or mathematical constant.
@@ -1844,7 +1874,7 @@ async def get_constant(name: str) -> str:
 # ============================================================================
 
 
-@mcp.tool()
+@_tool("debug")
 async def trace_evaluation(expression: str, max_depth: int = 5) -> str:
     """Trace the step-by-step evaluation of an expression."""
     from . import lazy_wolfram_tools as _lazy_wolfram_tools
@@ -1856,7 +1886,7 @@ async def trace_evaluation(expression: str, max_depth: int = 5) -> str:
     )
 
 
-@mcp.tool()
+@_tool("debug")
 async def time_expression(expression: str) -> str:
     """Time the evaluation of an expression with memory tracking."""
     from . import lazy_wolfram_tools as _lazy_wolfram_tools
@@ -1866,7 +1896,7 @@ async def time_expression(expression: str) -> str:
     )
 
 
-@mcp.tool()
+@_tool("core")
 async def check_syntax(code: str) -> str:
     """Validate Wolfram Language code syntax without executing it."""
     from . import lazy_wolfram_tools as _lazy_wolfram_tools
@@ -1881,7 +1911,7 @@ async def check_syntax(code: str) -> str:
 # ============================================================================
 
 
-@mcp.tool()
+@_tool("data")
 async def import_data(
     path: str,
     format: Optional[str] = None,
@@ -1897,7 +1927,7 @@ async def import_data(
     )
 
 
-@mcp.tool()
+@_tool("data")
 async def export_data(
     expression: str,
     path: str,
@@ -1915,7 +1945,7 @@ async def export_data(
     )
 
 
-@mcp.tool()
+@_tool("data")
 async def list_supported_formats() -> str:
     """List all supported import/export formats."""
     from . import lazy_wolfram_tools as _lazy_wolfram_tools
@@ -1931,7 +1961,7 @@ async def list_supported_formats() -> str:
 # ============================================================================
 
 
-@mcp.tool()
+@_tool("graphics")
 async def inspect_graphics(expression: str) -> str:
     """Analyze the structure of a graphics object."""
     from . import lazy_wolfram_tools as _lazy_wolfram_tools
@@ -1941,7 +1971,7 @@ async def inspect_graphics(expression: str) -> str:
     )
 
 
-@mcp.tool()
+@_tool("graphics")
 async def export_graphics(
     expression: str,
     path: str,
@@ -1961,7 +1991,7 @@ async def export_graphics(
     )
 
 
-@mcp.tool()
+@_tool("graphics")
 async def compare_plots(
     expressions: List[str], labels: Optional[List[str]] = None
 ) -> str:
@@ -1975,7 +2005,7 @@ async def compare_plots(
     )
 
 
-@mcp.tool()
+@_tool("graphics")
 async def create_animation(
     expression: str,
     parameter: str,
@@ -1999,10 +2029,7 @@ async def create_animation(
 # ============================================================================
 
 
-_register_optional_tools()
-
-
-@mcp.tool()
+@_tool("core")
 async def get_feature_status() -> str:
     """Get the status of all feature flags."""
     return json.dumps(
@@ -2014,66 +2041,15 @@ async def get_feature_status() -> str:
     )
 
 
+_apply_guidance_docs()
+_register_core_tools()
+_register_optional_tools()
+
+
 @mcp.prompt()
 def mathematica_expert(user_request: str = "") -> str:
-    """
-    Expert guidance for using Mathematica tools effectively.
-    Use this prompt to determine the best strategy for solving mathematical problems.
-    """
-    return f"""You are a Mathematica expert with access to a powerful Wolfram Engine integration.
-
-USER REQUEST: {user_request}
-
-### CORE CAPABILITIES
-1. **Symbolic Math**: Calculus, Algebra, Discrete Math (Solve, Integrate, D, Sum)
-2. **Visualizations**: 2D/3D Plots, Graphs, Animations (Plot, Graphics3D)
-3. **Data Analysis**: Statistics, Datasets, Import/Export
-4. **Knowledge**: Wolfram Alpha integration (natural language queries)
-5. **Notebook Automation**: Create, edit, and run .nb notebooks
-
-### EXECUTION STRATEGY (CRITICAL)
-
-**1. CHOOSE THE RIGHT TARGET (`output_target`):**
-
-*   **USE `output_target="cli"` (Command Line) WHEN:**
-    *   Goal is a *result* (number, formula, text).
-    *   "Solve x^2=4", "Integrate sin(x)", "Factor 12345".
-    *   You need the output to use in subsequent reasoning.
-    *   No GUI is available or needed.
-
-*   **USE `output_target="notebook"` (Interactive Notebook) WHEN:**
-    *   Goal is a *visual* (Plot, Graphics, Image).
-    *   "Plot sin(x)", "Show me a torus", "Visualize the dataset".
-    *   User wants to save the work in a .nb file.
-    *   **PREREQUISITE**: Mathematica Desktop MUST be running with `StartMCPServer[]` executed.
-    *   *If `output_target="notebook"` fails, tools will auto-fallback to CLI.*
-
-**2. HANDLING LONG COMPUTATIONS:**
-*   Use `submit_computation` for tasks taking > 60s (large integrals, optimization).
-*   Use `background_task` agent for parallel exploration.
-
-**3. NOTEBOOK OPERATIONS:**
-*   `create_notebook`: Start fresh.
-*   `write_cell`: Add code/text.
-*   `evaluate_cell`/`evaluate_selection`: Run code.
-*   `screenshot_notebook`: Verify visuals.
-
-### BEST PRACTICES
-*   **Format**: Use `InputForm` (standard text) for input. output can be `latex` for math heavy display.
-*   **Verification**: For complex derivations, use `verify_derivation`.
-*   **Search**: Use `resolve_function` or `wolfram_alpha` if unsure about syntax.
-
-### EXAMPLE WORKFLOWS
-
-**Visual Task ("Plot a 3D surface")**:
-1. `create_notebook(title="3D Plot")`
-2. `write_cell(content="Plot3D[Sin[x*y], {{x,0,3}}, {{y,0,3}}]", style="Input")`
-3. `evaluate_selection()`
-4. `screenshot_notebook()` (to confirm)
-
-**Calculation Task ("Derive the volume of a sphere")**:
-1. `execute_code("Integrate[1, {{x,y,z}} \\[Element] Ball[]]", output_target="cli")`
-"""
+    """Expert guidance for using Mathematica tools effectively."""
+    return build_mathematica_expert_prompt(user_request, features=FEATURES)
 
 
 def main():

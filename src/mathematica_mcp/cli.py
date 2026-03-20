@@ -19,6 +19,9 @@ import sys
 from pathlib import Path
 from typing import Optional, Dict, Any, Tuple
 
+from .config import FeatureFlags, VALID_PROFILES
+from .guidance import build_claude_command, build_claude_hint
+
 # ANSI colors
 GREEN = "\033[92m"
 RED = "\033[91m"
@@ -312,20 +315,24 @@ def check_client_config(client: str) -> Tuple[bool, str]:
         return False, f"Error reading config: {e}"
 
 
-def generate_mcp_config(use_uvx: bool = True) -> Dict[str, Any]:
+def generate_mcp_config(use_uvx: bool = True, profile: Optional[str] = None) -> Dict[str, Any]:
     """Generate the MCP server configuration."""
     if use_uvx:
-        return {
+        config = {
             "command": "uvx",
             "args": ["mathematica-mcp-full"]
         }
     else:
         # Use absolute path for local development
         pkg_dir = get_package_dir()
-        return {
+        config = {
             "command": "uv",
             "args": ["--directory", str(pkg_dir), "run", "mathematica-mcp-full"]
         }
+
+    if profile:
+        config["env"] = {"MATHEMATICA_PROFILE": profile}
+    return config
 
 
 def install_addon(wolframscript: Path, addon_dir: Path) -> bool:
@@ -356,24 +363,32 @@ def install_addon(wolframscript: Path, addon_dir: Path) -> bool:
         return False
 
 
-def generate_toml_config(server_name: str, use_uvx: bool = True) -> str:
+def generate_toml_config(
+    server_name: str, use_uvx: bool = True, profile: Optional[str] = None
+) -> str:
     """Generate TOML config for Codex CLI."""
     if use_uvx:
-        return f'''
+        config = f'''
 [mcp_servers.{server_name}]
 command = "uvx"
 args = ["mathematica-mcp-full"]
 '''
     else:
         pkg_dir = get_package_dir()
-        return f'''
+        config = f'''
 [mcp_servers.{server_name}]
 command = "uv"
 args = ["--directory", "{pkg_dir}", "run", "mathematica-mcp-full"]
 '''
 
+    if profile:
+        config += f'env = {{ MATHEMATICA_PROFILE = "{profile}" }}\n'
+    return config
 
-def update_client_config(client: str, use_uvx: bool = True) -> bool:
+
+def update_client_config(
+    client: str, use_uvx: bool = True, profile: Optional[str] = None
+) -> bool:
     """Update the client configuration to add mathematica server."""
     config_path = get_config_path(client)
     if not config_path:
@@ -389,13 +404,18 @@ def update_client_config(client: str, use_uvx: bool = True) -> bool:
     
     if config_format == "toml":
         # Handle TOML config (Codex CLI)
-        return update_toml_config(config_path, server_name, use_uvx)
+        return update_toml_config(config_path, server_name, use_uvx, profile)
     else:
         # Handle JSON config
-        return update_json_config(config_path, client_info, use_uvx)
+        return update_json_config(config_path, client_info, use_uvx, profile)
 
 
-def update_toml_config(config_path: Path, server_name: str, use_uvx: bool) -> bool:
+def update_toml_config(
+    config_path: Path,
+    server_name: str,
+    use_uvx: bool,
+    profile: Optional[str],
+) -> bool:
     """Update TOML config file for Codex CLI."""
     existing_content = ""
     if config_path.exists():
@@ -407,7 +427,7 @@ def update_toml_config(config_path: Path, server_name: str, use_uvx: bool) -> bo
             return True
     
     # Generate new TOML section
-    new_section = generate_toml_config(server_name, use_uvx)
+    new_section = generate_toml_config(server_name, use_uvx, profile)
     
     # Append to existing config
     try:
@@ -420,7 +440,12 @@ def update_toml_config(config_path: Path, server_name: str, use_uvx: bool) -> bo
         return False
 
 
-def update_json_config(config_path: Path, client_info: Dict[str, Any], use_uvx: bool) -> bool:
+def update_json_config(
+    config_path: Path,
+    client_info: Dict[str, Any],
+    use_uvx: bool,
+    profile: Optional[str],
+) -> bool:
     """Update JSON config file."""
     key = client_info["key"]
     server_name = client_info["server_name"]
@@ -441,8 +466,15 @@ def update_json_config(config_path: Path, client_info: Dict[str, Any], use_uvx: 
     if key not in config:
         config[key] = {}
     
-    server_config = generate_mcp_config(use_uvx)
-    
+    existing_server = config.get(key, {}).get(server_name, {})
+    server_config = generate_mcp_config(use_uvx, profile)
+
+    existing_env = existing_server.get("env", {}) if isinstance(existing_server, dict) else {}
+    new_env = server_config.get("env", {})
+    merged_env = {**existing_env, **new_env}
+    if merged_env:
+        server_config["env"] = merged_env
+
     # Add extra fields if needed (e.g., "type": "stdio" for VS Code)
     if "extra_fields" in client_info:
         server_config.update(client_info["extra_fields"])
@@ -457,6 +489,58 @@ def update_json_config(config_path: Path, client_info: Dict[str, Any], use_uvx: 
     except Exception as e:
         error(f"Failed to write config: {e}")
         return False
+
+
+def _write_if_changed(path: Path, content: str) -> bool:
+    if path.exists() and path.read_text() == content:
+        return False
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content)
+    return True
+
+
+def _upsert_marked_block(
+    existing: str, block: str, *, start_marker: str, end_marker: str
+) -> str:
+    marked = f"{start_marker}\n{block.rstrip()}\n{end_marker}\n"
+    if start_marker in existing and end_marker in existing:
+        before, _, rest = existing.partition(start_marker)
+        _, _, after = rest.partition(end_marker)
+        prefix = before.rstrip()
+        suffix = after.lstrip("\n")
+        parts = [part for part in [prefix, marked.rstrip(), suffix.rstrip()] if part]
+        return "\n\n".join(parts) + "\n"
+
+    base = existing.rstrip()
+    if not base:
+        return marked
+    return f"{base}\n\n{marked}"
+
+
+def install_claude_code_guidance(project_dir: Path, profile: Optional[str]) -> list[Path]:
+    features = FeatureFlags.from_env(profile_override=profile)
+    written: list[Path] = []
+
+    command_path = project_dir / ".claude" / "commands" / "mathematica.md"
+    command_content = build_claude_command(features).rstrip() + "\n"
+    if _write_if_changed(command_path, command_content):
+        written.append(command_path)
+
+    claude_md_path = project_dir / "CLAUDE.md"
+    start_marker = "<!-- mathematica-mcp:start -->"
+    end_marker = "<!-- mathematica-mcp:end -->"
+    existing = claude_md_path.read_text() if claude_md_path.exists() else ""
+    updated = _upsert_marked_block(
+        existing,
+        build_claude_hint(features).rstrip(),
+        start_marker=start_marker,
+        end_marker=end_marker,
+    )
+    if not claude_md_path.exists() or updated != existing:
+        claude_md_path.write_text(updated)
+        written.append(claude_md_path)
+
+    return written
 
 
 def cmd_setup(args: argparse.Namespace) -> int:
@@ -520,10 +604,21 @@ def cmd_setup(args: argparse.Namespace) -> int:
     # Step 3: Update client config
     info(f"Configuring {client_name}...")
     use_uvx = not args.local
-    if update_client_config(client, use_uvx=use_uvx):
+    if update_client_config(client, use_uvx=use_uvx, profile=args.profile):
         success(f"{client_name} configured")
     else:
         return 1
+
+    if client == "claude-code" and args.project_dir:
+        project_dir = expand_path(args.project_dir)
+        changed_paths = install_claude_code_guidance(project_dir, args.profile)
+        if changed_paths:
+            for changed_path in changed_paths:
+                success(f"Installed Claude Code guidance at {changed_path}")
+        else:
+            info(f"Claude Code guidance already up to date in {project_dir}")
+    elif client == "claude-code":
+        info("No project guidance installed. Re-run with --project-dir to add .claude/commands and CLAUDE.md hints.")
     
     # Done!
     print(f"\n{color('Setup complete!', GREEN + BOLD)}\n")
@@ -622,10 +717,10 @@ def cmd_config(args: argparse.Namespace) -> int:
     
     if config_format == "toml":
         # Output TOML format for Codex
-        print(generate_toml_config(client_info["server_name"], use_uvx).strip())
+        print(generate_toml_config(client_info["server_name"], use_uvx, args.profile).strip())
     else:
         # Output JSON format
-        server_config = generate_mcp_config(use_uvx)
+        server_config = generate_mcp_config(use_uvx, args.profile)
         if "extra_fields" in client_info:
             server_config.update(client_info["extra_fields"])
         
@@ -644,6 +739,12 @@ def main_cli() -> int:
     parser = argparse.ArgumentParser(
         prog="mathematica-mcp-full",
         description="Mathematica MCP Server - Give your AI Agent the power of Wolfram Language",
+    )
+    parser.add_argument(
+        "--profile",
+        choices=VALID_PROFILES,
+        default=None,
+        help="Runtime tool profile override"
     )
 
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
@@ -669,6 +770,17 @@ def main_cli() -> int:
         action="store_true",
         help="Use local path instead of uvx (for development)"
     )
+    setup_parser.add_argument(
+        "--profile",
+        choices=VALID_PROFILES,
+        default=None,
+        help="Tool profile to configure in the client MCP config"
+    )
+    setup_parser.add_argument(
+        "--project-dir",
+        default=None,
+        help="Project root for Claude Code guidance installation"
+    )
     setup_parser.set_defaults(func=cmd_setup)
     
     # doctor command
@@ -693,12 +805,20 @@ def main_cli() -> int:
         action="store_true",
         help="Use local path instead of uvx"
     )
+    config_parser.add_argument(
+        "--profile",
+        choices=VALID_PROFILES,
+        default=None,
+        help="Tool profile to emit in the printed config"
+    )
     config_parser.set_defaults(func=cmd_config)
     
     args = parser.parse_args()
     
     if args.command is None:
         # No subcommand - run the MCP server (default behavior)
+        if args.profile:
+            os.environ["MATHEMATICA_PROFILE"] = args.profile
         from .server import main as server_main
         server_main()
         return 0
