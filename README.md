@@ -171,19 +171,14 @@ Pass `--profile` during setup or set `MATHEMATICA_PROFILE` env var. See the **[T
 
 ---
 
-## Why use it?
+## What you can do with it
 
-### For Students & Researchers
-*   **Symbolic Math**: "Integrate `Sin[x]^4 Cos[x]^2`, simplify it, and show the steps."
-*   **Visualization**: "Render a 3D Sombrero surface and export as SVG."
-
-### For Developers
-*   **Debugging**: "Trace the evaluation of `MyCustomFunction[x]`."
-*   **Parsing**: "Extract only the Wolfram code from this `.nb` file."
-
-### For Data Scientists
-*   **Real Data**: "Compare GDP for US, China, and Japan."
-*   **Import**: "Load `data.csv` and plot the distribution."
+*   **Symbolic computation** — Integrate, differentiate, solve equations, simplify, and verify derivations step-by-step.
+*   **Visualization** — Generate 2D/3D plots, export as PNG/SVG/PDF, create animations, and compare plots side-by-side.
+*   **Notebook operations** — Open, read, convert, and export `.nb` files. Parse notebooks offline without a running kernel.
+*   **Knowledge queries** — Access Wolfram Alpha, entity data, physical constants, and unit conversions directly from your agent.
+*   **Data workflows** — Import from 250+ formats (CSV, JSON, Excel, SQL, URLs), analyze, and export results.
+*   **Debugging** — Trace evaluation steps, time expressions, check syntax, and inspect kernel state.
 
 ---
 
