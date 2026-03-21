@@ -21,10 +21,99 @@
 ```
 
 **Two components:**
-1. **Python MCP Server** - Exposes 80 tools to LLMs via MCP protocol
+1. **Python MCP Server** - Exposes 80+ tools to LLMs via MCP protocol (varies by profile)
 2. **Mathematica Addon** - Runs inside Mathematica with persistent session state
 
 **Performance:** Notebook execution uses an atomic command that combines notebook lookup, cell creation, and evaluation into a single round-trip (vs. 4 separate calls), resulting in 3-4x faster plot rendering.
+
+---
+
+## Tool Profiles
+
+The server supports three profiles that control which tools are exposed. This lets you tune the tool surface for your use case, reducing noise for LLMs that don't need notebook or legacy features.
+
+| Profile | Tools | Use Case |
+|---------|-------|----------|
+| `math` | ~25 | Pure computation, no notebook tools |
+| `notebook` | ~44 | Computation + notebook reading/management |
+| `full` (default) | ~79 | Everything including legacy, admin, and all optional tools |
+
+### Selecting a Profile
+
+**Via CLI flag** (recommended for setup):
+```bash
+uvx mathematica-mcp-full --profile notebook
+uvx mathematica-mcp-full setup claude-desktop --profile math
+```
+
+**Via environment variable**:
+```bash
+export MATHEMATICA_PROFILE=notebook
+```
+
+**Via MCP client config**:
+```json
+{
+  "mcpServers": {
+    "mathematica": {
+      "command": "uvx",
+      "args": ["mathematica-mcp-full"],
+      "env": {"MATHEMATICA_PROFILE": "notebook"}
+    }
+  }
+}
+```
+
+### What Each Profile Includes
+
+| Profile | Tool Groups |
+|---------|-------------|
+| `math` | core, session, knowledge, debug, kernel_tools + symbol lookup |
+| `notebook` | Everything in math + notebook_primary, data, graphics |
+| `full` | Everything in notebook + notebook_advanced, file_legacy, admin + all optional tool groups (math aliases, repository, async, cache) |
+
+Feature flags (environment variables) can further enable or disable individual tool groups regardless of profile. See [Feature Flags](#feature-flags) below.
+
+Use `get_feature_status()` to inspect the active profile and enabled features at runtime.
+
+---
+
+## LLM Guidance System
+
+The server includes a built-in guidance layer (`guidance.py`) that provides profile-aware routing hints to LLMs:
+
+- **Dynamic tool docstrings**: Tool descriptions are rewritten at startup to include `[PRIMARY]`, `[ADVANCED]`, or `[LEGACY]` labels, steering LLMs toward the preferred tool for each task.
+- **Anti-pattern documentation**: The `execute_code` docstring warns against the common `create_notebook` → `write_cell` → `evaluate_cell` pattern when `execute_code(..., output_target="notebook")` is atomic and faster.
+- **Expert prompt**: The `mathematica_expert` MCP prompt generates profile-aware routing guidance for a given user request.
+- **Claude Code integration**: `uvx mathematica-mcp-full setup claude-code --project-dir .` installs a `.claude/commands/mathematica.md` command file and a `CLAUDE.md` hint block.
+
+---
+
+## Notebook Backend Abstraction
+
+Notebook reading is handled by a capability-based dispatch system (`notebook_backend.py`) that selects the best available backend:
+
+| Backend | Name | Requires | Strengths |
+|---------|------|----------|-----------|
+| Kernel Semantic | `kernel_semantic` | `wolframscript` | Accurate code extraction via `NotebookImport` |
+| Python Syntax | `python_syntax` | Nothing (offline) | Fast, no dependencies, handles BoxData |
+
+### `read_notebook` (Primary Tool)
+
+The consolidated `read_notebook` tool replaces individual notebook reading tools:
+
+```python
+read_notebook("path/to/notebook.nb", output_format="markdown")
+read_notebook("path/to/notebook.nb", output_format="wolfram")   # executable code only
+read_notebook("path/to/notebook.nb", output_format="outline")   # section hierarchy
+read_notebook("path/to/notebook.nb", output_format="json")      # structured cell data
+```
+
+Parameters include `backend` (force a specific backend), `view` (semantic/display/raw), `cell_types` filter, `include_outputs`, `truncation_threshold`, and `include_alternates`.
+
+The legacy tools (`read_notebook_content`, `convert_notebook`, `get_notebook_outline`, `parse_notebook_python`, `get_notebook_cell`) remain available in the `full` profile but their docstrings steer LLMs toward `read_notebook`.
+
+Results are cached to disk at `~/.cache/mathematica-mcp/notebooks/` and invalidated when the source file changes.
 
 ---
 
@@ -100,7 +189,7 @@ If you are using an MCP-capable extension (e.g., Continue), add the same MCP ser
 
 **OpenCode**
 
-Add the same MCP server definition in your OpenCode MCP config (project or global config). Refer to your OpenCode config location and include `mathematica` under `mcpServers`.
+OpenCode does not have automated `uvx setup` support. Add the MCP server definition manually in your OpenCode config (project or global). Refer to your OpenCode config location and include `mathematica` under `mcpServers`.
 
 ### Make the AI Use It Naturally
 
@@ -625,6 +714,7 @@ create_animation(
 |------|-------------|
 | `execute_code` | Run Wolfram Language code |
 | `evaluate_selection` | Evaluate selected cells |
+| `get_feature_status` | Show active profile, enabled tool groups, and feature flags |
 
 #### Mathematical Operations
 
@@ -655,6 +745,12 @@ create_animation(
 | `load_resource_function` | Load a repository function |
 | `search_data_repository` | Search curated datasets |
 | `load_dataset` | Load a dataset |
+
+#### Admin (full profile only)
+
+| Tool | Description |
+|------|-------------|
+| `batch_commands` | Execute multiple addon commands in a single round-trip |
 
 #### Async & Caching
 
@@ -865,6 +961,9 @@ Control features via environment variables:
 |----------|---------|-------------|
 | `MATHEMATICA_HOST` | `localhost` | Addon host |
 | `MATHEMATICA_PORT` | `9881` | Addon port |
+| `MATHEMATICA_PROFILE` | `full` | Tool profile: `math`, `notebook`, or `full` |
+| `MATHEMATICA_MCP_TOKEN` | *(none)* | Authentication token for secure connections |
+| `MATHEMATICA_MCP_CACHE_DIR` | `~/.cache/mathematica-mcp/notebooks` | Disk cache directory for notebook extraction |
 
 ---
 
@@ -918,6 +1017,8 @@ The MCP server uses `ExportString[..., "RawJSON"]` for reliable JSON output from
 | Mathematica | 14.1 |
 | Python | 3.10+ |
 | macOS | ARM64 (Apple Silicon) |
+| Linux | x86_64 (POSIX) |
+| Windows | Community-tested (not in official classifiers) |
 | MCP Protocol | 1.0 |
 
 ---
@@ -927,13 +1028,27 @@ The MCP server uses `ExportString[..., "RawJSON"]` for reliable JSON output from
 ```
 mathematica-mcp/
 ├── src/mathematica_mcp/
-│   ├── server.py          # 98 MCP tools
-│   ├── notebook_parser.py # Python-native .nb parser (offline)
-│   ├── connection.py      # Socket connection to addon
-│   ├── session.py         # Kernel fallback (wolframscript)
-│   ├── config.py          # Feature flags
-│   ├── cache.py           # Expression caching
-│   └── telemetry.py       # Usage tracking
+│   ├── server.py              # 55 core tools (profile-gated)
+│   ├── config.py              # Profiles, feature flags, tool groups
+│   ├── guidance.py            # LLM routing guidance (profile-aware)
+│   ├── notebook_backend.py    # Notebook extraction backend abstraction
+│   ├── notebook_parser.py     # Python-native .nb parser (offline)
+│   ├── connection.py          # Socket connection to addon
+│   ├── session.py             # Kernel fallback (wolframscript)
+│   ├── cli.py                 # Setup commands for 6 clients
+│   ├── cache.py               # In-memory expression caching
+│   ├── disk_cache.py          # Persistent notebook extraction cache
+│   ├── lazy_wolfram_tools.py  # Async helpers (verify_derivation etc.)
+│   ├── error_analyzer.py      # Error pattern matching & LLM formatting
+│   ├── telemetry.py           # Usage tracking
+│   ├── optional_math_aliases.py       # 8 named math operations
+│   ├── optional_repository_tools.py   # 6 repository search/load tools
+│   ├── optional_symbol_tools.py       # 3 symbol lookup tools
+│   ├── optional_async_jobs.py         # 3 async computation tools
+│   ├── optional_cache_tools.py        # 4 expression cache tools
+│   ├── optional_telemetry_tools.py    # 2 telemetry tools
+│   └── helpers/
+│       └── notebook_converter.wl      # WL kernel helper for NotebookImport
 ├── addon/
 │   ├── MathematicaMCP.wl   # Main addon (persistent session)
 │   ├── install.wl          # Auto-install script
@@ -941,9 +1056,10 @@ mathematica-mcp/
 └── tests/
     ├── test_session.py                  # Session, parsing, math operations
     ├── test_derivation_verification.py  # Algebraic/trig identity verification
-    ├── test_error_detection.py          # Error analysis and LLM formatting (33 tests)
+    ├── test_error_detection.py          # Error analysis and LLM formatting
     ├── test_readme_commands.py          # README examples validation
-    └── test_notebook_optimizations.py   # Kernel-mode fast path benchmarks (378x speedup)
+    ├── test_notebook_optimizations.py   # Kernel-mode fast path benchmarks
+    └── test_guidance.py                 # LLM tool profile tests
 ```
 
 ---
@@ -1038,12 +1154,9 @@ Execution Flow (Broken):
 - File operations (`open_notebook_file`, `run_script`) ✅
 - Natural language tools (`wolfram_alpha`, `interpret_natural_language`) ✅
 
-**Bug Report Status**:
+**Status**:
 
-This issue should be reported to the Mathematica MCP maintainers with:
-- Minimal reproduction case
-- Error logs showing `StringLength::string` and `KeyExistsQ::invrl` patterns
-- Proposed fix: Add explicit frontend/kernel synchronization barriers before returning from notebook operations
+This is a known limitation documented for awareness. Contributions and fixes are welcome via [GitHub Issues](https://github.com/AbhiRawat4841/mathematica-mcp/issues). A minimal reproduction case with error logs showing `StringLength::string` and `KeyExistsQ::invrl` patterns would help narrow down the synchronization fix.
 
 **Expected Fix** (Conceptual):
 
@@ -1083,4 +1196,4 @@ MIT License
 
 ---
 
-*Last updated: January 2026 (v1.3 - Performance optimization: atomic notebook execution reduces 4 round-trips to 1; Graphics rendering fix for proper plot display; Known issues documentation added)*
+*Last updated: March 2026 (v0.4.0 — Tool profiles, LLM guidance, notebook backend abstraction, consolidated read_notebook tool)*

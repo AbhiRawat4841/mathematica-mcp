@@ -10,7 +10,7 @@
 
 ## What is this?
 
-This **MCP Server** empowers **AI Agents & IDEs** (like Claude Desktop, Cursor, or OpenCode) with a direct interface to your local **Wolfram Engine**. It enables your agent to perform **symbolic reasoning, precise calculation, and interactive visualization** natively.
+This **MCP Server** empowers **AI Agents & IDEs** (like Claude Desktop, Cursor, or VS Code) with a direct interface to your local **Wolfram Engine**. With **80+ tools** across configurable profiles, it enables your agent to perform **symbolic reasoning, precise calculation, and interactive visualization** natively.
 
 **Capabilities:**
 *   **Execute Code**: Run Wolfram Language expressions in a secure sandbox.
@@ -60,6 +60,9 @@ uvx mathematica-mcp-full setup gemini
 
 # For Claude Code CLI
 uvx mathematica-mcp-full setup claude-code
+
+# Optional: select a tool profile (default is "full")
+uvx mathematica-mcp-full setup claude-desktop --profile notebook
 ```
 
 Then restart Mathematica and your editor. Done!
@@ -95,6 +98,11 @@ uvx mathematica-mcp-full doctor
 > ```bash
 > uv cache clean mathematica-mcp-full && uvx mathematica-mcp-full setup <client>
 > ```
+
+### Tool Profiles
+
+Choose how many tools to expose: `math` (~25 tools), `notebook` (~44), or `full` (~79, default).
+Pass `--profile` during setup or set `MATHEMATICA_PROFILE` env var. See the **[Technical Reference](docs/technical-reference.md#tool-profiles)** for details.
 
 ---
 

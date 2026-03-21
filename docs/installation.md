@@ -57,6 +57,9 @@ uvx mathematica-mcp-full setup gemini
 
 # For Claude Code CLI
 uvx mathematica-mcp-full setup claude-code
+
+# Optional: select a tool profile (default is "full")
+uvx mathematica-mcp-full setup claude-desktop --profile notebook
 ```
 
 Then **restart Mathematica** and **restart your editor**. Done!
@@ -340,6 +343,37 @@ See [Add wolframscript to PATH](#add-wolframscript-to-path) above.
 ---
 
 ## Advanced Configuration
+
+### Tool Profiles
+
+Control which tools are exposed by selecting a profile:
+
+| Profile | Tools | Best For |
+|---------|-------|----------|
+| `math` | ~25 | Pure computation, no notebook features |
+| `notebook` | ~44 | Computation + notebook reading |
+| `full` (default) | ~79 | All features including legacy tools |
+
+**During setup** (writes profile to client config):
+```bash
+uvx mathematica-mcp-full setup claude-desktop --profile notebook
+```
+
+**Via environment variable**:
+```bash
+export MATHEMATICA_PROFILE=notebook
+```
+
+See the [Technical Reference](technical-reference.md#tool-profiles) for details on what each profile includes.
+
+### Setup Flags
+
+| Flag | Description |
+|------|-------------|
+| `--profile {math,notebook,full}` | Set the tool profile in the client config |
+| `--skip-addon` | Skip Mathematica addon installation |
+| `--local` | Use local path instead of `uvx` (for development) |
+| `--project-dir PATH` | (Claude Code only) Install guidance files in the project |
 
 ### Session Isolation
 
