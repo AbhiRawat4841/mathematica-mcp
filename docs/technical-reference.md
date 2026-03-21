@@ -687,6 +687,14 @@ create_animation(
 
 ### Core Tools (Existing)
 
+#### Server & Kernel Status
+
+| Tool | Description |
+|------|-------------|
+| `get_mathematica_status` | Connection status, addon version, and system info |
+| `get_kernel_state` | Memory usage, uptime, version, loaded packages |
+| `get_feature_status` | Show active profile, enabled tool groups, and feature flags |
+
 #### Notebook Management
 
 | Tool | Description |
@@ -697,6 +705,9 @@ create_animation(
 | `save_notebook` | Save notebook to disk |
 | `close_notebook` | Close a notebook |
 | `export_notebook` | Export to PDF, HTML, TeX |
+| `read_notebook` | Read notebook with backend-aware dispatch (see [Notebook Backend](#notebook-backend-abstraction)) |
+| `screenshot_notebook` | Capture entire notebook as PNG image |
+| `screenshot_cell` | Capture a single cell's output as PNG image |
 
 #### Cell Operations
 
@@ -707,6 +718,8 @@ create_animation(
 | `write_cell` | Insert a new cell |
 | `delete_cell` | Remove a cell |
 | `evaluate_cell` | Evaluate a cell |
+| `select_cell` | Move cursor to a cell |
+| `scroll_to_cell` | Scroll view to show a cell |
 
 #### Code Execution
 
@@ -714,7 +727,13 @@ create_animation(
 |------|-------------|
 | `execute_code` | Run Wolfram Language code |
 | `evaluate_selection` | Evaluate selected cells |
-| `get_feature_status` | Show active profile, enabled tool groups, and feature flags |
+
+#### Kernel Tools
+
+| Tool | Description |
+|------|-------------|
+| `load_package` | Load Wolfram packages (e.g., `"Developer\`"`) |
+| `list_loaded_packages` | Show all active contexts |
 
 #### Mathematical Operations
 
@@ -742,8 +761,10 @@ create_animation(
 | Tool | Description |
 |------|-------------|
 | `search_function_repository` | Search 2900+ community functions |
+| `get_function_repository_info` | Get details about a repository function |
 | `load_resource_function` | Load a repository function |
 | `search_data_repository` | Search curated datasets |
+| `get_dataset_info` | Get metadata about a dataset |
 | `load_dataset` | Load a dataset |
 
 #### Admin (full profile only)
@@ -761,6 +782,8 @@ create_animation(
 | `get_computation_result` | Get completed result |
 | `cache_expression` | Cache expensive computations |
 | `get_cached` | Retrieve cached result |
+| `list_cache` | List all cached expressions |
+| `clear_expression_cache` | Clear expression cache |
 
 ---
 
@@ -941,10 +964,10 @@ python -m pytest tests/test_error_detection.py -v
 
 ## Feature Flags
 
-Control features via environment variables:
+Control features via environment variables. Defaults shown are for the `full` profile; `math` and `notebook` profiles default most optional features to `false` (only `LOOKUP` and `CACHE` are enabled). Environment variables override profile defaults.
 
-| Variable | Default | Description |
-|----------|---------|-------------|
+| Variable | Default (`full`) | Description |
+|----------|------------------|-------------|
 | `MATHEMATICA_ENABLE_FUNCTION_REPO` | `true` | Function Repository integration |
 | `MATHEMATICA_ENABLE_DATA_REPO` | `true` | Data Repository integration |
 | `MATHEMATICA_ENABLE_ASYNC` | `true` | Async computation workflow |
