@@ -12,6 +12,10 @@
 
 This **MCP Server** empowers **AI Agents & IDEs** (like Claude Desktop, Cursor, or VS Code) with a direct interface to your local **Wolfram Engine**. With **80+ tools** across configurable profiles, it enables your agent to perform **symbolic reasoning, precise calculation, and interactive visualization** natively.
 
+It works in two modes:
+*   **Inside your LLM** — Use Wolfram Language as a computational backend directly within any MCP-compatible chat interface or CLI agent. Your AI reasons, computes, and visualizes without leaving the conversation.
+*   **External notebook control** — Programmatically open, read, write, evaluate, screenshot, and export live Mathematica notebooks from outside the Mathematica GUI.
+
 **Capabilities:**
 *   **Execute Code**: Run Wolfram Language expressions in a secure sandbox.
 *   **Self-Correct**: Diagnose and fix syntax errors automatically.
