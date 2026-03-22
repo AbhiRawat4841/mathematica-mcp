@@ -12,7 +12,8 @@ def register_function_repository_tools(mcp: FastMCP, *, parse_wolfram_associatio
     @mcp.tool()
     async def search_function_repository(query: str, max_results: int = 10) -> str:
         """Search the Wolfram Function Repository."""
-        wolframscript = shutil.which("wolframscript")
+        from .lazy_wolfram_tools import _find_wolframscript
+        wolframscript = _find_wolframscript()
         if not wolframscript:
             return json.dumps(
                 {"success": False, "error": "wolframscript not found in PATH"}, indent=2
@@ -70,7 +71,8 @@ Module[{{results, query, clean, fetch, maxRes}},
     @mcp.tool()
     async def get_function_repository_info(function_name: str) -> str:
         """Get details about a Wolfram Function Repository function."""
-        wolframscript = shutil.which("wolframscript")
+        from .lazy_wolfram_tools import _find_wolframscript
+        wolframscript = _find_wolframscript()
         if not wolframscript:
             return json.dumps(
                 {"success": False, "error": "wolframscript not found in PATH"}, indent=2
@@ -116,7 +118,8 @@ Module[{{ro, info}},
     @mcp.tool()
     async def load_resource_function(function_name: str) -> str:
         """Load a function from the Wolfram Function Repository."""
-        wolframscript = shutil.which("wolframscript")
+        from .lazy_wolfram_tools import _find_wolframscript
+        wolframscript = _find_wolframscript()
         if not wolframscript:
             return json.dumps(
                 {"success": False, "error": "wolframscript not found in PATH"}, indent=2
@@ -160,7 +163,8 @@ def register_data_repository_tools(mcp: FastMCP, *, parse_wolfram_association) -
     @mcp.tool()
     async def search_data_repository(query: str, max_results: int = 10) -> str:
         """Search the Wolfram Data Repository."""
-        wolframscript = shutil.which("wolframscript")
+        from .lazy_wolfram_tools import _find_wolframscript
+        wolframscript = _find_wolframscript()
         if not wolframscript:
             return json.dumps(
                 {"success": False, "error": "wolframscript not found in PATH"}, indent=2
@@ -200,7 +204,8 @@ Module[{{results}},
     @mcp.tool()
     async def get_dataset_info(dataset_name: str) -> str:
         """Get detailed information about a Wolfram Data Repository dataset."""
-        wolframscript = shutil.which("wolframscript")
+        from .lazy_wolfram_tools import _find_wolframscript
+        wolframscript = _find_wolframscript()
         if not wolframscript:
             return json.dumps(
                 {"success": False, "error": "wolframscript not found in PATH"}, indent=2
@@ -241,7 +246,8 @@ Module[{{rd, info}},
         sample_size: Optional[int] = None,
     ) -> str:
         """Load a dataset from the Wolfram Data Repository."""
-        wolframscript = shutil.which("wolframscript")
+        from .lazy_wolfram_tools import _find_wolframscript
+        wolframscript = _find_wolframscript()
         if not wolframscript:
             return json.dumps(
                 {"success": False, "error": "wolframscript not found in PATH"}, indent=2

@@ -136,9 +136,16 @@ def _execute_via_wolframscript(
     deterministic_seed: Optional[int] = None,
     session_id: Optional[str] = None,
     isolate_context: bool = False,
+    render_graphics: bool = False,
+    image_size: int = 500,
 ) -> dict[str, Any]:
-    """Execute code via wolframscript CLI with timing and warning capture."""
-    wolframscript = shutil.which("wolframscript")
+    """Execute code via wolframscript CLI with timing and warning capture.
+
+    When render_graphics=True, graphics results are rasterized within the
+    same subprocess invocation (no second process needed).
+    """
+    from .lazy_wolfram_tools import _find_wolframscript
+    wolframscript = _find_wolframscript()
     if not wolframscript:
         return {
             "success": False,
@@ -158,23 +165,41 @@ def _execute_via_wolframscript(
     wrapped_expr = _wrap_code_for_context(code, context)
     wrapped_expr = _wrap_code_for_determinism(wrapped_expr, deterministic_seed)
 
+    # Prepare temp file for optional graphics rasterization
+    import tempfile
+    raster_temp_path = ""
+    if render_graphics:
+        fd, raster_temp_path = tempfile.mkstemp(suffix=".png")
+        os.close(fd)
+    # Escape backslashes for Mathematica string literal
+    wl_raster_path = raster_temp_path.replace("\\", "\\\\")
+    render_flag = "True" if render_graphics else "False"
+
     wrapped_code = f"""
-Module[{{startTime, result, messages, timing, response, outInput, outFull="", outTex=""}},
+Module[{{startTime, result, messages, timing, response, outInput, outFull="", outTex="",
+         imgPath="{wl_raster_path}", didRaster=False}},
   startTime = AbsoluteTime[];
   Block[{{$MessageList = {{}}}},
     result = Quiet[Check[{wrapped_expr}, $Failed]];
     messages = $MessageList;
   ];
-  
+
   (* Always compute InputForm as it is the standard text output *)
   outInput = ToString[result, InputForm];
-  
+
   (* Conditionally compute expensive forms *)
   If[{include_full}, outFull = ToString[result, FullForm]];
   If[{include_tex}, outTex = ToString[TeXForm[result]]];
 
+  (* Conditionally rasterize graphics in the SAME process *)
+  If[{render_flag} && (result =!= $Failed) &&
+     (MatchQ[Head[result], Graphics|Graphics3D|Legended|Image] || MatchQ[result, _Show]),
+    Quiet[Export[imgPath, Rasterize[result, ImageResolution -> 144, ImageSize -> {image_size}], "PNG"]];
+    didRaster = True;
+  ];
+
   timing = Round[(AbsoluteTime[] - startTime) * 1000];
-  
+
   response = <|
     "output" -> outInput,
     "output_inputform" -> outInput,
@@ -182,7 +207,9 @@ Module[{{startTime, result, messages, timing, response, outInput, outFull="", ou
     "output_tex" -> outTex,
     "messages" -> ToString[messages],
     "timing_ms" -> timing,
-    "failed" -> (result === $Failed)
+    "failed" -> (result === $Failed),
+    "image_path" -> If[didRaster, imgPath, ""],
+    "is_graphics" -> didRaster
   |>;
   ExportString[response, "RawJSON"]
 ]
@@ -203,6 +230,9 @@ Module[{{startTime, result, messages, timing, response, outInput, outFull="", ou
             output = output[:-5].strip()
 
         if result.returncode != 0:
+            # Clean up unused temp file on failure
+            if raster_temp_path and os.path.exists(raster_temp_path):
+                os.remove(raster_temp_path)
             return {
                 "success": False,
                 "output": result.stderr or output,
@@ -235,7 +265,7 @@ Module[{{startTime, result, messages, timing, response, outInput, outFull="", ou
                 [messages_str] if messages_str and messages_str != "{}" else []
             )
 
-        return {
+        response: dict[str, Any] = {
             "success": True,
             "output": output_inputform,
             "output_tex": output_tex,
@@ -246,7 +276,22 @@ Module[{{startTime, result, messages, timing, response, outInput, outFull="", ou
             "execution_method": "wolframscript",
         }
 
+        # Check if in-process rasterization produced an image
+        image_path = parsed.get("image_path", "")
+        did_raster = parsed.get("is_graphics", False)
+        if did_raster and image_path and os.path.exists(image_path) and os.path.getsize(image_path) > 0:
+            response["image_path"] = image_path
+            response["output"] = f"[Graphics rendered to image: {image_path}]"
+            response["is_graphics"] = True
+        elif raster_temp_path and os.path.exists(raster_temp_path):
+            # Clean up unused temp file
+            os.remove(raster_temp_path)
+
+        return response
+
     except subprocess.TimeoutExpired:
+        if raster_temp_path and os.path.exists(raster_temp_path):
+            os.remove(raster_temp_path)
         return {
             "success": False,
             "output": f"Execution timed out after {timeout} seconds",
@@ -256,6 +301,8 @@ Module[{{startTime, result, messages, timing, response, outInput, outFull="", ou
             "execution_method": "wolframscript",
         }
     except Exception as e:
+        if raster_temp_path and os.path.exists(raster_temp_path):
+            os.remove(raster_temp_path)
         return {
             "success": False,
             "output": f"wolframscript execution failed: {e}",
@@ -354,7 +401,8 @@ def _rasterize_via_wolframscript(code: str, image_size: int = 500) -> Optional[s
     """Rasterize a graphics expression via wolframscript, return temp file path."""
     import tempfile
 
-    wolframscript = shutil.which("wolframscript")
+    from .lazy_wolfram_tools import _find_wolframscript
+    wolframscript = _find_wolframscript()
     if not wolframscript:
         return None
 
@@ -399,6 +447,27 @@ Module[{{result, img}},
         return None
 
 
+def _cache_textual_result(
+    cache, code: str, response: dict[str, Any], **cache_kwargs
+) -> None:
+    """Cache only the textual pre-rasterization result.
+
+    Strips image_path, is_graphics, and rendered_image so that cache hits
+    contain the original textual output (e.g. "Graphics[...]") rather than
+    placeholder strings.  This lets the caller re-rasterize on cache hits.
+    """
+    if not response.get("success"):
+        return
+    cache_result = dict(response)
+    # Restore original textual output if it was replaced by a placeholder
+    if cache_result.get("is_graphics") and "output_inputform" in cache_result:
+        cache_result["output"] = cache_result["output_inputform"]
+    cache_result.pop("image_path", None)
+    cache_result.pop("is_graphics", None)
+    cache_result.pop("rendered_image", None)
+    cache.put(code, cache_result, **cache_kwargs)
+
+
 def execute_in_kernel(
     code: str,
     output_format: str = "text",
@@ -432,6 +501,13 @@ def execute_in_kernel(
         cached_result = cached.copy()
         cached_result["from_cache"] = True
         cached_result["timing_ms"] = 0
+        # Re-rasterize on cache hit if the output is Graphics
+        if render_graphics and _is_graphics_output(cached_result.get("output", "")):
+            image_path = _rasterize_via_wolframscript(wrapped_code)
+            if image_path:
+                cached_result["image_path"] = image_path
+                cached_result["output"] = f"[Graphics rendered to image: {image_path}]"
+                cached_result["is_graphics"] = True
         return cached_result
 
     session = get_kernel_session()
@@ -444,18 +520,12 @@ def execute_in_kernel(
             deterministic_seed=deterministic_seed,
             session_id=session_id,
             isolate_context=isolate_context,
+            render_graphics=render_graphics,
         )
-        output = result.get("output", "")
-        if render_graphics and result.get("success") and _is_graphics_output(output):
-            image_path = _rasterize_via_wolframscript(wrapped_code)
-            if image_path:
-                result["image_path"] = image_path
-                result["output"] = f"[Graphics rendered to image: {image_path}]"
-                result["is_graphics"] = True
         if result.get("success"):
-            _query_cache.put(
-                code,
-                result,
+            # Cache only the textual pre-rasterization result
+            _cache_textual_result(
+                _query_cache, code, result,
                 output_format=output_format,
                 render_graphics=render_graphics,
                 deterministic_seed=deterministic_seed,
@@ -473,21 +543,40 @@ def execute_in_kernel(
             deterministic_seed=deterministic_seed,
             session_id=session_id,
             isolate_context=isolate_context,
+            render_graphics=render_graphics,
         )
+
+    import tempfile
+
+    # Prepare temp file for optional graphics rasterization (before try block
+    # so cleanup in except handler can always access raster_temp_path)
+    raster_temp_path = ""
+    if render_graphics:
+        fd, raster_temp_path = tempfile.mkstemp(suffix=".png")
+        os.close(fd)
 
     start_time = time.time()
     try:
-        # OPTIMIZED: Single evaluation - avoids re-evaluating code for each format
+        # Single evaluation: compute text forms + optional rasterization
         include_fullform = "True" if output_format == "mathematica" else "False"
         include_tex = "True" if output_format == "latex" else "False"
+        wl_raster_path = raster_temp_path.replace("\\", "\\\\")
+        render_flag = "True" if render_graphics else "False"
 
         eval_code = f"""
-Module[{{res = {wrapped_code}}},
+Module[{{res = {wrapped_code}, imgPath = "{wl_raster_path}", didRaster = False}},
   <|
-    "result" -> res,
     "inputform" -> ToString[res, InputForm],
     "fullform" -> If[{include_fullform}, ToString[res, FullForm], ""],
-    "tex" -> If[{include_tex}, ToString[TeXForm[res]], ""]
+    "tex" -> If[{include_tex}, ToString[TeXForm[res]], ""],
+    "is_graphics" -> If[{render_flag} && (res =!= $Failed) &&
+        (MatchQ[Head[res], Graphics|Graphics3D|Legended|Image] || MatchQ[res, _Show]),
+      Quiet[Export[imgPath, Rasterize[res, ImageResolution -> 144, ImageSize -> 500], "PNG"]];
+      didRaster = True;
+      True,
+      False
+    ],
+    "image_path" -> If[didRaster, imgPath, ""]
   |>
 ]
 """
@@ -505,7 +594,7 @@ Module[{{res = {wrapped_code}}},
             output_fullform = ""
             output_tex = ""
 
-        response = {
+        response: dict[str, Any] = {
             "success": True,
             "output": output_inputform,
             "output_tex": output_tex,
@@ -516,16 +605,25 @@ Module[{{res = {wrapped_code}}},
             "execution_method": "wolframclient",
         }
 
-        if render_graphics and _is_graphics_output(output_inputform):
-            image_path = _rasterize_via_wolframscript(wrapped_code)
-            if image_path:
-                response["image_path"] = image_path
-                response["output"] = f"[Graphics rendered to image: {image_path}]"
-                response["is_graphics"] = True
+        # Check if in-process rasterization produced an image
+        did_raster = False
+        if isinstance(combined_result, dict):
+            image_path = str(combined_result.get("image_path", ""))
+            did_raster = bool(combined_result.get("is_graphics", False))
+        else:
+            image_path = ""
 
-        _query_cache.put(
-            code,
-            response,
+        if did_raster and image_path and os.path.exists(image_path) and os.path.getsize(image_path) > 0:
+            response["image_path"] = image_path
+            response["output"] = f"[Graphics rendered to image: {image_path}]"
+            response["is_graphics"] = True
+        elif raster_temp_path and os.path.exists(raster_temp_path):
+            # Clean up unused temp file
+            os.remove(raster_temp_path)
+
+        # Cache only the textual pre-rasterization result
+        _cache_textual_result(
+            _query_cache, code, response,
             output_format=output_format,
             render_graphics=render_graphics,
             deterministic_seed=deterministic_seed,
@@ -534,6 +632,8 @@ Module[{{res = {wrapped_code}}},
         return response
     except Exception as e:
         logger.warning(f"wolframclient evaluation failed ({e}), trying wolframscript")
+        if raster_temp_path and os.path.exists(raster_temp_path):
+            os.remove(raster_temp_path)
         return _execute_via_wolframscript(
             code,
             output_format,
@@ -541,4 +641,5 @@ Module[{{res = {wrapped_code}}},
             deterministic_seed=deterministic_seed,
             session_id=session_id,
             isolate_context=isolate_context,
+            render_graphics=render_graphics,
         )

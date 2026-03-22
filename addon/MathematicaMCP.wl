@@ -794,10 +794,13 @@ cmdEvaluateCell[params_] := Module[{cell, nb, maxWait, waitInterval, elapsed, sy
 (* CODE EXECUTION                                                               *)
 (* ============================================================================ *)
 
+graphicsHeadQ[expr_] := MatchQ[Head[expr], Graphics|Graphics3D|Legended|Image] || MatchQ[expr, _Show];
+
 cmdExecuteCode[params_] := Module[
   {code, format, result, outputInput, outputFull = "", outputTex = "", messages,
    timing, failed, deterministicSeed, timeout, sessionId, isolateContext, ctx, exprToEval,
-   formattedMessages, hasErrors, hasWarnings, errorType},
+   formattedMessages, hasErrors, hasWarnings, errorType,
+   renderGraphics, imageSize},
 
   code = Lookup[params, "code", ""];
   format = Lookup[params, "format", "text"];
@@ -805,6 +808,8 @@ cmdExecuteCode[params_] := Module[
   timeout = Lookup[params, "timeout", None];
   sessionId = Lookup[params, "session_id", None];
   isolateContext = TrueQ[Lookup[params, "isolate_context", False]];
+  renderGraphics = TrueQ[Lookup[params, "render_graphics", False]];
+  imageSize = Lookup[params, "image_size", 500];
 
   If[code === "",
     Return[<|"error" -> "No code provided"|>]
@@ -856,10 +861,25 @@ cmdExecuteCode[params_] := Module[
   hasErrors = Length[Select[formattedMessages, #"type" == "error" &]] > 0;
   hasWarnings = Length[Select[formattedMessages, #"type" == "warning" &]] > 0;
 
-  Module[{response},
+  Module[{response, imgPath = "", didRaster = False, exportResult},
+    (* Optionally rasterize graphics in the same evaluation *)
+    If[renderGraphics && !failed && graphicsHeadQ[result],
+      Module[{img},
+        imgPath = FileNameJoin[{$TemporaryDirectory,
+          "mcp_raster_" <> ToString[CreateUUID[]] <> ".png"}];
+        img = Quiet[Rasterize[result, ImageResolution -> 144, ImageSize -> imageSize]];
+        If[img =!= $Failed,
+          exportResult = Quiet[Export[imgPath, img, "PNG"]];
+          If[exportResult =!= $Failed && FileExistsQ[imgPath] && FileByteCount[imgPath] > 0,
+            didRaster = True;
+          ];
+        ];
+      ]
+    ];
+
     response = <|
       "success" -> Not[failed],
-      "output" -> outputInput,
+      "output" -> If[didRaster, "[Graphics rendered to image: " <> imgPath <> "]", outputInput],
       "output_inputform" -> outputInput,
       "output_fullform" -> outputFull,
       "output_tex" -> outputTex,
@@ -874,6 +894,10 @@ cmdExecuteCode[params_] := Module[
       "execution_method" -> "addon"
     |>;
     If[failed, response["error"] = errorType];
+    If[didRaster,
+      response["image_path"] = imgPath;
+      response["is_graphics"] = True;
+    ];
     response
   ]
 ];

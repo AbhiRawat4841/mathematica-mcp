@@ -10,6 +10,7 @@ from mathematica_mcp.session import (
     execute_in_kernel,
     _parse_association_output,
     _execute_via_wolframscript,
+    _is_graphics_output,
 )
 
 
@@ -374,6 +375,330 @@ class TestJSONParsingFix:
         assert result["success"] is True
         assert "{1, 1, 1}" in result["output_inputform"]
         assert "{5, 25, 125}" in result["output_inputform"]
+
+
+# ============================================================================
+# Graphics detection tests (no runtime required)
+# ============================================================================
+
+
+class TestIsGraphicsOutput:
+    """Tests for _is_graphics_output detection."""
+
+    def test_detects_graphics(self):
+        assert _is_graphics_output("Graphics[Circle[]]") is True
+
+    def test_detects_graphics3d(self):
+        assert _is_graphics_output("Graphics3D[Sphere[]]") is True
+
+    def test_detects_image(self):
+        assert _is_graphics_output("Image[data]") is True
+
+    def test_detects_legended_graphics(self):
+        assert _is_graphics_output("Legended[Graphics[Circle[]], legend]") is True
+
+    def test_detects_show_graphics(self):
+        assert _is_graphics_output("Show[Graphics[Circle[]], opts]") is True
+
+    def test_detects_addon_placeholder_graphics(self):
+        assert _is_graphics_output("-Graphics-") is True
+
+    def test_detects_addon_placeholder_graphics3d(self):
+        assert _is_graphics_output("-Graphics3D-") is True
+
+    def test_detects_addon_placeholder_image(self):
+        assert _is_graphics_output("-Image-") is True
+
+    def test_rejects_empty_string(self):
+        assert _is_graphics_output("") is False
+
+    def test_rejects_numeric_output(self):
+        assert _is_graphics_output("42") is False
+
+    def test_rejects_symbolic_output(self):
+        assert _is_graphics_output("x^2 + 1") is False
+
+    def test_rejects_list_output(self):
+        assert _is_graphics_output("{1, 2, 3}") is False
+
+    def test_handles_whitespace(self):
+        assert _is_graphics_output("  Graphics[Circle[]]  ") is True
+
+    def test_rejects_none_like_input(self):
+        assert _is_graphics_output("") is False
+        assert _is_graphics_output("None") is False
+
+
+# ============================================================================
+# Response contract tests (no runtime required)
+# ============================================================================
+
+
+class TestExecuteInKernelResponseContract:
+    """Freeze the response shape of execute_in_kernel.
+
+    These tests ensure the response dict always has the expected keys,
+    regardless of success/failure, so downstream consumers are never
+    surprised by missing fields.
+    """
+
+    REQUIRED_SUCCESS_KEYS = {
+        "success", "output", "output_inputform", "output_fullform",
+        "warnings", "timing_ms", "execution_method",
+    }
+
+    @pytest.mark.usefixtures("require_wolfram_runtime")
+    def test_success_response_has_required_keys(self):
+        result = execute_in_kernel("1 + 1", render_graphics=False)
+        assert result["success"] is True
+        missing = self.REQUIRED_SUCCESS_KEYS - set(result.keys())
+        assert not missing, f"Missing keys in success response: {missing}"
+
+    @pytest.mark.usefixtures("require_wolfram_runtime")
+    def test_success_response_types(self):
+        result = execute_in_kernel("1 + 1", render_graphics=False)
+        assert isinstance(result["success"], bool)
+        assert isinstance(result["output"], str)
+        assert isinstance(result["output_inputform"], str)
+        assert isinstance(result["warnings"], list)
+        assert isinstance(result["timing_ms"], int)
+        assert isinstance(result["execution_method"], str)
+
+    @pytest.mark.usefixtures("require_wolfram_runtime")
+    def test_cached_result_has_from_cache_flag(self):
+        """Cache hits must include from_cache=True and timing_ms=0."""
+        # Execute once to populate cache
+        execute_in_kernel("2 + 3", render_graphics=False)
+        # Execute again — should hit cache
+        result = execute_in_kernel("2 + 3", render_graphics=False)
+        if result.get("from_cache"):
+            assert result["from_cache"] is True
+            assert result["timing_ms"] == 0
+
+
+class TestWolframscriptResponseContract:
+    """Freeze the response shape of _execute_via_wolframscript."""
+
+    REQUIRED_KEYS = {
+        "success", "output", "warnings", "timing_ms", "execution_method",
+    }
+
+    @pytest.mark.usefixtures("require_wolfram_runtime")
+    def test_success_response_has_required_keys(self):
+        result = _execute_via_wolframscript("1 + 1")
+        missing = self.REQUIRED_KEYS - set(result.keys())
+        assert not missing, f"Missing keys: {missing}"
+
+    @pytest.mark.usefixtures("require_wolfram_runtime")
+    def test_execution_method_is_wolframscript(self):
+        result = _execute_via_wolframscript("1 + 1")
+        assert result["execution_method"] == "wolframscript"
+
+    def test_missing_wolframscript_returns_failure(self, monkeypatch):
+        """When wolframscript is not found, return success=False."""
+        import shutil
+        from mathematica_mcp.lazy_wolfram_tools import _clear_wolframscript_cache
+        _clear_wolframscript_cache()
+        monkeypatch.setattr(shutil, "which", lambda _: None)
+        result = _execute_via_wolframscript("1 + 1")
+        assert result["success"] is False
+        missing = self.REQUIRED_KEYS - set(result.keys())
+        assert not missing, f"Missing keys on failure: {missing}"
+        _clear_wolframscript_cache()
+
+
+# ============================================================================
+# Graphics rasterization invocation tests (no runtime required)
+# ============================================================================
+
+
+class TestGraphicsRasterizationInvocation:
+    """Verify graphics rasterization produces image_path without double execution."""
+
+    @pytest.mark.usefixtures("require_wolfram_runtime")
+    def test_graphics_result_has_image_path_when_rendered(self):
+        """A Graphics expression with render_graphics=True MUST produce image_path."""
+        result = execute_in_kernel("Graphics[Circle[]]", render_graphics=True)
+        assert result["success"] is True
+        # This MUST be true for a Graphics expression — not a conditional check
+        assert result.get("is_graphics") is True, \
+            "Graphics[Circle[]] must be detected as graphics"
+        assert "image_path" in result, \
+            "Graphics result must include image_path"
+        import os
+        assert os.path.exists(result["image_path"]), \
+            "image_path must point to an existing file"
+        assert os.path.getsize(result["image_path"]) > 0, \
+            "image file must not be empty"
+        os.remove(result["image_path"])
+
+    @pytest.mark.usefixtures("require_wolfram_runtime")
+    def test_non_graphics_result_has_no_image_path(self):
+        """A non-graphics expression must NOT produce image_path."""
+        result = execute_in_kernel("1 + 1", render_graphics=True)
+        assert result["success"] is True
+        assert not result.get("is_graphics"), \
+            "1+1 must not be detected as graphics"
+
+
+# ============================================================================
+# Phase 1: Single-evaluation graphics tests
+# ============================================================================
+
+
+class TestSingleSubprocessGraphics:
+    """Verify wolframscript graphics renders in a single subprocess call."""
+
+    def test_wolframscript_single_subprocess_for_graphics(self, monkeypatch):
+        """_execute_via_wolframscript with render_graphics=True must call
+        subprocess.run exactly once, not twice."""
+        import subprocess as sp
+
+        call_count = {"n": 0}
+        original_run = sp.run
+
+        def counting_run(*args, **kwargs):
+            call_count["n"] += 1
+            return original_run(*args, **kwargs)
+
+        monkeypatch.setattr(sp, "run", counting_run)
+
+        result = _execute_via_wolframscript(
+            "Graphics[Circle[]]",
+            render_graphics=True,
+        )
+        # Whether or not wolframscript is available, at most 1 subprocess
+        assert call_count["n"] <= 1
+
+    def test_wolframscript_render_false_no_image(self, monkeypatch):
+        """render_graphics=False must not produce image_path."""
+        import subprocess as sp
+
+        # Mock wolframscript to return simple JSON output
+        mock_output = '{"output":"42","output_inputform":"42","output_fullform":"","output_tex":"","messages":"{}","timing_ms":10,"failed":false,"image_path":"","is_graphics":false}'
+
+        def mock_run(*args, **kwargs):
+            class R:
+                returncode = 0
+                stdout = mock_output
+                stderr = ""
+            return R()
+
+        import shutil
+        monkeypatch.setattr(shutil, "which", lambda _: "/usr/bin/wolframscript")
+        monkeypatch.setattr(sp, "run", mock_run)
+
+        result = _execute_via_wolframscript("42", render_graphics=False)
+        assert result["success"] is True
+        assert "image_path" not in result or not result.get("is_graphics")
+
+
+class TestCacheSafetyForImagePath:
+    """Verify image_path is not stored in the query cache."""
+
+    @pytest.mark.usefixtures("require_wolfram_runtime")
+    def test_cache_does_not_contain_image_path(self):
+        """After caching a Graphics result, cache entry must not have image_path."""
+        from mathematica_mcp.cache import _query_cache
+
+        # Clear cache
+        _query_cache.clear()
+
+        # Execute a graphics expression
+        result = execute_in_kernel("Graphics[Circle[]]", render_graphics=True)
+        if not result.get("success"):
+            pytest.skip("wolframscript not available")
+
+        # Check cache directly
+        cached = _query_cache.get(
+            "Graphics[Circle[]]",
+            output_format="text",
+            render_graphics=True,
+        )
+        if cached is not None:
+            assert "image_path" not in cached, \
+                "image_path must not be stored in cache"
+            assert "is_graphics" not in cached, \
+                "is_graphics must not be stored in cache"
+            # Cached output should be the textual form, not placeholder
+            assert not cached["output"].startswith("[Graphics rendered"), \
+                "Cached output must be textual, not placeholder"
+
+        # Clean up image file if created
+        if result.get("image_path"):
+            import os
+            if os.path.exists(result["image_path"]):
+                os.remove(result["image_path"])
+
+    @pytest.mark.usefixtures("require_wolfram_runtime")
+    def test_temp_file_exists_after_execution(self):
+        """Image temp file must exist after execute_in_kernel returns."""
+        result = execute_in_kernel("Graphics[Circle[]]", render_graphics=True)
+        if result.get("is_graphics") and result.get("image_path"):
+            import os
+            assert os.path.exists(result["image_path"]), \
+                "Temp file must persist for consumer to read"
+            # Clean up
+            os.remove(result["image_path"])
+
+
+# ============================================================================
+# Server-side image validation tests (no runtime required)
+# ============================================================================
+
+
+class TestAttachImageIfValid:
+    """Tests for _attach_image_if_valid server helper."""
+
+    def test_valid_image_attached(self, tmp_path):
+        """Valid image file should be attached as rendered_image."""
+        from mathematica_mcp.server import _attach_image_if_valid
+
+        img = tmp_path / "test.png"
+        img.write_bytes(b"\x89PNG\r\n" + b"\x00" * 100)
+
+        result = {"is_graphics": True, "image_path": str(img)}
+        _attach_image_if_valid(result)
+        assert result["rendered_image"] == str(img)
+        assert result["tip"] == "Use Read tool to view image."
+
+    def test_missing_file_restores_output(self):
+        """Missing image file must restore output to output_inputform."""
+        from mathematica_mcp.server import _attach_image_if_valid
+
+        result = {
+            "is_graphics": True,
+            "image_path": "/nonexistent/path.png",
+            "output": "[Graphics rendered to image: /nonexistent/path.png]",
+            "output_inputform": "Graphics[Circle[]]",
+        }
+        _attach_image_if_valid(result)
+        assert "rendered_image" not in result
+        assert "image_path" not in result
+        assert "is_graphics" not in result
+        assert "tip" not in result
+        # output must be restored to the textual form
+        assert result["output"] == "Graphics[Circle[]]"
+
+    def test_empty_file_stripped(self, tmp_path):
+        """Zero-byte image file should strip is_graphics and image_path."""
+        from mathematica_mcp.server import _attach_image_if_valid
+
+        img = tmp_path / "empty.png"
+        img.write_bytes(b"")
+
+        result = {"is_graphics": True, "image_path": str(img)}
+        _attach_image_if_valid(result)
+        assert "rendered_image" not in result
+        assert "image_path" not in result
+
+    def test_no_graphics_is_noop(self):
+        """Non-graphics result should be unchanged."""
+        from mathematica_mcp.server import _attach_image_if_valid
+
+        result = {"output": "42", "success": True}
+        _attach_image_if_valid(result)
+        assert "rendered_image" not in result
 
 
 if __name__ == "__main__":

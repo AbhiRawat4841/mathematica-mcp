@@ -356,7 +356,8 @@ class KernelSemanticBackend:
 
     def available(self) -> bool:
         """Check if wolframscript or wolframclient is available."""
-        if shutil.which("wolframscript"):
+        from .lazy_wolfram_tools import _find_wolframscript
+        if _find_wolframscript():
             return True
         try:
             from wolframclient.evaluation import WolframLanguageSession  # noqa: F401
@@ -393,8 +394,8 @@ class KernelSemanticBackend:
             get_cached, abs_path, self.name, **cache_opts,
         )
         if cached is not None:
-            return self._parse_kernel_output(
-                json.dumps(cached), abs_path,
+            return self._build_result_from_data(
+                cached, abs_path,
                 cell_types=cell_types,
                 view=view,
                 truncation_threshold=truncation_threshold,
@@ -463,15 +464,31 @@ Module[{{result}},
         view: CellView = CellView.SEMANTIC,
         truncation_threshold: int = 25000,
     ) -> NotebookResult:
-        """Parse the JSON output from the WL helper."""
-        from .notebook_parser import truncate_large_expression
-
+        """Parse JSON string output from the WL helper."""
         try:
             data = json.loads(output)
         except json.JSONDecodeError:
             raise RuntimeError(
                 f"Failed to parse kernel output as JSON: {output[:200]}"
             )
+        return self._build_result_from_data(
+            data, path,
+            cell_types=cell_types,
+            view=view,
+            truncation_threshold=truncation_threshold,
+        )
+
+    def _build_result_from_data(
+        self,
+        data: dict[str, Any],
+        path: str,
+        *,
+        cell_types: Optional[list[str]] = None,
+        view: CellView = CellView.SEMANTIC,
+        truncation_threshold: int = 25000,
+    ) -> NotebookResult:
+        """Build NotebookResult from parsed data dict."""
+        from .notebook_parser import truncate_large_expression
 
         if data.get("error"):
             return NotebookResult(

@@ -34,6 +34,7 @@ class MathematicaConnection:
     )
     _next_retry_at: float = field(default=0.0, repr=False)
     _last_error: str = field(default="", repr=False)
+    _recv_buffer: bytearray = field(default_factory=bytearray, repr=False)
 
     def connect(self) -> bool:
         if self._socket:
@@ -47,6 +48,7 @@ class MathematicaConnection:
             self._socket.connect((self.host, self.port))
             self._last_error = ""
             self._next_retry_at = 0.0
+            self._recv_buffer.clear()
             logger.info(f"Connected to Mathematica at {self.host}:{self.port}")
             return True
         except Exception as e:
@@ -63,7 +65,18 @@ class MathematicaConnection:
             except Exception:
                 pass
             self._socket = None
-            logger.info("Disconnected from Mathematica")
+        self._recv_buffer.clear()
+        logger.info("Disconnected from Mathematica")
+
+    def _close_socket_on_error(self) -> None:
+        """Close the socket and clear buffer on error, before nulling."""
+        if self._socket:
+            try:
+                self._socket.close()
+            except Exception:
+                pass
+        self._socket = None
+        self._recv_buffer.clear()
 
     def can_retry(self) -> bool:
         return time.monotonic() >= self._next_retry_at
@@ -120,35 +133,47 @@ class MathematicaConnection:
             except socket.timeout:
                 self._last_error = "Timeout waiting for Mathematica response"
                 self._next_retry_at = time.monotonic() + self.retry_backoff_seconds
-                self._socket = None
+                self._close_socket_on_error()
                 raise TimeoutError(
                     "Timeout waiting for Mathematica response. The computation may be too slow."
                 )
             except (ConnectionError, BrokenPipeError, ConnectionResetError) as e:
                 self._last_error = str(e)
                 self._next_retry_at = time.monotonic() + self.retry_backoff_seconds
-                self._socket = None
+                self._close_socket_on_error()
                 raise ConnectionError(f"Connection to Mathematica lost: {e}")
             except json.JSONDecodeError as e:
+                self._close_socket_on_error()
                 raise ValueError(f"Invalid JSON response from Mathematica: {e}")
 
-    def _receive_framed_json(self, buffer_size: int = 8192) -> bytes:
-        buffer = b""
+    def _receive_framed_json(self, buffer_size: int = 65536) -> bytes:
+        """Read one newline-delimited JSON frame.
+
+        Uses a persistent _recv_buffer so leftover bytes from a previous
+        recv are available for the next frame.
+        """
         assert self._socket is not None
+
+        # Check if a complete frame is already in the buffer
+        idx = self._recv_buffer.find(b"\n")
+        if idx != -1:
+            line = bytes(self._recv_buffer[:idx])
+            del self._recv_buffer[:idx + 1]
+            return line
 
         while True:
             chunk = self._socket.recv(buffer_size)
             if not chunk:
                 raise ConnectionError("Connection closed before receiving data")
 
-            buffer += chunk
-            if len(buffer) > MAX_RESPONSE_BYTES:
+            self._recv_buffer.extend(chunk)
+            if len(self._recv_buffer) > MAX_RESPONSE_BYTES:
                 raise ValueError("Response too large")
 
-            if b"\n" in buffer:
-                line, _, remainder = buffer.partition(b"\n")
-                if remainder:
-                    logger.debug("Extra data after JSON frame; ignoring")
+            idx = self._recv_buffer.find(b"\n")
+            if idx != -1:
+                line = bytes(self._recv_buffer[:idx])
+                del self._recv_buffer[:idx + 1]  # preserve remainder
                 return line
 
 

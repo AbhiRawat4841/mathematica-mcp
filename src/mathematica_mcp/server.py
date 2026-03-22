@@ -14,10 +14,6 @@ from .session import (
     get_kernel_session,
     close_kernel_session,
     _is_graphics_output,
-    _rasterize_via_wolframscript,
-    _session_context,
-    _wrap_code_for_context,
-    _wrap_code_for_determinism,
 )
 from .config import FEATURES
 from .guidance import (
@@ -94,16 +90,29 @@ async def _image_from_result(result: dict) -> Image:
     return Image(data=image_bytes, format="png")
 
 
-def _prepare_raster_code(
-    code: str,
-    *,
-    deterministic_seed: Optional[int],
-    session_id: Optional[str],
-    isolate_context: bool,
-) -> str:
-    context = _session_context(session_id) if isolate_context else None
-    wrapped = _wrap_code_for_context(code, context)
-    return _wrap_code_for_determinism(wrapped, deterministic_seed)
+def _attach_image_if_valid(result: dict) -> None:
+    """Attach rendered_image to result if image_path exists and is non-empty.
+
+    Validates the file on disk before trusting the path.  Strips is_graphics
+    and image_path from the result if the file is missing or empty so the
+    caller does not hand out a broken path.
+    """
+    if not result.get("is_graphics") or not result.get("image_path"):
+        return
+    image_path = result["image_path"]
+    if os.path.exists(image_path) and os.path.getsize(image_path) > 0:
+        result["rendered_image"] = image_path
+        result["tip"] = "Use Read tool to view image."
+    else:
+        # Rasterization claimed success but no valid file — clean up
+        result.pop("image_path", None)
+        result.pop("is_graphics", None)
+        result.pop("rendered_image", None)
+        result.pop("tip", None)
+        # Restore output to the textual form so clients don't see a
+        # broken "[Graphics rendered to image: ...]" placeholder.
+        if result.get("output_inputform"):
+            result["output"] = result["output_inputform"]
 
 
 def _lookup_symbols_in_kernel(query: str) -> Dict[str, Any]:
@@ -111,7 +120,8 @@ def _lookup_symbols_in_kernel(query: str) -> Dict[str, Any]:
     import subprocess
     import shutil
 
-    wolframscript = shutil.which("wolframscript")
+    from .lazy_wolfram_tools import _find_wolframscript
+    wolframscript = _find_wolframscript()
     if not wolframscript:
         return {"success": False, "error": "wolframscript not found"}
 
@@ -579,6 +589,7 @@ async def execute_code(
                 params = {
                     "code": code,
                     "format": format,
+                    "render_graphics": render_graphics,
                     "session_id": session_id,
                     "isolate_context": isolate_context,
                     "timeout": timeout,
@@ -588,26 +599,7 @@ async def execute_code(
                 result = await _addon_result("execute_code", params)
                 if isinstance(result, dict):
                     result["note"] = "Executed via CLI (notebook error)."
-                    output = result.get("output", "")
-                    output_inputform = result.get("output_inputform", "")
-                    if render_graphics and (
-                        _is_graphics_output(output)
-                        or _is_graphics_output(output_inputform)
-                    ):
-                        raster_code = _prepare_raster_code(
-                            code,
-                            deterministic_seed=deterministic_seed,
-                            session_id=session_id,
-                            isolate_context=isolate_context,
-                        )
-                        image_path = _rasterize_via_wolframscript(raster_code)
-                        if image_path:
-                            result["rendered_image"] = image_path
-                            result["output"] = (
-                                f"[Graphics rendered to image: {image_path}]"
-                            )
-                            result["is_graphics"] = True
-                            result["tip"] = "Use Read tool to view image."
+                    _attach_image_if_valid(result)
                     return _json_response(result)
                 return f"{result}\n(Note: Executed via CLI due to notebook error)"
             except Exception:
@@ -625,15 +617,13 @@ async def execute_code(
                 result["note"] = (
                     "Executed via CLI (notebook error). Run StartMCPServer[] in Mathematica."
                 )
-                # Return image info if graphics were rasterized
-                if result.get("is_graphics") and result.get("image_path"):
-                    result["rendered_image"] = result["image_path"]
-                    result["tip"] = "Use Read tool to view image."
+                _attach_image_if_valid(result)
                 return _json_response(result)
 
     params = {
         "code": code,
         "format": format,
+        "render_graphics": render_graphics,
         "session_id": session_id,
         "isolate_context": isolate_context,
         "timeout": timeout,
@@ -654,36 +644,7 @@ async def execute_code(
             timeout=timeout,
         )
         result["execution_mode"] = "kernel_fallback"
-        # Return image info if graphics were rasterized
-        if result.get("is_graphics") and result.get("image_path"):
-            result["rendered_image"] = result["image_path"]
-            result["tip"] = "Use Read tool to view image."
-    else:
-        # Check if addon returned Graphics output and rasterize it
-        output = result.get("output", "")
-        output_inputform = result.get("output_inputform", "")
-        if render_graphics and (
-            _is_graphics_output(output) or _is_graphics_output(output_inputform)
-        ):
-            raster_code = _prepare_raster_code(
-                code,
-                deterministic_seed=deterministic_seed,
-                session_id=session_id,
-                isolate_context=isolate_context,
-            )
-            image_path = _rasterize_via_wolframscript(raster_code)
-            if image_path:
-                result["rendered_image"] = image_path
-                result["output"] = f"[Graphics rendered to image: {image_path}]"
-                result["is_graphics"] = True
-                result["tip"] = "Use Read tool to view image."
-                # Keep a short preview of the raw output for debugging
-                if output_inputform:
-                    result["output_inputform"] = (
-                        output_inputform[:200] + "..."
-                        if len(output_inputform) > 200
-                        else output_inputform
-                    )
+    _attach_image_if_valid(result)
     return _json_response(result)
 
 
@@ -1325,7 +1286,8 @@ async def convert_notebook(
             import shutil
             import subprocess
 
-            wolframscript = shutil.which("wolframscript")
+            from .lazy_wolfram_tools import _find_wolframscript
+            wolframscript = _find_wolframscript()
             if not wolframscript:
                 return _json_response({"success": False, "error": "wolframscript not found"})
 

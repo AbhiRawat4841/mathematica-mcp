@@ -1,14 +1,22 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import json
 import shutil
 import subprocess
 from typing import Callable, Literal, Optional
 
 
+@functools.lru_cache(maxsize=1)
 def _find_wolframscript() -> Optional[str]:
+    """Locate wolframscript on PATH. Result is cached across calls."""
     return shutil.which("wolframscript")
+
+
+def _clear_wolframscript_cache() -> None:
+    """Force fresh PATH lookup. For tests or explicit environment refresh only."""
+    _find_wolframscript.cache_clear()
 
 
 async def _run_subprocess(*args, **kwargs) -> subprocess.CompletedProcess:

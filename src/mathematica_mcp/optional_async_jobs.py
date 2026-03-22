@@ -35,7 +35,8 @@ def register_async_computation_tools(mcp: FastMCP) -> None:
                 _computation_jobs.pop(job_id, None)
 
         job_id = str(uuid.uuid4())[:8]
-        wolframscript = shutil.which("wolframscript")
+        from .lazy_wolfram_tools import _find_wolframscript
+        wolframscript = _find_wolframscript()
         if not wolframscript:
             return json.dumps(
                 {"success": False, "error": "wolframscript not found in PATH"}, indent=2

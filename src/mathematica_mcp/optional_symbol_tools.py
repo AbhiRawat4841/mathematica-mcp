@@ -72,7 +72,8 @@ def register_symbol_lookup_tools(
             pass
 
         if not candidates_raw:
-            wolframscript = shutil.which("wolframscript")
+            from .lazy_wolfram_tools import _find_wolframscript
+            wolframscript = _find_wolframscript()
             if wolframscript:
                 try:
                     result = subprocess.run(
@@ -164,7 +165,8 @@ def register_symbol_lookup_tools(
     @mcp.tool()
     async def get_symbol_info(symbol: str) -> str:
         """Get comprehensive information about a Wolfram Language symbol."""
-        wolframscript = shutil.which("wolframscript")
+        from .lazy_wolfram_tools import _find_wolframscript
+        wolframscript = _find_wolframscript()
         if not wolframscript:
             return json.dumps(
                 {"success": False, "error": "wolframscript not found in PATH"}, indent=2
@@ -249,7 +251,8 @@ Module[{{sym, info, usage, opts, attrs, syntaxInfo, relatedSyms, examples}},
     @mcp.tool()
     async def suggest_similar_functions(query: str) -> str:
         """Find Wolfram functions similar to a query using fuzzy matching."""
-        wolframscript = shutil.which("wolframscript")
+        from .lazy_wolfram_tools import _find_wolframscript
+        wolframscript = _find_wolframscript()
         if not wolframscript:
             return json.dumps(
                 {"success": False, "error": "wolframscript not found"}, indent=2

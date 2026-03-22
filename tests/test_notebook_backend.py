@@ -891,6 +891,108 @@ class TestIncludeOutputsFix:
         assert "Output" in styles
 
 
+class TestCacheEquivalence:
+    """Contract: cached and uncached kernel notebook reads must produce
+    identical NotebookResult values."""
+
+    def test_cached_and_parsed_produce_same_cells(self):
+        """_parse_kernel_output and _build_result_from_data must yield
+        identical cell content, styles, and metadata."""
+        backend = KernelSemanticBackend()
+        sample_data = {
+            "cells": [
+                {"style": "Input", "content": "1+1", "cell_label": "In[1]:="},
+                {"style": "Output", "content": "2", "cell_label": "Out[1]="},
+                {"style": "Text", "content": "Hello world"},
+            ],
+            "title": "Test Notebook",
+        }
+        sample_json = json.dumps(sample_data)
+
+        # Parse from JSON string (uncached path)
+        uncached = backend._parse_kernel_output(
+            sample_json, "/test.nb",
+            view=CellView.SEMANTIC,
+            truncation_threshold=25000,
+        )
+
+        # Build from dict directly (cached path — no JSON round-trip)
+        cached = backend._build_result_from_data(
+            sample_data, "/test.nb",
+            view=CellView.SEMANTIC,
+            truncation_threshold=25000,
+        )
+
+        assert len(uncached.cells) == len(cached.cells)
+        assert uncached.title == cached.title
+        assert uncached.backend == cached.backend
+
+        for uc, cc in zip(uncached.cells, cached.cells):
+            assert uc.content == cc.content
+            assert uc.style == cc.style
+            assert uc.cell_label == cc.cell_label
+            assert uc.was_truncated == cc.was_truncated
+            assert uc.cell_index == cc.cell_index
+
+    def test_parse_kernel_output_preserves_provenance(self):
+        """Input→Output provenance tracking must work through parsing."""
+        backend = KernelSemanticBackend()
+        sample = json.dumps({
+            "cells": [
+                {"style": "Input", "content": "x^2"},
+                {"style": "Output", "content": "x^2"},
+                {"style": "Input", "content": "1+1"},
+                {"style": "Output", "content": "2"},
+            ],
+        })
+        result = backend._parse_kernel_output(
+            sample, "/test.nb",
+            view=CellView.SEMANTIC,
+        )
+        output_cells = [c for c in result.cells if c.style == "Output"]
+        assert output_cells[0].parent_input_index == 0
+        assert output_cells[1].parent_input_index == 2
+
+    def test_build_result_from_data_preserves_provenance(self):
+        """Provenance must also work through _build_result_from_data."""
+        backend = KernelSemanticBackend()
+        data = {
+            "cells": [
+                {"style": "Input", "content": "x^2"},
+                {"style": "Output", "content": "x^2"},
+                {"style": "Input", "content": "1+1"},
+                {"style": "Output", "content": "2"},
+            ],
+        }
+        result = backend._build_result_from_data(
+            data, "/test.nb",
+            view=CellView.SEMANTIC,
+        )
+        output_cells = [c for c in result.cells if c.style == "Output"]
+        assert output_cells[0].parent_input_index == 0
+        assert output_cells[1].parent_input_index == 2
+
+    def test_extract_notebook_result_contract(self):
+        """NotebookResult from extract_notebook must have expected structure."""
+        result = asyncio.run(
+            extract_notebook(str(INTEGRATION_NB), capability="full")
+        )
+        assert hasattr(result, "cells")
+        assert hasattr(result, "path")
+        assert hasattr(result, "backend")
+        assert hasattr(result, "title")
+        assert hasattr(result, "error")
+        assert isinstance(result.cells, list)
+        assert result.backend in ("python_syntax", "kernel_semantic", "none")
+        if result.cells:
+            cell = result.cells[0]
+            assert hasattr(cell, "cell_index")
+            assert hasattr(cell, "style")
+            assert hasattr(cell, "content")
+            assert hasattr(cell, "was_truncated")
+            assert hasattr(cell, "original_length")
+
+
 class TestCacheStaleness:
     """Fix 3: Kernel extraction must not serve stale cached results."""
 
