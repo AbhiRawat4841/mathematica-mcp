@@ -1219,4 +1219,4 @@ MIT License
 
 ---
 
-*Last updated: March 2026 (v0.4.0 — Tool profiles, LLM guidance, notebook backend abstraction, consolidated read_notebook tool)*
+*Last updated: March 2026 (v0.5.0 — Performance: single-eval graphics, socket framing, disk-cache optimization, runtime discovery caching)*
