@@ -1,0 +1,20 @@
+(* Content-type: application/vnd.wolfram.mathematica *)
+
+(*** Wolfram Notebook File ***)
+(* http://www.wolfram.com/nb *)
+
+(* CreatedBy='Mathematica' *)
+
+Notebook[{
+
+Cell["Integrate[1/(x^2 + x^3), x]", "Input",
+
+ CellID->123456789,ExpressionUUID->"abcdef12-3456-7890-abcd-ef1234567890"],
+
+Cell["Log[1 + x] - Log[x] - 1/x + C", "Output",
+
+ CellID->987654321,ExpressionUUID->"fedcba98-7654-3210-fedc-ba9876543210"]
+
+}
+
+]

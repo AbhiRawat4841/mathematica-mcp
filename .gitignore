@@ -70,6 +70,8 @@ readme_command_report.json
 
 # Generated notebooks at root (keep addon/ and tests/ notebooks)
 /*.nb
+# Exception: Integration.nb is a test fixture (417 bytes)
+!Integration.nb
 
 # Generated images at root
 /*.png
