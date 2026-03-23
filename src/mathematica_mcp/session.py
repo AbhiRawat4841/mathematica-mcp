@@ -1,3 +1,4 @@
+import hashlib
 import json
 import logging
 import platform
@@ -7,7 +8,7 @@ import subprocess
 import shutil
 import time
 import zlib
-from typing import Any, Optional
+from typing import Any, Dict, Optional
 
 logger = logging.getLogger("mathematica_mcp.session")
 
@@ -15,6 +16,70 @@ _kernel_session: Any = None
 _use_wolframscript: bool = False
 _last_kernel_health_check: float = 0.0
 KERNEL_HEALTH_CHECK_INTERVAL = 5.0
+
+# ---------------------------------------------------------------------------
+# Raster cache – avoids re-rasterising graphics on query-cache hits.
+# Key: SHA-256 prefix of (wrapped_code, image_size).
+# Value: path to the temp PNG file on disk.
+# Bounded: oldest entries evicted when ``_MAX_RASTER_ENTRIES`` is reached,
+#          and their temp files are deleted from disk.
+# ---------------------------------------------------------------------------
+from collections import OrderedDict
+
+_raster_cache: OrderedDict[str, str] = OrderedDict()
+_MAX_RASTER_ENTRIES = 50
+
+
+def _raster_cache_key(code: str, image_size: int = 500) -> str:
+    return hashlib.sha256(f"{code}|sz={image_size}".encode()).hexdigest()[:16]
+
+
+def _get_cached_raster(code: str, image_size: int = 500) -> Optional[str]:
+    """Return a cached raster file path if it exists and is valid."""
+    key = _raster_cache_key(code, image_size)
+    path = _raster_cache.get(key)
+    if path and os.path.exists(path) and os.path.getsize(path) > 0:
+        _raster_cache.move_to_end(key)
+        return path
+    _raster_cache.pop(key, None)
+    return None
+
+
+def _put_cached_raster(code: str, path: str, image_size: int = 500) -> None:
+    """Store a raster file path in the cache, evicting oldest if at capacity."""
+    key = _raster_cache_key(code, image_size)
+    # If already present, delete the old file before replacing.
+    if key in _raster_cache:
+        old_path = _raster_cache[key]
+        if old_path != path:
+            try:
+                if os.path.exists(old_path):
+                    os.remove(old_path)
+            except OSError:
+                pass
+        _raster_cache.move_to_end(key)
+        _raster_cache[key] = path
+        return
+    # Evict oldest entries if at capacity.
+    while len(_raster_cache) >= _MAX_RASTER_ENTRIES:
+        _, evicted_path = _raster_cache.popitem(last=False)
+        try:
+            if os.path.exists(evicted_path):
+                os.remove(evicted_path)
+        except OSError:
+            pass
+    _raster_cache[key] = path
+
+
+def clear_raster_cache() -> None:
+    """Remove all cached raster files from disk and clear the cache."""
+    for path in list(_raster_cache.values()):
+        try:
+            if os.path.exists(path):
+                os.remove(path)
+        except OSError:
+            pass
+    _raster_cache.clear()
 
 
 def _session_context(session_id: Optional[str]) -> Optional[str]:
@@ -283,6 +348,7 @@ Module[{{startTime, result, messages, timing, response, outInput, outFull="", ou
             response["image_path"] = image_path
             response["output"] = f"[Graphics rendered to image: {image_path}]"
             response["is_graphics"] = True
+            _put_cached_raster(wrapped_expr, image_path)
         elif raster_temp_path and os.path.exists(raster_temp_path):
             # Clean up unused temp file
             os.remove(raster_temp_path)
@@ -501,9 +567,14 @@ def execute_in_kernel(
         cached_result = cached.copy()
         cached_result["from_cache"] = True
         cached_result["timing_ms"] = 0
-        # Re-rasterize on cache hit if the output is Graphics
+        # Re-rasterize on cache hit if the output is Graphics.
+        # Check the raster cache first to avoid a subprocess call.
         if render_graphics and _is_graphics_output(cached_result.get("output", "")):
-            image_path = _rasterize_via_wolframscript(wrapped_code)
+            image_path = _get_cached_raster(wrapped_code)
+            if not image_path:
+                image_path = _rasterize_via_wolframscript(wrapped_code)
+                if image_path:
+                    _put_cached_raster(wrapped_code, image_path)
             if image_path:
                 cached_result["image_path"] = image_path
                 cached_result["output"] = f"[Graphics rendered to image: {image_path}]"
@@ -617,6 +688,7 @@ Module[{{res = {wrapped_code}, imgPath = "{wl_raster_path}", didRaster = False}}
             response["image_path"] = image_path
             response["output"] = f"[Graphics rendered to image: {image_path}]"
             response["is_graphics"] = True
+            _put_cached_raster(wrapped_code, image_path)
         elif raster_temp_path and os.path.exists(raster_temp_path):
             # Clean up unused temp file
             os.remove(raster_temp_path)

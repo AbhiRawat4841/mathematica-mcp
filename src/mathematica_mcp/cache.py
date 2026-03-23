@@ -19,6 +19,25 @@ class CachedExpression:
 
 _expression_cache: Dict[str, CachedExpression] = {}
 
+# Kernel state epoch – monotonically increasing counter included in query
+# cache keys.  Bumped by any operation that mutates kernel state (e.g.
+# set_variable, clear_variables, restart_kernel, load_package, run_script).
+# After a bump, existing cache entries become unreachable by key, ensuring
+# no stale results are returned.
+_kernel_epoch: int = 0
+
+
+def bump_kernel_epoch() -> int:
+    """Increment the kernel epoch, logically invalidating all query cache entries."""
+    global _kernel_epoch
+    _kernel_epoch += 1
+    return _kernel_epoch
+
+
+def get_kernel_epoch() -> int:
+    """Return the current kernel state epoch."""
+    return _kernel_epoch
+
 
 NON_CACHEABLE_PATTERNS = [
     "Random",
@@ -53,7 +72,7 @@ class QueryCache:
         normalized = " ".join(code.split())
         options = (
             f"|fmt={output_format}|gfx={int(render_graphics)}|seed={deterministic_seed}"
-            f"|ctx={context_key}"
+            f"|ctx={context_key}|epoch={_kernel_epoch}"
         )
         return hashlib.sha256((normalized + options).encode()).hexdigest()[:16]
 

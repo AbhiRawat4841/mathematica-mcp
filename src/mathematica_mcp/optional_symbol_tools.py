@@ -13,6 +13,7 @@ def register_symbol_lookup_tools(
     mcp: FastMCP,
     *,
     lookup_symbols_in_kernel,
+    hydrate_usage,
     extract_short_description,
     extract_example_signature,
     rank_candidates,
@@ -43,48 +44,49 @@ def register_symbol_lookup_tools(
                 indent=2,
             )
 
-        raw_output = lookup_result.get("raw_output", "")
-        if not raw_output:
-            return json.dumps(
-                {
-                    "status": "not_found",
-                    "query": query,
-                    "message": f"No functions found matching '{query}'",
-                },
-                indent=2,
-            )
-
-        candidates_raw = []
-        try:
-            lines = raw_output.split("\n")
-            for line in lines:
-                if '"symbol"' in line and "->" in line:
-                    symbol_match = re.search(r'"symbol"\s*->\s*"([^"]+)"', line)
-                    usage_match = re.search(r'"usage"\s*->\s*"([^"]*)"', line)
-                    if symbol_match:
-                        candidates_raw.append(
-                            {
-                                "symbol": symbol_match.group(1),
-                                "usage": usage_match.group(1) if usage_match else "",
-                            }
-                        )
-        except Exception:
-            pass
+        # Fast path: structured candidates from symbol index.
+        candidates_raw = lookup_result.get("candidates", [])
+        system_only = lookup_result.get("system_only", False)
 
         if not candidates_raw:
+            # Legacy path: parse raw WL output from subprocess fallback.
+            raw_output = lookup_result.get("raw_output", "")
+            if raw_output:
+                try:
+                    lines = raw_output.split("\n")
+                    for line in lines:
+                        if '"symbol"' in line and "->" in line:
+                            symbol_match = re.search(r'"symbol"\s*->\s*"([^"]+)"', line)
+                            usage_match = re.search(r'"usage"\s*->\s*"([^"]*)"', line)
+                            if symbol_match:
+                                candidates_raw.append(
+                                    {
+                                        "symbol": symbol_match.group(1),
+                                        "usage": usage_match.group(1) if usage_match else "",
+                                    }
+                                )
+                except Exception:
+                    pass
+
+        # When the fast index path was used, it only covers System symbols.
+        # Also search Global symbols so user-defined names are not lost.
+        if system_only or not candidates_raw:
             from .lazy_wolfram_tools import _find_wolframscript
             wolframscript = _find_wolframscript()
             if wolframscript:
                 try:
+                    global_code = f'Names["Global`*{query}*"]' if system_only else f'Names["*{query}*"]'
                     result = subprocess.run(
-                        [wolframscript, "-code", f'Names["*{query}*"]'],
+                        [wolframscript, "-code", global_code],
                         capture_output=True,
                         text=True,
                         timeout=15,
                     )
                     if result.returncode == 0:
+                        existing = {c.get("symbol") for c in candidates_raw}
                         for name in re.findall(r'"([^"]+)"', result.stdout)[:20]:
-                            candidates_raw.append({"symbol": name, "usage": ""})
+                            if name not in existing:
+                                candidates_raw.append({"symbol": name, "usage": ""})
                 except Exception:
                     pass
 
@@ -99,6 +101,20 @@ def register_symbol_lookup_tools(
             )
 
         top_candidates = rank_candidates(query, candidates_raw)[:max_candidates]
+
+        # Lazy metadata hydration: fetch usage for top candidates that lack it.
+        symbols_needing_usage = [
+            c.get("symbol_name", c.get("symbol", ""))
+            for c in top_candidates
+            if not c.get("usage")
+        ]
+        if symbols_needing_usage:
+            usage_map = hydrate_usage(symbols_needing_usage)
+            for c in top_candidates:
+                sym = c.get("symbol_name", c.get("symbol", ""))
+                if not c.get("usage") and sym in usage_map:
+                    c["usage"] = usage_map[sym]
+
         formatted_candidates = []
         for candidate in top_candidates:
             symbol_name = candidate.get("symbol_name", candidate.get("symbol", ""))
@@ -165,6 +181,14 @@ def register_symbol_lookup_tools(
     @mcp.tool()
     async def get_symbol_info(symbol: str) -> str:
         """Get comprehensive information about a Wolfram Language symbol."""
+        from . import symbol_index
+
+        # Check metadata cache — only use entries that have the full payload
+        # (not usage-only entries from hydration).
+        cached = symbol_index.get_cached_metadata(symbol)
+        if cached and cached.get("success") and cached.get("attributes") is not None:
+            return json.dumps(cached, indent=2)
+
         from .lazy_wolfram_tools import _find_wolframscript
         wolframscript = _find_wolframscript()
         if not wolframscript:
@@ -227,6 +251,7 @@ Module[{{sym, info, usage, opts, attrs, syntaxInfo, relatedSyms, examples}},
                     "related_symbols": parsed.get("related_symbols", []),
                     "context": parsed.get("context", "Unknown"),
                 }
+                symbol_index.cache_metadata(symbol, formatted)
                 return json.dumps(formatted, indent=2)
 
             return json.dumps(
@@ -251,6 +276,25 @@ Module[{{sym, info, usage, opts, attrs, syntaxInfo, relatedSyms, examples}},
     @mcp.tool()
     async def suggest_similar_functions(query: str) -> str:
         """Find Wolfram functions similar to a query using fuzzy matching."""
+        from . import symbol_index
+
+        # Fast path: use pre-built index + hydrate usage for top hits.
+        matches = symbol_index.search(query, max_results=20)
+        if matches:
+            usage_map = hydrate_usage(matches[:10])
+            return json.dumps(
+                {
+                    "success": True,
+                    "query": query,
+                    "matches": [
+                        {"name": m, "usage": usage_map.get(m, "")}
+                        for m in matches
+                    ],
+                },
+                indent=2,
+            )
+
+        # Fallback: subprocess.
         from .lazy_wolfram_tools import _find_wolframscript
         wolframscript = _find_wolframscript()
         if not wolframscript:

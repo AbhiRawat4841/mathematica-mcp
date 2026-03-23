@@ -35,6 +35,11 @@ class MathematicaConnection:
     _next_retry_at: float = field(default=0.0, repr=False)
     _last_error: str = field(default="", repr=False)
     _recv_buffer: bytearray = field(default_factory=bytearray, repr=False)
+    _lock_acquisitions: int = field(default=0, repr=False)
+    _lock_wait_times: list = field(default_factory=list, repr=False)
+    _lock_hold_times: list = field(default_factory=list, repr=False)
+
+    _MAX_METRIC_SAMPLES: int = field(default=200, repr=False)
 
     def connect(self) -> bool:
         if self._socket:
@@ -98,25 +103,34 @@ class MathematicaConnection:
     def send_command(
         self, command: str, params: Optional[dict[str, Any]] = None
     ) -> dict[str, Any]:
+        lock_wait_start = time.monotonic()
         with self._lock:
-            if not self._socket and not self.connect():
-                raise ConnectionError(
-                    "Not connected to Mathematica addon. "
-                    "Make sure Mathematica is running with the addon loaded. "
-                    "Run StartMCPServer[] in Mathematica."
-                )
-
-            request = {"command": command, "params": params or {}}
-            if self._auth_token:
-                request["token"] = self._auth_token
-
-            request_bytes = (json.dumps(request) + "\n").encode("utf-8")
-            if len(request_bytes) > MAX_REQUEST_BYTES:
-                raise ValueError("Request too large")
-
-            assert self._socket is not None
-
+            lock_acquired_at = time.monotonic()
+            wait_ms = (lock_acquired_at - lock_wait_start) * 1000
+            self._lock_acquisitions += 1
+            self._lock_wait_times.append(wait_ms)
+            if len(self._lock_wait_times) > self._MAX_METRIC_SAMPLES:
+                del self._lock_wait_times[
+                    : len(self._lock_wait_times) - self._MAX_METRIC_SAMPLES
+                ]
             try:
+                if not self._socket and not self.connect():
+                    raise ConnectionError(
+                        "Not connected to Mathematica addon. "
+                        "Make sure Mathematica is running with the addon loaded. "
+                        "Run StartMCPServer[] in Mathematica."
+                    )
+
+                request = {"command": command, "params": params or {}}
+                if self._auth_token:
+                    request["token"] = self._auth_token
+
+                request_bytes = (json.dumps(request) + "\n").encode("utf-8")
+                if len(request_bytes) > MAX_REQUEST_BYTES:
+                    raise ValueError("Request too large")
+
+                assert self._socket is not None
+
                 self._socket.sendall(request_bytes)
 
                 response_bytes = self._receive_framed_json()
@@ -145,6 +159,25 @@ class MathematicaConnection:
             except json.JSONDecodeError as e:
                 self._close_socket_on_error()
                 raise ValueError(f"Invalid JSON response from Mathematica: {e}")
+            finally:
+                hold_ms = (time.monotonic() - lock_acquired_at) * 1000
+                self._lock_hold_times.append(hold_ms)
+                if len(self._lock_hold_times) > self._MAX_METRIC_SAMPLES:
+                    del self._lock_hold_times[
+                        : len(self._lock_hold_times) - self._MAX_METRIC_SAMPLES
+                    ]
+
+    def get_lock_metrics(self) -> dict[str, Any]:
+        """Return lock contention metrics for diagnostic reporting."""
+        from .telemetry import _percentile
+
+        return {
+            "acquisitions": self._lock_acquisitions,
+            "wait_p50_ms": round(_percentile(self._lock_wait_times, 50), 2),
+            "wait_p95_ms": round(_percentile(self._lock_wait_times, 95), 2),
+            "hold_p50_ms": round(_percentile(self._lock_hold_times, 50), 2),
+            "hold_p95_ms": round(_percentile(self._lock_hold_times, 95), 2),
+        }
 
     def _receive_framed_json(self, buffer_size: int = 65536) -> bytes:
         """Read one newline-delimited JSON frame.

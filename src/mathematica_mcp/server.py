@@ -10,6 +10,7 @@ from mcp.server.fastmcp import FastMCP, Image
 
 from .connection import get_mathematica_connection, close_connection
 from .session import (
+    clear_raster_cache,
     execute_in_kernel,
     get_kernel_session,
     close_kernel_session,
@@ -28,6 +29,8 @@ from .guidance import (
 )
 from .telemetry import get_usage_stats, reset_stats
 from .cache import (
+    _query_cache,
+    bump_kernel_epoch,
     cache_expression as _cache_expr,
     get_cached_expression as _get_cached,
     list_cached_expressions,
@@ -56,9 +59,11 @@ def _tool(group: str):
 
 
 def _register_core_tools() -> None:
+    from .telemetry import telemetry_tool
+
     for group, func in _CORE_TOOL_REGISTRY:
         if FEATURES.tool_group_enabled(group):
-            mcp.tool()(func)
+            mcp.tool()(telemetry_tool(func.__name__)(func))
 
 
 def _json_response(payload: Any) -> str:
@@ -115,12 +120,83 @@ def _attach_image_if_valid(result: dict) -> None:
             result["output"] = result["output_inputform"]
 
 
-def _lookup_symbols_in_kernel(query: str) -> Dict[str, Any]:
-    """Search for Wolfram symbols matching query via wolframscript."""
-    import subprocess
-    import shutil
+def _hydrate_usage(symbols: List[str]) -> Dict[str, str]:
+    """Batch-fetch usage strings for *symbols* via a single subprocess call.
+
+    Returns a dict mapping symbol name → usage string.  Cached results
+    from the symbol index metadata cache are used where available.
+    """
+    from . import symbol_index
+
+    result: Dict[str, str] = {}
+    uncached: List[str] = []
+
+    for sym in symbols:
+        meta = symbol_index.get_cached_metadata(sym)
+        if meta and meta.get("usage"):
+            result[sym] = meta["usage"]
+        else:
+            uncached.append(sym)
+
+    if not uncached:
+        return result
 
     from .lazy_wolfram_tools import _find_wolframscript
+
+    wolframscript = _find_wolframscript()
+    if not wolframscript:
+        return result
+
+    import subprocess
+
+    sym_list = ", ".join(f'"{s}"' for s in uncached)
+    code = (
+        f'Association[Map[# -> Quiet[Check[ToString[ToExpression[# <> "::usage"]], ""]] &, {{{sym_list}}}]]'
+    )
+
+    try:
+        proc = subprocess.run(
+            [wolframscript, "-code", code],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        if proc.returncode == 0:
+            parsed = _parse_wolfram_association(proc.stdout.strip())
+            if isinstance(parsed, dict):
+                for sym in uncached:
+                    usage = parsed.get(sym, "")
+                    if isinstance(usage, str) and usage:
+                        result[sym] = usage
+                        symbol_index.cache_metadata(sym, {"usage": usage})
+    except Exception:
+        pass
+
+    return result
+
+
+def _lookup_symbols_in_kernel(query: str) -> Dict[str, Any]:
+    """Search for Wolfram symbols matching *query*.
+
+    Tries the in-memory symbol index first (pure Python, no subprocess).
+    Falls back to a wolframscript subprocess if the index is unavailable.
+    """
+    from . import symbol_index
+
+    # Fast path: use pre-built index for System symbols.
+    matches = symbol_index.search(query, max_results=20)
+    if matches:
+        return {
+            "success": True,
+            "candidates": [{"symbol": name, "usage": ""} for name in matches],
+            "system_only": True,
+        }
+
+    # Fallback: subprocess.
+    import subprocess
+
+    from .lazy_wolfram_tools import _find_wolframscript
+
     wolframscript = _find_wolframscript()
     if not wolframscript:
         return {"success": False, "error": "wolframscript not found"}
@@ -838,10 +914,17 @@ async def load_package(package_name: str) -> str:
     """Load a Mathematica package (e.g., "Developer`")."""
     from . import lazy_wolfram_tools as _lazy_wolfram_tools
 
-    return await _lazy_wolfram_tools.load_package(
+    result = await _lazy_wolfram_tools.load_package(
         package_name,
         parse_wolfram_association=_parse_wolfram_association,
     )
+    # Only invalidate cache if the package load actually succeeded.
+    try:
+        if json.loads(result).get("success"):
+            bump_kernel_epoch()
+    except (json.JSONDecodeError, AttributeError):
+        bump_kernel_epoch()  # Can't tell — assume state may have changed.
+    return result
 
 
 @_tool("kernel_tools")
@@ -901,6 +984,7 @@ async def set_variable(name: str, value: str) -> str:
     if result.get("error"):
         return _json_response({"success": False, "error": result["error"]})
 
+    bump_kernel_epoch()
     return _json_response(result)
 
 
@@ -940,6 +1024,7 @@ async def clear_variables(
     if result.get("error"):
         return _json_response({"success": False, "error": result["error"]})
 
+    bump_kernel_epoch()
     return _json_response(result)
 
 
@@ -1011,6 +1096,11 @@ async def restart_kernel() -> str:
         Confirmation of kernel restart
     """
     await _run_blocking(close_kernel_session)
+    # Invalidate all cached results — kernel state is completely reset.
+    _query_cache.clear()
+    clear_cache()
+    clear_raster_cache()
+    bump_kernel_epoch()
     # Force reconnection
     result = await _addon_result("ping")
 
@@ -1040,13 +1130,39 @@ def _load_cached_notebook(path: str, truncation_threshold: int = 25000):
     return parse_notebook_cached(path, truncation_threshold=truncation_threshold)
 
 
+class _TelemetryMcpWrapper:
+    """Proxy that auto-wraps every tool registered via ``@mcp.tool()``
+    with the :func:`telemetry_tool` decorator so that optional tool
+    modules get instrumentation for free without changing their code."""
+
+    def __init__(self, mcp_instance):
+        self._mcp = mcp_instance
+
+    def tool(self, *args, **kwargs):
+        from .telemetry import telemetry_tool
+
+        original_decorator = self._mcp.tool(*args, **kwargs)
+
+        def instrumenting_decorator(func):
+            instrumented = telemetry_tool(func.__name__)(func)
+            return original_decorator(instrumented)
+
+        return instrumenting_decorator
+
+    def __getattr__(self, name):
+        return getattr(self._mcp, name)
+
+
 def _register_optional_tools() -> None:
+    instrumented_mcp = _TelemetryMcpWrapper(mcp)
+
     if FEATURES.symbol_lookup:
         from .optional_symbol_tools import register_symbol_lookup_tools
 
         register_symbol_lookup_tools(
-            mcp,
+            instrumented_mcp,
             lookup_symbols_in_kernel=_lookup_symbols_in_kernel,
+            hydrate_usage=_hydrate_usage,
             extract_short_description=_extract_short_description,
             extract_example_signature=_extract_example_signature,
             rank_candidates=_rank_candidates,
@@ -1057,32 +1173,32 @@ def _register_optional_tools() -> None:
     if FEATURES.math_aliases:
         from .optional_math_aliases import register_math_alias_tools
 
-        register_math_alias_tools(mcp, execute_code)
+        register_math_alias_tools(instrumented_mcp, execute_code)
 
     if FEATURES.function_repository:
         from .optional_repository_tools import register_function_repository_tools
 
         register_function_repository_tools(
-            mcp, parse_wolfram_association=_parse_wolfram_association
+            instrumented_mcp, parse_wolfram_association=_parse_wolfram_association
         )
 
     if FEATURES.data_repository:
         from .optional_repository_tools import register_data_repository_tools
 
         register_data_repository_tools(
-            mcp, parse_wolfram_association=_parse_wolfram_association
+            instrumented_mcp, parse_wolfram_association=_parse_wolfram_association
         )
 
     if FEATURES.async_computation:
         from .optional_async_jobs import register_async_computation_tools
 
-        register_async_computation_tools(mcp)
+        register_async_computation_tools(instrumented_mcp)
 
     if FEATURES.cache_tools:
         from .optional_cache_tools import register_cache_tools
 
         register_cache_tools(
-            mcp,
+            instrumented_mcp,
             cache_expression_fn=_cache_expr,
             get_cached_expression_fn=_get_cached,
             list_cached_expressions_fn=list_cached_expressions,
@@ -1094,7 +1210,7 @@ def _register_optional_tools() -> None:
         from .optional_telemetry_tools import register_telemetry_tools
 
         register_telemetry_tools(
-            mcp,
+            instrumented_mcp,
             get_usage_stats=get_usage_stats,
             reset_stats=reset_stats,
         )
@@ -1183,6 +1299,7 @@ async def run_script(path: str) -> str:
             {"success": False, "error": result["error"], "path": expanded}
         )
 
+    bump_kernel_epoch()
     return _json_response(result)
 
 

@@ -430,9 +430,9 @@ class TestDispatch:
 
         for cap in ("outline", "text"):
             backends = get_backends_for_capability(cap)
-            # Both should have python as fallback
-            names = [b.name for b in backends]
-            assert "python_syntax" in names
+            # Python parser is preferred for outline/text (fast, offline).
+            assert backends[0].name == "python_syntax"
+            assert backends[1].name == "kernel_semantic"
 
     def test_force_python_backend(self):
         """Force python backend skips kernel attempt."""

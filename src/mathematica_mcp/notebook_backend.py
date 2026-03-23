@@ -565,13 +565,15 @@ def get_backends_for_capability(capability: str) -> list:
     """Return ordered list of backends suitable for the given capability.
 
     Dispatch by task, not by transport:
-    - outline/text: Python parser is fine, kernel is better
+    - outline/text: Python parser first — fast, offline, sufficient for
+      structural or plain-text reads.  Kernel fallback only if Python fails.
     - code/semantic: Kernel preferred for accuracy, Python fallback
+    - structure: Kernel preferred, Python fallback
     - full: All cells — prefer kernel, fall back to Python
     - live: Addon only (not handled here — separate code path in server.py)
     """
     if capability in ("outline", "text"):
-        return [_kernel_backend, _python_backend]
+        return [_python_backend, _kernel_backend]
     elif capability in ("code", "semantic"):
         return [_kernel_backend, _python_backend]
     elif capability == "structure":

@@ -1688,15 +1688,7 @@ cmdTimeExpression[params_] := Module[{expr, result, timing, memBefore, memAfter}
   memBefore = MemoryInUse[];
   timing = Quiet[Check[AbsoluteTiming[ToExpression[expr]], $Failed]];
   memAfter = MemoryInUse[];
-  
-  If[timing === $Failed,
-    Return[<|"error" -> "Timing failed"|>]
-  ];
-  
-  memBefore = MemoryInUse[];
-  timing = Quiet[Check[AbsoluteTiming[ToExpression[expr]], $Failed]];
-  memAfter = MemoryInUse[];
-  
+
   If[timing === $Failed,
     Return[<|"error" -> "Timing failed"|>]
   ];

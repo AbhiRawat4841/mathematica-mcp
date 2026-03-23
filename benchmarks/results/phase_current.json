@@ -1,0 +1,160 @@
+{
+  "timestamp": "2026-03-23T13:31:24",
+  "python": "3.11.5",
+  "results": [
+    {
+      "name": "cold_import",
+      "iterations": 3,
+      "mean_ms": 781.131,
+      "median_ms": 694.853,
+      "min_ms": 681.126,
+      "max_ms": 967.415,
+      "stdev_ms": 161.472
+    },
+    {
+      "name": "symbol_index_build",
+      "symbol_count": 7800,
+      "kernel_version": "14.3",
+      "iterations": 1,
+      "mean_ms": 13658.802,
+      "median_ms": 13658.802,
+      "min_ms": 13658.802,
+      "max_ms": 13658.802,
+      "stdev_ms": 0
+    },
+    {
+      "name": "symbol_index_search_substep",
+      "note": "name-match substep only; full tool call adds Global search + usage hydration on first call",
+      "per_query_mean_ms": {
+        "Plot": 1.217,
+        "Sin": 2.3961,
+        "Integrate": 1.2851,
+        "Table": 1.4592,
+        "NDSolve": 1.2938,
+        "Graphics": 1.271,
+        "List": 1.2747,
+        "Map": 1.4112,
+        "Sort": 1.3422,
+        "Select": 1.3435
+      },
+      "iterations": 2000,
+      "mean_ms": 1.429,
+      "median_ms": 1.208,
+      "min_ms": 1.046,
+      "max_ms": 43.944,
+      "stdev_ms": 1.446
+    },
+    {
+      "name": "symbol_subprocess_old",
+      "note": "old path: full Names scan subprocess per call",
+      "per_query_mean_ms": {
+        "Plot": 13883.0,
+        "Sin": 18379.9
+      },
+      "iterations": 4,
+      "mean_ms": 16131.436,
+      "median_ms": 14012.212,
+      "min_ms": 13854.845,
+      "max_ms": 22646.475,
+      "stdev_ms": 4344.777
+    },
+    {
+      "name": "lookup_end_to_end",
+      "note": "end-to-end _lookup_symbols_in_kernel; cold=subprocess fallback, hot=index search",
+      "before_cold": {
+        "iterations": 2,
+        "mean_ms": 23393.929,
+        "median_ms": 23393.929,
+        "min_ms": 16779.394,
+        "max_ms": 30008.464,
+        "stdev_ms": 9354.366
+      },
+      "after_hot": {
+        "iterations": 20,
+        "mean_ms": 1.2,
+        "median_ms": 1.204,
+        "min_ms": 1.027,
+        "max_ms": 1.437,
+        "stdev_ms": 0.12
+      }
+    },
+    {
+      "name": "raster_cache_layer",
+      "note": "cache lookup microbenchmark only; real savings are avoided subprocess rasterization calls",
+      "miss": {
+        "iterations": 10000,
+        "mean_ms": 0.001,
+        "median_ms": 0.001,
+        "min_ms": 0.001,
+        "max_ms": 0.277,
+        "stdev_ms": 0.003
+      },
+      "hit": {
+        "iterations": 10000,
+        "mean_ms": 0.009,
+        "median_ms": 0.008,
+        "min_ms": 0.008,
+        "max_ms": 0.393,
+        "stdev_ms": 0.006
+      }
+    },
+    {
+      "name": "notebook_python_parse",
+      "cell_count": 2,
+      "cold": {
+        "iterations": 1,
+        "mean_ms": 9.786,
+        "median_ms": 9.786,
+        "min_ms": 9.786,
+        "max_ms": 9.786,
+        "stdev_ms": 0
+      },
+      "warm": {
+        "iterations": 3,
+        "mean_ms": 1.527,
+        "median_ms": 1.546,
+        "min_ms": 1.33,
+        "max_ms": 1.705,
+        "stdev_ms": 0.188
+      }
+    },
+    {
+      "name": "cache_epoch",
+      "hit": {
+        "iterations": 50000,
+        "mean_ms": 0.003,
+        "median_ms": 0.003,
+        "min_ms": 0.002,
+        "max_ms": 0.887,
+        "stdev_ms": 0.009
+      },
+      "miss": {
+        "iterations": 50000,
+        "mean_ms": 0.003,
+        "median_ms": 0.002,
+        "min_ms": 0.002,
+        "max_ms": 0.249,
+        "stdev_ms": 0.004
+      }
+    },
+    {
+      "name": "telemetry_overhead",
+      "disabled": {
+        "iterations": 5000,
+        "mean_ms": 0.591,
+        "median_ms": 0.41,
+        "min_ms": 0.175,
+        "max_ms": 92.842,
+        "stdev_ms": 2.423
+      },
+      "enabled": {
+        "iterations": 5000,
+        "mean_ms": 0.538,
+        "median_ms": 0.311,
+        "min_ms": 0.175,
+        "max_ms": 76.754,
+        "stdev_ms": 1.909
+      }
+    }
+  ]
+}
