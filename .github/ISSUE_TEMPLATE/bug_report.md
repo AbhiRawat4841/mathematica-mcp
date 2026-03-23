@@ -21,7 +21,7 @@ What you expected to happen.
 - OS: [e.g., macOS 14.5, Ubuntu 22.04]
 - Python version: [e.g., 3.12]
 - Mathematica version: [e.g., 14.1]
-- mathematica-mcp version: [e.g., 0.6.5]
+- mathematica-mcp version: [e.g., 0.7.0]
 - Client: [e.g., Claude Desktop, Cursor, VS Code]
 - Profile: [e.g., full, notebook, math]
 
