@@ -101,7 +101,10 @@ class MathematicaConnection:
             return False
 
     def send_command(
-        self, command: str, params: Optional[dict[str, Any]] = None
+        self,
+        command: str,
+        params: Optional[dict[str, Any]] = None,
+        timeout: Optional[float] = None,
     ) -> dict[str, Any]:
         lock_wait_start = time.monotonic()
         with self._lock:
@@ -130,6 +133,10 @@ class MathematicaConnection:
                     raise ValueError("Request too large")
 
                 assert self._socket is not None
+
+                # Apply per-command timeout if specified, otherwise keep default
+                effective_timeout = timeout if timeout is not None else SOCKET_TIMEOUT
+                self._socket.settimeout(effective_timeout)
 
                 self._socket.sendall(request_bytes)
 
@@ -160,6 +167,9 @@ class MathematicaConnection:
                 self._close_socket_on_error()
                 raise ValueError(f"Invalid JSON response from Mathematica: {e}")
             finally:
+                # Restore default socket timeout if we changed it
+                if timeout is not None and self._socket is not None:
+                    self._socket.settimeout(SOCKET_TIMEOUT)
                 hold_ms = (time.monotonic() - lock_acquired_at) * 1000
                 self._lock_hold_times.append(hold_ms)
                 if len(self._lock_hold_times) > self._MAX_METRIC_SAMPLES:

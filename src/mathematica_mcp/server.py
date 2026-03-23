@@ -74,8 +74,12 @@ async def _run_blocking(func, *args, **kwargs):
     return await asyncio.to_thread(func, *args, **kwargs)
 
 
-async def _addon_result(command: str, params: Optional[dict] = None) -> dict:
-    return await _run_blocking(_try_addon_command, command, params)
+async def _addon_result(
+    command: str,
+    params: Optional[dict] = None,
+    timeout: Optional[float] = None,
+) -> dict:
+    return await _run_blocking(_try_addon_command, command, params, timeout)
 
 
 async def _addon_json(command: str, params: Optional[dict] = None) -> str:
@@ -322,10 +326,14 @@ def _rank_candidates(query: str, candidates: List[Dict]) -> List[Dict]:
     return scored
 
 
-def _try_addon_command(command: str, params: Optional[dict] = None) -> dict:
+def _try_addon_command(
+    command: str,
+    params: Optional[dict] = None,
+    timeout: Optional[float] = None,
+) -> dict:
     try:
         conn = get_mathematica_connection()
-        return conn.send_command(command, params or {})
+        return conn.send_command(command, params or {}, timeout=timeout)
     except Exception as e:
         return {"success": False, "error": str(e)}
 
@@ -541,7 +549,7 @@ async def execute_code(
     deterministic_seed: Optional[int] = None,
     session_id: Optional[str] = None,
     isolate_context: bool = False,
-    timeout: int = 60,
+    timeout: int = 300,
     max_wait: int = 30,
     sync: Literal["none", "refresh", "strict"] = "none",
     sync_wait: float = 2,
@@ -563,10 +571,38 @@ async def execute_code(
                 "isolate_context": isolate_context,
                 "sync": sync,
                 "sync_wait": sync_wait,
+                "timeout": timeout,
             }
             if deterministic_seed is not None:
                 params["deterministic_seed"] = deterministic_seed
-            result = await _addon_result("execute_code_notebook", params)
+            # Use timeout + 10s margin for socket so the addon can enforce its own timeout
+            socket_timeout = float(timeout) + 10.0
+            result = await _addon_result(
+                "execute_code_notebook", params, timeout=socket_timeout
+            )
+
+            # Handle timeout: return immediately, do NOT fall through to CLI
+            if result.get("timed_out"):
+                # kernel mode returns timing_ms, frontend returns waited_seconds
+                duration_ms = result.get("timing_ms")
+                if duration_ms is None and result.get("waited_seconds") is not None:
+                    duration_ms = round(result["waited_seconds"] * 1000)
+                response = {
+                    "status": "timeout",
+                    "code": code,
+                    "notebook_id": result.get("notebook_id"),
+                    "cell_id": result.get("cell_id"),
+                    "evaluated": False,
+                    "timed_out": True,
+                    "timing_ms": duration_ms,
+                    "message": (
+                        f"Computation exceeded {timeout}s timeout. "
+                        "Increase timeout or use submit_computation() for long tasks."
+                    ),
+                }
+                if result.get("output_preview"):
+                    response["output_preview"] = result.get("output_preview")
+                return _json_response(response)
 
             if result.get("success"):
                 response = {
@@ -672,7 +708,10 @@ async def execute_code(
                 }
                 if deterministic_seed is not None:
                     params["deterministic_seed"] = deterministic_seed
-                result = await _addon_result("execute_code", params)
+                socket_timeout = float(timeout) + 10.0
+                result = await _addon_result(
+                    "execute_code", params, timeout=socket_timeout
+                )
                 if isinstance(result, dict):
                     result["note"] = "Executed via CLI (notebook error)."
                     _attach_image_if_valid(result)
@@ -706,7 +745,8 @@ async def execute_code(
     }
     if deterministic_seed is not None:
         params["deterministic_seed"] = deterministic_seed
-    result = await _addon_result("execute_code", params)
+    socket_timeout = float(timeout) + 10.0
+    result = await _addon_result("execute_code", params, timeout=socket_timeout)
     # Check if addon command succeeded, otherwise fall back to kernel
     if result.get("success") is False or "error" in result:
         result = await _run_blocking(

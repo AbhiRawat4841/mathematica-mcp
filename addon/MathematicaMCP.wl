@@ -971,7 +971,7 @@ cmdBatchCommands[params_] := Module[{commands, results},
 
 (* Atomic notebook execution with kernel-mode fast path *)
 cmdExecuteCodeNotebook[params_] := Module[
-  {code, mode, syncMode, nb, createdNew, maxWait, sessionId, deterministicSeed, isolateContext, syncWait, nbSpec},
+  {code, mode, syncMode, nb, createdNew, maxWait, timeout, sessionId, deterministicSeed, isolateContext, syncWait, nbSpec},
 
   code = Lookup[params, "code", ""];
   If[code === "", Return[<|"error" -> "No code provided"|>]];
@@ -979,6 +979,7 @@ cmdExecuteCodeNotebook[params_] := Module[
   mode = Lookup[params, "mode", "kernel"];
   syncMode = resolveSyncMode[params];
   maxWait = Lookup[params, "max_wait", 30];
+  timeout = Lookup[params, "timeout", None];
   sessionId = Lookup[params, "session_id", None];
   deterministicSeed = Lookup[params, "deterministic_seed", None];
   isolateContext = TrueQ[Lookup[params, "isolate_context", False]];
@@ -997,12 +998,12 @@ cmdExecuteCodeNotebook[params_] := Module[
   ];
 
   If[mode === "frontend",
-    executeCodeNotebookFrontend[nb, code, maxWait, syncMode, createdNew, sessionId, deterministicSeed, isolateContext, syncWait],
-    executeCodeNotebookKernel[nb, code, syncMode, createdNew, sessionId, deterministicSeed, isolateContext, syncWait]
+    executeCodeNotebookFrontend[nb, code, maxWait, timeout, syncMode, createdNew, sessionId, deterministicSeed, isolateContext, syncWait],
+    executeCodeNotebookKernel[nb, code, timeout, syncMode, createdNew, sessionId, deterministicSeed, isolateContext, syncWait]
   ]
 ];
 
-executeCodeNotebookKernel[nb_, code_, syncMode_, createdNew_, sessionId_, deterministicSeed_, isolateContext_, syncWait_] := Module[
+executeCodeNotebookKernel[nb_, code_, timeout_, syncMode_, createdNew_, sessionId_, deterministicSeed_, isolateContext_, syncWait_] := Module[
   {result, messages, timing, isGraphics, outputCell, inputCellId, inputCellObj, exprToEval, ctx},
 
   inputCellId = newCellId[];
@@ -1018,6 +1019,9 @@ executeCodeNotebookKernel[nb_, code_, syncMode_, createdNew_, sessionId_, determ
   If[deterministicSeed =!= None && deterministicSeed =!= Null,
     exprToEval = BlockRandom[SeedRandom[deterministicSeed]; exprToEval]
   ];
+  If[NumberQ[timeout],
+    exprToEval = TimeConstrained[exprToEval, timeout, $Aborted]
+  ];
 
   {timing, {result, messages}} = AbsoluteTiming[
     Block[{$MessageList = {}},
@@ -1027,12 +1031,15 @@ executeCodeNotebookKernel[nb_, code_, syncMode_, createdNew_, sessionId_, determ
 
   isGraphics = MatchQ[result, _Graphics | _Graphics3D | _Image | _Legended | _Graph];
 
-  outputCell = If[result === $Failed,
-    Cell["$Failed", "Output", GeneratedCell -> True],
-    If[isGraphics,
+  outputCell = Which[
+    result === $Aborted,
+      Cell["$Aborted (* computation exceeded timeout *)", "Output", GeneratedCell -> True],
+    result === $Failed,
+      Cell["$Failed", "Output", GeneratedCell -> True],
+    isGraphics,
       Cell[BoxData[ToBoxes[result]], "Output", GeneratedCell -> True],
+    True,
       Cell[ToString[result, InputForm], "Output", GeneratedCell -> True]
-    ]
   ];
 
   SelectionMove[nb, After, Notebook];
@@ -1074,13 +1081,14 @@ executeCodeNotebookKernel[nb_, code_, syncMode_, createdNew_, sessionId_, determ
     hasWarnings = Length[Select[formattedMessages, #["type"] == "warning" &]] > 0;
 
     <|
-      "success" -> True,
+      "success" -> (result =!= $Aborted),
       "mode" -> "kernel",
       "notebook_id" -> ToString[nb, InputForm],
       "cell_id" -> If[inputCellObj === None, ToString[inputCellId], ToString[inputCellObj, InputForm]],
       "cell_id_numeric" -> inputCellId,
       "timing_ms" -> Round[timing * 1000],
       "created_notebook" -> createdNew,
+      "timed_out" -> (result === $Aborted),
       "messages" -> formattedMessages,
       "has_errors" -> hasErrors,
       "has_warnings" -> hasWarnings,
@@ -1091,8 +1099,8 @@ executeCodeNotebookKernel[nb_, code_, syncMode_, createdNew_, sessionId_, determ
   ]
 ];
 
-executeCodeNotebookFrontend[nb_, code_, maxWait_, syncMode_, createdNew_, sessionId_, deterministicSeed_, isolateContext_, syncWait_] := Module[
-  {cell, cellsBefore, cellsAfter, waitInterval, elapsed, inputCellId, inputCellObj, execCode, ctx},
+executeCodeNotebookFrontend[nb_, code_, maxWait_, timeout_, syncMode_, createdNew_, sessionId_, deterministicSeed_, isolateContext_, syncWait_] := Module[
+  {cell, cellsBefore, cellsAfter, waitInterval, elapsed, inputCellId, inputCellObj, execCode, ctx, effectiveWait, gotNewCell},
 
   cellsBefore = Length[Cells[nb]];
 
@@ -1104,6 +1112,10 @@ executeCodeNotebookFrontend[nb_, code_, maxWait_, syncMode_, createdNew_, sessio
   If[deterministicSeed =!= None && deterministicSeed =!= Null,
     execCode = "BlockRandom[SeedRandom[" <> ToString[deterministicSeed] <> "]; " <> execCode <> "]"
   ];
+  (* Wrap in TimeConstrained when timeout is specified *)
+  If[NumberQ[timeout],
+    execCode = "TimeConstrained[" <> execCode <> ", " <> ToString[timeout] <> ", $Aborted]"
+  ];
 
   inputCellId = newCellId[];
   SelectionMove[nb, After, Notebook];
@@ -1111,16 +1123,21 @@ executeCodeNotebookFrontend[nb_, code_, maxWait_, syncMode_, createdNew_, sessio
   inputCellObj = Quiet@Check[First[Cells[nb, CellID -> inputCellId]], None];
   cell = If[inputCellObj === None, Last[Cells[nb, CellStyle -> "Input"]], inputCellObj];
 
+  (* Use timeout as the wait cap when provided, otherwise fall back to maxWait *)
+  effectiveWait = If[NumberQ[timeout], timeout + 5, maxWait];
+
   waitInterval = 0.05;
   SelectionMove[cell, All, Cell];
   FrontEndTokenExecute["EvaluateCells"];
 
   elapsed = 0;
-  While[elapsed < maxWait,
+  gotNewCell = False;
+  While[elapsed < effectiveWait,
     Pause[waitInterval];
     elapsed += waitInterval;
     cellsAfter = Length[Cells[nb]];
     If[cellsAfter > cellsBefore + 1,
+      gotNewCell = True;
       Pause[0.1];
       Break[];
     ];
@@ -1162,10 +1179,13 @@ executeCodeNotebookFrontend[nb_, code_, maxWait_, syncMode_, createdNew_, sessio
       Select[formatted, AssociationQ[#] && StringLength[#["text"]] > 0 &]
     ];
 
-    outputCells = Quiet @ Cells[nb, CellStyle -> "Output"];
-    outputContent = If[Length[outputCells] > 0,
-      Quiet @ NotebookRead[Last[outputCells]],
-      None
+    (* Only read output if a new cell actually appeared, avoiding stale reads *)
+    outputContent = None;
+    If[gotNewCell,
+      outputCells = Quiet @ Cells[nb, CellStyle -> "Output"];
+      If[Length[outputCells] > 0,
+        outputContent = Quiet @ NotebookRead[Last[outputCells]]
+      ]
     ];
 
     outputText = Quiet @ Check[
@@ -1176,20 +1196,32 @@ executeCodeNotebookFrontend[nb_, code_, maxWait_, syncMode_, createdNew_, sessio
     hasErrors = Length[Select[messages, #["type"] == "error" &]] > 0;
     hasWarnings = Length[Select[messages, #["type"] == "warning" &]] > 0;
 
-    <|
-      "success" -> True,
-      "mode" -> "frontend",
-      "notebook_id" -> ToString[nb, InputForm],
-      "cell_id" -> If[inputCellObj === None, ToString[cell, InputForm], ToString[inputCellObj, InputForm]],
-      "cell_id_numeric" -> inputCellId,
-      "waited_seconds" -> elapsed,
-      "created_notebook" -> createdNew,
-      "messages" -> messages,
-      "has_errors" -> hasErrors,
-      "has_warnings" -> hasWarnings,
-      "message_count" -> Length[messages],
-      "output_preview" -> StringTake[outputText, UpTo[1000]]
-    |>
+    Module[{timedOut, preview},
+      preview = StringTake[outputText, UpTo[1000]];
+      (* Detect timeout only when timeout was requested:
+         - New output cell contains $Aborted (TimeConstrained fired), OR
+         - Poll loop exhausted without any new output cell appearing *)
+      timedOut = NumberQ[timeout] && (
+        StringContainsQ[preview, "$Aborted"] ||
+        (!gotNewCell && elapsed >= effectiveWait)
+      );
+
+      <|
+        "success" -> !timedOut,
+        "mode" -> "frontend",
+        "notebook_id" -> ToString[nb, InputForm],
+        "cell_id" -> If[inputCellObj === None, ToString[cell, InputForm], ToString[inputCellObj, InputForm]],
+        "cell_id_numeric" -> inputCellId,
+        "waited_seconds" -> elapsed,
+        "created_notebook" -> createdNew,
+        "timed_out" -> timedOut,
+        "messages" -> messages,
+        "has_errors" -> hasErrors,
+        "has_warnings" -> hasWarnings,
+        "message_count" -> Length[messages],
+        "output_preview" -> preview
+      |>
+    ]
   ]
 ];
 

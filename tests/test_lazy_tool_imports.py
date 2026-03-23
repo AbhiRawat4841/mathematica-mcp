@@ -25,7 +25,7 @@ def test_lazy_wolfram_tools_imported_on_first_use(monkeypatch):
     monkeypatch.setattr(
         server,
         "_try_addon_command",
-        lambda command, params=None: {"success": True, "trace": []},
+        lambda command, params=None, timeout=None: {"success": True, "trace": []},
     )
 
     result = asyncio.run(server.trace_evaluation("x"))

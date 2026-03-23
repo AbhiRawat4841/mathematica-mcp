@@ -38,9 +38,9 @@ def build_mathematica_expert_prompt(
         "`convert_units()`, or `get_constant()`"
     )
     async_line = (
-        "- Long computation (>60s) -> `submit_computation()`"
+        "- Long computation (>5min) -> `submit_computation()`"
         if features.async_computation
-        else "- Long computation (>60s) -> prefer `execute_code(..., timeout=...)`"
+        else "- Long computation (>5min) -> prefer `execute_code(..., timeout=...)` (default 300s)"
     )
     notebook_primary = ""
     notebook_antipattern = ""

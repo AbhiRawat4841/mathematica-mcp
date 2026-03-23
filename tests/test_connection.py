@@ -102,6 +102,7 @@ class _MockRecvSocket:
         self._idx = 0
         self.recv_count = 0
         self.closed = False
+        self.timeout_history: list[float] = []
 
     def recv(self, bufsize: int) -> bytes:
         self.recv_count += 1
@@ -118,7 +119,7 @@ class _MockRecvSocket:
         return ("localhost", 9881)
 
     def settimeout(self, timeout: float) -> None:
-        pass
+        self.timeout_history.append(timeout)
 
     def connect(self, address: tuple[str, int]) -> None:
         pass
@@ -361,3 +362,76 @@ class TestSocketCleanupOnError:
         assert conn._socket is None
         assert len(conn._recv_buffer) == 0
         assert mock_sock.closed
+
+
+# ============================================================================
+# Per-command timeout tests
+# ============================================================================
+
+
+class TestPerCommandTimeout:
+    """Verify that send_command(timeout=...) sets and restores socket timeout."""
+
+    def test_custom_timeout_applied_and_restored(self):
+        """send_command(timeout=X) should set X during call, restore default after."""
+        response_json = json.dumps({
+            "status": "ok",
+            "result": {"ok": True},
+        }).encode() + b"\n"
+
+        mock_sock = _MockRecvSocket([response_json])
+        conn = MathematicaConnection()
+        conn._socket = mock_sock
+        conn.send_command("test_cmd", timeout=600.0)
+
+        # Should have: set custom timeout (600), then restore default (180)
+        assert mock_sock.timeout_history == [600.0, connection.SOCKET_TIMEOUT]
+
+    def test_default_timeout_not_changed_without_override(self):
+        """send_command() without timeout should set default once (no restore needed)."""
+        response_json = json.dumps({
+            "status": "ok",
+            "result": {"ok": True},
+        }).encode() + b"\n"
+
+        mock_sock = _MockRecvSocket([response_json])
+        conn = MathematicaConnection()
+        conn._socket = mock_sock
+        conn.send_command("test_cmd")
+
+        # Should set default timeout once, no restore call
+        assert mock_sock.timeout_history == [connection.SOCKET_TIMEOUT]
+
+    def test_timeout_restored_after_error(self):
+        """Socket timeout should be restored even when recv raises."""
+        class TimeoutAfterSend:
+            """Socket that raises timeout on recv."""
+            def __init__(self):
+                self.timeout_history = []
+                self.closed = False
+
+            def sendall(self, data):
+                pass
+
+            def getpeername(self):
+                return ("localhost", 9881)
+
+            def settimeout(self, t):
+                self.timeout_history.append(t)
+
+            def recv(self, bufsize):
+                import socket as _sock
+                raise _sock.timeout("timed out")
+
+            def close(self):
+                self.closed = True
+
+        mock_sock = TimeoutAfterSend()
+        conn = MathematicaConnection()
+        conn._socket = mock_sock
+
+        with pytest.raises(TimeoutError):
+            conn.send_command("test_cmd", timeout=999.0)
+
+        # Custom timeout was set before the error; socket is closed so no restore
+        assert 999.0 in mock_sock.timeout_history
