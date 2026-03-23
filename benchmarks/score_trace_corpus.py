@@ -7,7 +7,6 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCENARIOS_PATH = REPO_ROOT / "benchmarks" / "scenarios.json"
 
@@ -24,10 +23,7 @@ def _load_jsonl(path: Path) -> list[dict[str, Any]]:
 def _contains_sequence(tools: list[str], sequence: list[str]) -> bool:
     if not sequence:
         return False
-    for index in range(len(tools) - len(sequence) + 1):
-        if tools[index : index + len(sequence)] == sequence:
-            return True
-    return False
+    return any(tools[index : index + len(sequence)] == sequence for index in range(len(tools) - len(sequence) + 1))
 
 
 def _score(rows: list[dict[str, Any]], scenarios: dict[str, dict[str, Any]]) -> dict[str, Any]:
@@ -36,9 +32,7 @@ def _score(rows: list[dict[str, Any]], scenarios: dict[str, dict[str, Any]]) -> 
     total_times = []
     success_total = 0
     anti_patterns = 0
-    scenario_stats: dict[str, dict[str, Any]] = defaultdict(
-        lambda: {"runs": 0, "success": 0, "anti_patterns": 0}
-    )
+    scenario_stats: dict[str, dict[str, Any]] = defaultdict(lambda: {"runs": 0, "success": 0, "anti_patterns": 0})
 
     for row in rows:
         scenario = scenarios.get(row["scenario"], {})
@@ -52,9 +46,7 @@ def _score(rows: list[dict[str, Any]], scenarios: dict[str, dict[str, Any]]) -> 
             success_total += 1
 
         forbidden_sequences = scenario.get("forbidden_sequences", [])
-        hit_anti_pattern = any(
-            _contains_sequence(tools, sequence) for sequence in forbidden_sequences
-        )
+        hit_anti_pattern = any(_contains_sequence(tools, sequence) for sequence in forbidden_sequences)
         if hit_anti_pattern:
             anti_patterns += 1
 

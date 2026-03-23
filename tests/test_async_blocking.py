@@ -226,9 +226,7 @@ def test_notebook_timeout_does_not_fall_through_to_cli(monkeypatch):
     monkeypatch.setattr(server.asyncio, "to_thread", fake_to_thread)
     monkeypatch.setattr(server, "_try_addon_command", fake_addon)
 
-    result = asyncio.run(
-        server.execute_code(code="Pause[9999]", output_target="notebook", timeout=300)
-    )
+    result = asyncio.run(server.execute_code(code="Pause[9999]", output_target="notebook", timeout=300))
     payload = json.loads(result)
 
     # Must return timeout status, not re-execute
@@ -270,9 +268,7 @@ def test_notebook_frontend_timeout_does_not_fall_through_to_cli(monkeypatch):
     monkeypatch.setattr(server, "_try_addon_command", fake_addon)
 
     result = asyncio.run(
-        server.execute_code(
-            code="Pause[9999]", output_target="notebook", mode="frontend", timeout=300
-        )
+        server.execute_code(code="Pause[9999]", output_target="notebook", mode="frontend", timeout=300)
     )
     payload = json.loads(result)
 

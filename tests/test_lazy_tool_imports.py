@@ -42,8 +42,8 @@ def test_lazy_wolfram_tools_imported_on_first_use(monkeypatch):
 def test_find_wolframscript_caches_result(monkeypatch):
     """Repeated calls to _find_wolframscript invoke shutil.which once."""
     from mathematica_mcp.lazy_wolfram_tools import (
-        _find_wolframscript,
         _clear_wolframscript_cache,
+        _find_wolframscript,
     )
 
     _clear_wolframscript_cache()
@@ -70,8 +70,8 @@ def test_find_wolframscript_caches_result(monkeypatch):
 def test_clear_wolframscript_cache_forces_new_lookup(monkeypatch):
     """After clearing cache, a fresh shutil.which call is made."""
     from mathematica_mcp.lazy_wolfram_tools import (
-        _find_wolframscript,
         _clear_wolframscript_cache,
+        _find_wolframscript,
     )
 
     _clear_wolframscript_cache()
@@ -98,8 +98,8 @@ def test_clear_wolframscript_cache_forces_new_lookup(monkeypatch):
 def test_missing_binary_returns_none(monkeypatch):
     """When wolframscript is not on PATH, _find_wolframscript returns None."""
     from mathematica_mcp.lazy_wolfram_tools import (
-        _find_wolframscript,
         _clear_wolframscript_cache,
+        _find_wolframscript,
     )
 
     _clear_wolframscript_cache()

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import socket
 
 import pytest
 
@@ -198,10 +197,15 @@ class TestSendCommandResponseContract:
     def test_success_response_returns_result_dict(self):
         """send_command should extract and return the 'result' field."""
         expected_result = {"success": True, "data": "hello"}
-        response_json = json.dumps({
-            "status": "ok",
-            "result": expected_result,
-        }).encode() + b"\n"
+        response_json = (
+            json.dumps(
+                {
+                    "status": "ok",
+                    "result": expected_result,
+                }
+            ).encode()
+            + b"\n"
+        )
 
         mock_sock = _MockRecvSocket([response_json])
         conn = MathematicaConnection()
@@ -212,10 +216,15 @@ class TestSendCommandResponseContract:
 
     def test_error_response_raises_runtime_error(self):
         """send_command should raise RuntimeError on error status."""
-        response_json = json.dumps({
-            "status": "error",
-            "message": "something went wrong",
-        }).encode() + b"\n"
+        response_json = (
+            json.dumps(
+                {
+                    "status": "error",
+                    "message": "something went wrong",
+                }
+            ).encode()
+            + b"\n"
+        )
 
         mock_sock = _MockRecvSocket([response_json])
         conn = MathematicaConnection()
@@ -225,10 +234,15 @@ class TestSendCommandResponseContract:
 
     def test_socket_not_closed_on_success(self):
         """Socket should remain open after a successful command."""
-        response_json = json.dumps({
-            "status": "ok",
-            "result": {"ok": True},
-        }).encode() + b"\n"
+        response_json = (
+            json.dumps(
+                {
+                    "status": "ok",
+                    "result": {"ok": True},
+                }
+            ).encode()
+            + b"\n"
+        )
 
         mock_sock = _MockRecvSocket([response_json])
         conn = MathematicaConnection()
@@ -272,7 +286,7 @@ class TestLeftoverPreservation:
         """Leftover bytes from first frame are available for second frame."""
         frame1 = json.dumps({"x": 10}).encode() + b"\n"
         frame2_part1 = b'{"y":'
-        frame2_part2 = b'20}\n'
+        frame2_part2 = b"20}\n"
 
         # First recv gives frame1 + start of frame2
         # Second recv gives rest of frame2
@@ -293,9 +307,10 @@ class TestSocketCleanupOnError:
 
     def test_timeout_closes_socket(self):
         """Socket.close() must be called before nulling on timeout."""
+
         class TimeoutSocket(_MockRecvSocket):
             def recv(self, bufsize):
-                raise socket.timeout("read timed out")
+                raise TimeoutError("read timed out")
 
         mock_sock = TimeoutSocket([])
         conn = MathematicaConnection()
@@ -309,6 +324,7 @@ class TestSocketCleanupOnError:
 
     def test_connection_reset_closes_socket(self):
         """Socket.close() must be called on ConnectionResetError."""
+
         class ResetSocket(_MockRecvSocket):
             def recv(self, bufsize):
                 raise ConnectionResetError("Connection reset by peer")
@@ -332,9 +348,10 @@ class TestSocketCleanupOnError:
 
     def test_recv_buffer_cleared_on_error(self):
         """Error path must clear the receive buffer."""
+
         class TimeoutSocket(_MockRecvSocket):
             def recv(self, bufsize):
-                raise socket.timeout("timed out")
+                raise TimeoutError("timed out")
 
         mock_sock = TimeoutSocket([])
         conn = MathematicaConnection()
@@ -374,10 +391,15 @@ class TestPerCommandTimeout:
 
     def test_custom_timeout_applied_and_restored(self):
         """send_command(timeout=X) should set X during call, restore default after."""
-        response_json = json.dumps({
-            "status": "ok",
-            "result": {"ok": True},
-        }).encode() + b"\n"
+        response_json = (
+            json.dumps(
+                {
+                    "status": "ok",
+                    "result": {"ok": True},
+                }
+            ).encode()
+            + b"\n"
+        )
 
         mock_sock = _MockRecvSocket([response_json])
         conn = MathematicaConnection()
@@ -389,10 +411,15 @@ class TestPerCommandTimeout:
 
     def test_default_timeout_not_changed_without_override(self):
         """send_command() without timeout should set default once (no restore needed)."""
-        response_json = json.dumps({
-            "status": "ok",
-            "result": {"ok": True},
-        }).encode() + b"\n"
+        response_json = (
+            json.dumps(
+                {
+                    "status": "ok",
+                    "result": {"ok": True},
+                }
+            ).encode()
+            + b"\n"
+        )
 
         mock_sock = _MockRecvSocket([response_json])
         conn = MathematicaConnection()
@@ -404,8 +431,10 @@ class TestPerCommandTimeout:
 
     def test_timeout_restored_after_error(self):
         """Socket timeout should be restored even when recv raises."""
+
         class TimeoutAfterSend:
             """Socket that raises timeout on recv."""
+
             def __init__(self):
                 self.timeout_history = []
                 self.closed = False
@@ -420,8 +449,7 @@ class TestPerCommandTimeout:
                 self.timeout_history.append(t)
 
             def recv(self, bufsize):
-                import socket as _sock
-                raise _sock.timeout("timed out")
+                raise TimeoutError("timed out")
 
             def close(self):
                 self.closed = True

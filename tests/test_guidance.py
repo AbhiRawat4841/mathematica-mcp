@@ -42,8 +42,6 @@ def test_profile_aware_docstrings_are_applied():
     _, server = _reload_server("math")
 
     assert "[PRIMARY]" in (server.execute_code.__doc__ or "")
-    assert "Profile default when `output_target` is omitted: `cli`." in (
-        server.execute_code.__doc__ or ""
-    )
+    assert "Profile default when `output_target` is omitted: `cli`." in (server.execute_code.__doc__ or "")
     assert "[ADVANCED]" in (server.write_cell.__doc__ or "")
     assert "[LEGACY]" in (server.read_notebook_content.__doc__ or "")

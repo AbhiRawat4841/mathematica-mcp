@@ -3,7 +3,8 @@ import logging
 import math
 import threading
 import time
-from typing import Callable, Any, Dict, List, Set
+from collections.abc import Callable
+from typing import Any
 
 from .config import FEATURES
 
@@ -12,18 +13,18 @@ logger = logging.getLogger("mathematica_mcp.telemetry")
 # Maximum number of individual timings to keep per tool for percentile calculations.
 _MAX_TIMING_HISTORY = 200
 
-_usage_stats: Dict[str, Dict[str, Any]] = {}
+_usage_stats: dict[str, dict[str, Any]] = {}
 _stats_lock = threading.Lock()
 
 # Track which tools have been wrapped with telemetry.
-_instrumented_tools: Set[str] = set()
+_instrumented_tools: set[str] = set()
 
 
-def _empty_stats() -> Dict[str, Any]:
+def _empty_stats() -> dict[str, Any]:
     return {"calls": 0, "total_time_ms": 0, "errors": 0, "timings": []}
 
 
-def _percentile(values: List[float], p: float) -> float:
+def _percentile(values: list[float], p: float) -> float:
     """Compute the p-th percentile using linear interpolation."""
     if not values:
         return 0.0
@@ -85,7 +86,7 @@ def telemetry_tool(name: str):
     return decorator
 
 
-def get_usage_stats() -> Dict[str, Dict[str, Any]]:
+def get_usage_stats() -> dict[str, dict[str, Any]]:
     """Return per-tool usage statistics including percentiles.
 
     Each tool entry contains: calls, total_time_ms, errors, p50_ms, p95_ms,
@@ -93,10 +94,10 @@ def get_usage_stats() -> Dict[str, Dict[str, Any]]:
     compact.
     """
     with _stats_lock:
-        result: Dict[str, Dict[str, Any]] = {}
+        result: dict[str, dict[str, Any]] = {}
         for name, stats in _usage_stats.items():
             timings = stats["timings"]
-            entry: Dict[str, Any] = {
+            entry: dict[str, Any] = {
                 "calls": stats["calls"],
                 "total_time_ms": stats["total_time_ms"],
                 "errors": stats["errors"],
@@ -110,7 +111,7 @@ def get_usage_stats() -> Dict[str, Dict[str, Any]]:
         return result
 
 
-def get_instrumented_tools() -> Set[str]:
+def get_instrumented_tools() -> set[str]:
     """Return the set of tool names that have been wrapped with telemetry."""
     return set(_instrumented_tools)
 

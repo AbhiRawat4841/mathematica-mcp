@@ -128,9 +128,9 @@ def demo_inline_execution():
 
         # Check for error messages
         if "messages" in result and result["messages"]:
-            print(f"  Messages detected: Yes")
+            print("  Messages detected: Yes")
         else:
-            print(f"  Messages detected: No")
+            print("  Messages detected: No")
 
 
 def demo_real_world_workflow():
@@ -160,7 +160,7 @@ def demo_real_world_workflow():
             }
         ]
 
-        analysis = analyze_messages(simulated_messages)
+        analyze_messages(simulated_messages)
         formatted = format_error_for_llm(simulated_messages, code)
 
         print(formatted)

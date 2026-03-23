@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Literal, Optional
+from typing import Literal
 
 from mcp.server.fastmcp import FastMCP
 
@@ -10,8 +10,8 @@ def register_math_alias_tools(mcp: FastMCP, execute_code) -> None:
     async def mathematica_integrate(
         expression: str,
         variable: str,
-        lower_bound: Optional[str] = None,
-        upper_bound: Optional[str] = None,
+        lower_bound: str | None = None,
+        upper_bound: str | None = None,
     ) -> str:
         """Compute integral using Integrate."""
         if lower_bound is not None and upper_bound is not None:
@@ -25,29 +25,22 @@ def register_math_alias_tools(mcp: FastMCP, execute_code) -> None:
     async def mathematica_solve(
         equation: str,
         variable: str,
-        domain: Optional[str] = None,
+        domain: str | None = None,
     ) -> str:
         """Solve an equation using Solve."""
-        if domain:
-            code = f"Solve[{equation}, {variable}, {domain}]"
-        else:
-            code = f"Solve[{equation}, {variable}]"
+        code = f"Solve[{equation}, {variable}, {domain}]" if domain else f"Solve[{equation}, {variable}]"
 
         return await execute_code(code=code, format="text", output_target="cli")
 
     @mcp.tool()
     async def mathematica_simplify(
         expression: str,
-        assumptions: Optional[str] = None,
+        assumptions: str | None = None,
         full: bool = False,
     ) -> str:
         """Simplify a mathematical expression."""
         func = "FullSimplify" if full else "Simplify"
-        code = (
-            f"{func}[{expression}, Assumptions -> {assumptions}]"
-            if assumptions
-            else f"{func}[{expression}]"
-        )
+        code = f"{func}[{expression}, Assumptions -> {assumptions}]" if assumptions else f"{func}[{expression}]"
         return await execute_code(code=code, format="text", output_target="cli")
 
     @mcp.tool()
@@ -57,10 +50,7 @@ def register_math_alias_tools(mcp: FastMCP, execute_code) -> None:
         order: int = 1,
     ) -> str:
         """Compute derivative using D."""
-        if order == 1:
-            code = f"D[{expression}, {variable}]"
-        else:
-            code = f"D[{expression}, {{{variable}, {order}}}]"
+        code = f"D[{expression}, {variable}]" if order == 1 else f"D[{expression}, {{{variable}, {order}}}]"
         return await execute_code(code=code, format="text", output_target="cli")
 
     @mcp.tool()
@@ -86,14 +76,11 @@ def register_math_alias_tools(mcp: FastMCP, execute_code) -> None:
         expression: str,
         variable: str,
         point: str,
-        direction: Optional[Literal["Left", "Right"]] = None,
+        direction: Literal["Left", "Right"] | None = None,
     ) -> str:
         """Compute limit using Limit."""
         if direction:
-            code = (
-                f'Limit[{expression}, {variable} -> {point}, '
-                f'Direction -> "{direction}"]'
-            )
+            code = f'Limit[{expression}, {variable} -> {point}, Direction -> "{direction}"]'
         else:
             code = f"Limit[{expression}, {variable} -> {point}]"
 

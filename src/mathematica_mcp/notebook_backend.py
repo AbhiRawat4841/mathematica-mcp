@@ -20,11 +20,10 @@ import asyncio
 import json
 import logging
 import os
-import shutil
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 logger = logging.getLogger("mathematica_mcp.notebook_backend")
 
@@ -33,11 +32,13 @@ logger = logging.getLogger("mathematica_mcp.notebook_backend")
 # Cell model
 # ---------------------------------------------------------------------------
 
+
 class CellView(Enum):
     """View modes for cell content."""
-    SEMANTIC = "semantic"   # Wolfram InputForm for code, meaningful text for prose
-    DISPLAY = "display"     # Human-readable / formatted text
-    RAW = "raw"             # Raw BoxData / source as-is
+
+    SEMANTIC = "semantic"  # Wolfram InputForm for code, meaningful text for prose
+    DISPLAY = "display"  # Human-readable / formatted text
+    RAW = "raw"  # Raw BoxData / source as-is
 
 
 @dataclass
@@ -54,10 +55,10 @@ class NotebookCell:
     content: str  # Primary view (semantic for code, display for prose)
 
     # Identity & provenance
-    cell_id: Optional[int] = None
-    group_id: Optional[int] = None
+    cell_id: int | None = None
+    group_id: int | None = None
     position_in_group: int = 1
-    parent_input_index: Optional[int] = None
+    parent_input_index: int | None = None
     cell_label: str = ""
     tags: list[str] = field(default_factory=list)
     is_generated: bool = False
@@ -68,9 +69,9 @@ class NotebookCell:
     conversion_lossy: bool = False
 
     # Internal: alternate views (not serialized by default)
-    _raw: Optional[str] = field(default=None, repr=False)
-    _semantic: Optional[str] = field(default=None, repr=False)
-    _display: Optional[str] = field(default=None, repr=False)
+    _raw: str | None = field(default=None, repr=False)
+    _semantic: str | None = field(default=None, repr=False)
+    _display: str | None = field(default=None, repr=False)
 
     def get_view(self, view: CellView) -> str:
         """Get a specific view of this cell's content."""
@@ -126,6 +127,7 @@ class NotebookCell:
 # Notebook result
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class NotebookResult:
     """Result of notebook extraction from any backend."""
@@ -133,8 +135,8 @@ class NotebookResult:
     path: str
     cells: list[NotebookCell]
     backend: str  # "python_syntax", "kernel_semantic", "addon_live"
-    title: Optional[str] = None
-    error: Optional[str] = None
+    title: str | None = None
+    error: str | None = None
 
     @property
     def cell_count(self) -> int:
@@ -204,8 +206,7 @@ class NotebookResult:
                     lines.append(cell.content)
                 if cell.was_truncated:
                     lines.append(
-                        f"(* TRUNCATED {cell.original_length} chars; "
-                        f"use get_notebook_cell for full content *)"
+                        f"(* TRUNCATED {cell.original_length} chars; use get_notebook_cell for full content *)"
                     )
                 lines.append("")
         return "\n".join(lines).rstrip()
@@ -213,14 +214,14 @@ class NotebookResult:
     def to_outline(self) -> list[dict[str, Any]]:
         sections: list[dict[str, Any]] = []
         for cell in self.cells:
-            if cell.style in (
-                "Title", "Chapter", "Section", "Subsection", "Subsubsection"
-            ):
-                sections.append({
-                    "level": cell.style,
-                    "title": cell.content.strip(),
-                    "index": cell.cell_index,
-                })
+            if cell.style in ("Title", "Chapter", "Section", "Subsection", "Subsubsection"):
+                sections.append(
+                    {
+                        "level": cell.style,
+                        "title": cell.content.strip(),
+                        "index": cell.cell_index,
+                    }
+                )
         return sections
 
     def to_plain_text(self) -> str:
@@ -239,6 +240,7 @@ class NotebookResult:
 # Backend: Python Syntax (wraps existing notebook_parser.py)
 # ---------------------------------------------------------------------------
 
+
 class PythonSyntaxBackend:
     """Offline parser using existing Python BoxData converter.
 
@@ -255,7 +257,7 @@ class PythonSyntaxBackend:
         self,
         path: str,
         *,
-        cell_types: Optional[list[str]] = None,
+        cell_types: list[str] | None = None,
         view: CellView = CellView.SEMANTIC,
         include_alternates: bool = False,
         truncation_threshold: int = 25000,
@@ -264,7 +266,9 @@ class PythonSyntaxBackend:
 
         effective = truncation_threshold if truncation_threshold > 0 else 10**9
         notebook = await asyncio.to_thread(
-            parse_notebook_cached, path, truncation_threshold=effective,
+            parse_notebook_cached,
+            path,
+            truncation_threshold=effective,
         )
 
         # Map CellStyle enum -> string for filtering
@@ -272,7 +276,7 @@ class PythonSyntaxBackend:
 
         cells: list[NotebookCell] = []
         # Track groups: consecutive Input then Output belong together
-        last_input_idx: Optional[int] = None
+        last_input_idx: int | None = None
 
         for old_cell in notebook.cells:
             style = old_cell.style.value  # CellStyle enum -> string
@@ -298,9 +302,7 @@ class PythonSyntaxBackend:
             was_truncated = False
             original_length = len(primary)
             if truncation_threshold > 0 and len(primary) > truncation_threshold:
-                primary, was_truncated, original_length = truncate_large_expression(
-                    primary, truncation_threshold
-                )
+                primary, was_truncated, original_length = truncate_large_expression(primary, truncation_threshold)
             elif old_cell.was_truncated and primary is semantic_content:
                 # Semantic was already truncated by the parser
                 was_truncated = old_cell.was_truncated
@@ -341,6 +343,7 @@ class PythonSyntaxBackend:
 # Backend: Kernel Semantic (uses session.py + NotebookImport)
 # ---------------------------------------------------------------------------
 
+
 class KernelSemanticBackend:
     """Headless kernel extraction via NotebookImport.
 
@@ -357,31 +360,31 @@ class KernelSemanticBackend:
     def available(self) -> bool:
         """Check if wolframscript or wolframclient is available."""
         from .lazy_wolfram_tools import _find_wolframscript
+
         if _find_wolframscript():
             return True
         try:
             from wolframclient.evaluation import WolframLanguageSession  # noqa: F401
+
             return True
         except ImportError:
             return False
 
     def _get_helper_wl_path(self) -> str:
         """Path to the shipped .wl helper file."""
-        return str(
-            Path(__file__).parent / "helpers" / "notebook_converter.wl"
-        )
+        return str(Path(__file__).parent / "helpers" / "notebook_converter.wl")
 
     async def extract(
         self,
         path: str,
         *,
-        cell_types: Optional[list[str]] = None,
+        cell_types: list[str] | None = None,
         view: CellView = CellView.SEMANTIC,
         include_alternates: bool = False,
         truncation_threshold: int = 25000,
     ) -> NotebookResult:
-        from .session import execute_in_kernel
         from .disk_cache import get_cached, put_cached
+        from .session import execute_in_kernel
 
         abs_path = str(Path(path).resolve())
 
@@ -391,11 +394,15 @@ class KernelSemanticBackend:
             view=view.value,
         )
         cached = await asyncio.to_thread(
-            get_cached, abs_path, self.name, **cache_opts,
+            get_cached,
+            abs_path,
+            self.name,
+            **cache_opts,
         )
         if cached is not None:
             return self._build_result_from_data(
-                cached, abs_path,
+                cached,
+                abs_path,
                 cell_types=cell_types,
                 view=view,
                 truncation_threshold=truncation_threshold,
@@ -432,9 +439,7 @@ Module[{{result}},
         )
 
         if not result.get("success"):
-            raise RuntimeError(
-                f"Kernel extraction failed: {result.get('output', 'unknown error')}"
-            )
+            raise RuntimeError(f"Kernel extraction failed: {result.get('output', 'unknown error')}")
 
         output = result.get("output", "")
 
@@ -443,13 +448,18 @@ Module[{{result}},
             raw_data = json.loads(output)
             if not raw_data.get("error"):
                 await asyncio.to_thread(
-                    put_cached, abs_path, self.name, raw_data, **cache_opts,
+                    put_cached,
+                    abs_path,
+                    self.name,
+                    raw_data,
+                    **cache_opts,
                 )
         except (json.JSONDecodeError, OSError):
             pass  # Don't fail extraction if caching fails
 
         return self._parse_kernel_output(
-            output, abs_path,
+            output,
+            abs_path,
             cell_types=cell_types,
             view=view,
             truncation_threshold=truncation_threshold,
@@ -460,19 +470,18 @@ Module[{{result}},
         output: str,
         path: str,
         *,
-        cell_types: Optional[list[str]] = None,
+        cell_types: list[str] | None = None,
         view: CellView = CellView.SEMANTIC,
         truncation_threshold: int = 25000,
     ) -> NotebookResult:
         """Parse JSON string output from the WL helper."""
         try:
             data = json.loads(output)
-        except json.JSONDecodeError:
-            raise RuntimeError(
-                f"Failed to parse kernel output as JSON: {output[:200]}"
-            )
+        except json.JSONDecodeError as e:
+            raise RuntimeError(f"Failed to parse kernel output as JSON: {output[:200]}") from e
         return self._build_result_from_data(
-            data, path,
+            data,
+            path,
             cell_types=cell_types,
             view=view,
             truncation_threshold=truncation_threshold,
@@ -483,7 +492,7 @@ Module[{{result}},
         data: dict[str, Any],
         path: str,
         *,
-        cell_types: Optional[list[str]] = None,
+        cell_types: list[str] | None = None,
         view: CellView = CellView.SEMANTIC,
         truncation_threshold: int = 25000,
     ) -> NotebookResult:
@@ -492,13 +501,15 @@ Module[{{result}},
 
         if data.get("error"):
             return NotebookResult(
-                path=path, cells=[], backend=self.name,
+                path=path,
+                cells=[],
+                backend=self.name,
                 error=data["error"],
             )
 
         style_filter = set(cell_types) if cell_types else None
         cells: list[NotebookCell] = []
-        last_input_idx: Optional[int] = None
+        last_input_idx: int | None = None
 
         for i, cell_data in enumerate(data.get("cells", [])):
             style = cell_data.get("style", "Unknown")
@@ -510,8 +521,8 @@ Module[{{result}},
             original_length = len(semantic_content)
 
             if truncation_threshold > 0 and len(semantic_content) > truncation_threshold:
-                semantic_content, was_truncated, original_length = (
-                    truncate_large_expression(semantic_content, truncation_threshold)
+                semantic_content, was_truncated, original_length = truncate_large_expression(
+                    semantic_content, truncation_threshold
                 )
 
             # Kernel backend only has semantic form — no raw boxes.
@@ -548,7 +559,10 @@ Module[{{result}},
 
         title = data.get("title")
         return NotebookResult(
-            path=path, cells=cells, backend=self.name, title=title,
+            path=path,
+            cells=cells,
+            backend=self.name,
+            title=title,
         )
 
 
@@ -574,9 +588,7 @@ def get_backends_for_capability(capability: str) -> list:
     """
     if capability in ("outline", "text"):
         return [_python_backend, _kernel_backend]
-    elif capability in ("code", "semantic"):
-        return [_kernel_backend, _python_backend]
-    elif capability == "structure":
+    elif capability in ("code", "semantic") or capability == "structure":
         return [_kernel_backend, _python_backend]
     else:  # "full" or unrecognized
         return [_kernel_backend, _python_backend]
@@ -586,11 +598,11 @@ async def extract_notebook(
     path: str,
     *,
     capability: str = "full",
-    cell_types: Optional[list[str]] = None,
+    cell_types: list[str] | None = None,
     view: CellView = CellView.SEMANTIC,
     include_alternates: bool = False,
     truncation_threshold: int = 25000,
-    force_backend: Optional[str] = None,
+    force_backend: str | None = None,
 ) -> NotebookResult:
     """Extract notebook content using capability-based dispatch.
 
@@ -615,7 +627,7 @@ async def extract_notebook(
     else:
         backends = get_backends_for_capability(capability)
 
-    last_error: Optional[Exception] = None
+    last_error: Exception | None = None
     for backend in backends:
         if not backend.available():
             continue
@@ -628,18 +640,20 @@ async def extract_notebook(
                 truncation_threshold=truncation_threshold,
             )
         except Exception as e:
-            logger.warning(
-                "Backend %s failed for %s: %s", backend.name, path, e
-            )
+            logger.warning("Backend %s failed for %s: %s", backend.name, path, e)
             last_error = e
 
     # All backends failed
     if last_error:
         return NotebookResult(
-            path=path, cells=[], backend="none",
+            path=path,
+            cells=[],
+            backend="none",
             error=f"All backends failed. Last error: {last_error}",
         )
     return NotebookResult(
-        path=path, cells=[], backend="none",
+        path=path,
+        cells=[],
+        backend="none",
         error="No available backend",
     )

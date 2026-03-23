@@ -18,8 +18,6 @@ import os
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
-
 from mathematica_mcp.notebook_backend import (
     CellView,
     KernelSemanticBackend,
@@ -44,7 +42,9 @@ COMPLEX_NB = FIXTURES / "complex_notebook.nb"
 class TestNotebookCell:
     def test_basic_serialization(self):
         cell = NotebookCell(
-            cell_index=0, style="Input", content="1+1",
+            cell_index=0,
+            style="Input",
+            content="1+1",
             cell_label="In[1]:=",
         )
         d = cell.to_dict()
@@ -67,10 +67,16 @@ class TestNotebookCell:
 
     def test_rich_serialization_includes_metadata(self):
         cell = NotebookCell(
-            cell_index=3, style="Output", content="42",
-            cell_id=12345, group_id=1, position_in_group=2,
-            parent_input_index=2, cell_label="Out[1]=",
-            tags=["result"], is_generated=True,
+            cell_index=3,
+            style="Output",
+            content="42",
+            cell_id=12345,
+            group_id=1,
+            position_in_group=2,
+            parent_input_index=2,
+            cell_label="Out[1]=",
+            tags=["result"],
+            is_generated=True,
         )
         d = cell.to_dict()
         assert d["cell_id"] == 12345
@@ -82,16 +88,22 @@ class TestNotebookCell:
 
     def test_alternate_views_hidden_by_default(self):
         cell = NotebookCell(
-            cell_index=0, style="Input", content="semantic form",
-            _raw="BoxData[...]", _display="pretty display",
+            cell_index=0,
+            style="Input",
+            content="semantic form",
+            _raw="BoxData[...]",
+            _display="pretty display",
         )
         d = cell.to_dict(include_alternates=False)
         assert "alternates" not in d
 
     def test_alternate_views_included_on_request(self):
         cell = NotebookCell(
-            cell_index=0, style="Input", content="semantic form",
-            _raw="BoxData[...]", _display="pretty display",
+            cell_index=0,
+            style="Input",
+            content="semantic form",
+            _raw="BoxData[...]",
+            _display="pretty display",
         )
         d = cell.to_dict(include_alternates=True)
         assert "alternates" in d
@@ -100,8 +112,11 @@ class TestNotebookCell:
 
     def test_get_view_returns_correct_view(self):
         cell = NotebookCell(
-            cell_index=0, style="Input", content="default",
-            _raw="raw data", _semantic="semantic data",
+            cell_index=0,
+            style="Input",
+            content="default",
+            _raw="raw data",
+            _semantic="semantic data",
         )
         assert cell.get_view(CellView.RAW) == "raw data"
         assert cell.get_view(CellView.SEMANTIC) == "semantic data"
@@ -110,8 +125,11 @@ class TestNotebookCell:
 
     def test_truncation_metadata(self):
         cell = NotebookCell(
-            cell_index=0, style="Input", content="truncated...",
-            was_truncated=True, original_length=50000,
+            cell_index=0,
+            style="Input",
+            content="truncated...",
+            was_truncated=True,
+            original_length=50000,
         )
         d = cell.to_dict()
         assert d["was_truncated"] is True
@@ -119,7 +137,9 @@ class TestNotebookCell:
 
     def test_conversion_lossy_flag(self):
         cell = NotebookCell(
-            cell_index=0, style="Output", content="fallback text",
+            cell_index=0,
+            style="Output",
+            content="fallback text",
             conversion_lossy=True,
         )
         d = cell.to_dict()
@@ -194,7 +214,9 @@ class TestNotebookResult:
 
     def test_error_result(self):
         r = NotebookResult(
-            path="/test/bad.nb", cells=[], backend="none",
+            path="/test/bad.nb",
+            cells=[],
+            backend="none",
             error="File not found",
         )
         d = r.to_dict()
@@ -247,9 +269,7 @@ class TestPythonSyntaxBackend:
     def test_cell_type_filtering(self):
         """Test that cell_types parameter filters correctly."""
         backend = PythonSyntaxBackend()
-        result = asyncio.run(
-            backend.extract(str(COMPLEX_NB), cell_types=["Input", "Code"])
-        )
+        result = asyncio.run(backend.extract(str(COMPLEX_NB), cell_types=["Input", "Code"]))
         for cell in result.cells:
             assert cell.style in ("Input", "Code")
 
@@ -284,9 +304,7 @@ class TestPythonSyntaxBackend:
         )
 
         # Old path
-        old_notebook = parse_notebook_cached(
-            str(INTEGRATION_NB), truncation_threshold=25000
-        )
+        old_notebook = parse_notebook_cached(str(INTEGRATION_NB), truncation_threshold=25000)
         old_md = NotebookParser(truncation_threshold=25000).to_markdown(old_notebook)
 
         # New path
@@ -331,41 +349,41 @@ class TestKernelSemanticBackend:
     def test_parse_kernel_output_valid_json(self):
         """Test parsing of well-formed kernel JSON output."""
         backend = KernelSemanticBackend()
-        sample_output = json.dumps({
-            "path": "/test/notebook.nb",
-            "title": "Test",
-            "cell_count": 2,
-            "code_cells": 1,
-            "backend": "kernel_semantic",
-            "cells": [
-                {
-                    "style": "Title",
-                    "content": "Test Notebook",
-                    "cell_id": 100001,
-                    "group_id": 1,
-                    "position_in_group": 1,
-                    "cell_label": "",
-                    "tags": [],
-                    "is_generated": False,
-                    "conversion_lossy": False,
-                },
-                {
-                    "style": "Input",
-                    "content": "1 + 1",
-                    "cell_id": 100002,
-                    "group_id": 1,
-                    "position_in_group": 2,
-                    "cell_label": "In[1]:=",
-                    "tags": [],
-                    "is_generated": False,
-                    "conversion_lossy": False,
-                },
-            ],
-        })
-
-        result = backend._parse_kernel_output(
-            sample_output, "/test/notebook.nb"
+        sample_output = json.dumps(
+            {
+                "path": "/test/notebook.nb",
+                "title": "Test",
+                "cell_count": 2,
+                "code_cells": 1,
+                "backend": "kernel_semantic",
+                "cells": [
+                    {
+                        "style": "Title",
+                        "content": "Test Notebook",
+                        "cell_id": 100001,
+                        "group_id": 1,
+                        "position_in_group": 1,
+                        "cell_label": "",
+                        "tags": [],
+                        "is_generated": False,
+                        "conversion_lossy": False,
+                    },
+                    {
+                        "style": "Input",
+                        "content": "1 + 1",
+                        "cell_id": 100002,
+                        "group_id": 1,
+                        "position_in_group": 2,
+                        "cell_label": "In[1]:=",
+                        "tags": [],
+                        "is_generated": False,
+                        "conversion_lossy": False,
+                    },
+                ],
+            }
         )
+
+        result = backend._parse_kernel_output(sample_output, "/test/notebook.nb")
         assert result.backend == "kernel_semantic"
         assert result.cell_count == 2
         assert result.cells[0].style == "Title"
@@ -376,10 +394,12 @@ class TestKernelSemanticBackend:
     def test_parse_kernel_output_with_error(self):
         """Test handling of kernel error output."""
         backend = KernelSemanticBackend()
-        error_output = json.dumps({
-            "error": "Failed to import notebook",
-            "path": "/test/bad.nb",
-        })
+        error_output = json.dumps(
+            {
+                "error": "Failed to import notebook",
+                "path": "/test/bad.nb",
+            }
+        )
         result = backend._parse_kernel_output(error_output, "/test/bad.nb")
         assert result.error is not None
         assert "Failed to import" in result.error
@@ -387,15 +407,18 @@ class TestKernelSemanticBackend:
     def test_parse_kernel_output_cell_types_filter(self):
         """Test cell type filtering in kernel output parsing."""
         backend = KernelSemanticBackend()
-        sample_output = json.dumps({
-            "cells": [
-                {"style": "Title", "content": "T"},
-                {"style": "Input", "content": "code"},
-                {"style": "Output", "content": "result"},
-            ],
-        })
+        sample_output = json.dumps(
+            {
+                "cells": [
+                    {"style": "Title", "content": "T"},
+                    {"style": "Input", "content": "code"},
+                    {"style": "Output", "content": "result"},
+                ],
+            }
+        )
         result = backend._parse_kernel_output(
-            sample_output, "/test/nb.nb",
+            sample_output,
+            "/test/nb.nb",
             cell_types=["Input"],
         )
         assert result.cell_count == 1
@@ -404,12 +427,14 @@ class TestKernelSemanticBackend:
     def test_parse_kernel_output_provenance(self):
         """Test that Input→Output provenance is tracked."""
         backend = KernelSemanticBackend()
-        sample_output = json.dumps({
-            "cells": [
-                {"style": "Input", "content": "1+1"},
-                {"style": "Output", "content": "2", "is_generated": True},
-            ],
-        })
+        sample_output = json.dumps(
+            {
+                "cells": [
+                    {"style": "Input", "content": "1+1"},
+                    {"style": "Output", "content": "2", "is_generated": True},
+                ],
+            }
+        )
         result = backend._parse_kernel_output(sample_output, "/test/nb.nb")
         output_cell = result.cells[1]
         assert output_cell.parent_input_index == 0
@@ -450,9 +475,7 @@ class TestDispatch:
         """When kernel is unavailable, falls back to Python parser."""
         # Mock kernel as unavailable
         with patch.object(KernelSemanticBackend, "available", return_value=False):
-            result = asyncio.run(
-                extract_notebook(str(INTEGRATION_NB), capability="code")
-            )
+            result = asyncio.run(extract_notebook(str(INTEGRATION_NB), capability="code"))
             assert result.backend == "python_syntax"
             assert result.error is None
 
@@ -484,9 +507,7 @@ class TestDiskCache:
         data = {"cells": [{"style": "Input", "content": "hello"}]}
 
         # Override cache dir for testing
-        with patch(
-            "mathematica_mcp.disk_cache._CACHE_DIR", tmp_path / "cache"
-        ):
+        with patch("mathematica_mcp.disk_cache._CACHE_DIR", tmp_path / "cache"):
             put_cached(str(nb_file), "python_syntax", data, view="semantic")
             result = get_cached(str(nb_file), "python_syntax", view="semantic")
 
@@ -502,9 +523,7 @@ class TestDiskCache:
 
         data = {"cells": [{"content": "v1"}]}
 
-        with patch(
-            "mathematica_mcp.disk_cache._CACHE_DIR", tmp_path / "cache"
-        ):
+        with patch("mathematica_mcp.disk_cache._CACHE_DIR", tmp_path / "cache"):
             put_cached(str(nb_file), "python_syntax", data)
             # Modify the file
             nb_file.write_text('Notebook[{Cell["v2", "Input"]}]')
@@ -520,9 +539,7 @@ class TestDiskCache:
         nb_file = tmp_path / "test.nb"
         nb_file.write_text("Notebook[{}]")
 
-        with patch(
-            "mathematica_mcp.disk_cache._CACHE_DIR", tmp_path / "cache"
-        ):
+        with patch("mathematica_mcp.disk_cache._CACHE_DIR", tmp_path / "cache"):
             result = get_cached(str(nb_file), "python_syntax")
 
         assert result is None
@@ -534,9 +551,7 @@ class TestDiskCache:
         nb_file = tmp_path / "test.nb"
         nb_file.write_text("Notebook[{}]")
 
-        with patch(
-            "mathematica_mcp.disk_cache._CACHE_DIR", tmp_path / "cache"
-        ):
+        with patch("mathematica_mcp.disk_cache._CACHE_DIR", tmp_path / "cache"):
             put_cached(str(nb_file), "python_syntax", {"cells": []})
             count = clear_cache()
             assert count >= 1
@@ -549,9 +564,7 @@ class TestDiskCache:
         nb_file = tmp_path / "test.nb"
         nb_file.write_text('Notebook[{Cell["x", "Input"]}]')
 
-        with patch(
-            "mathematica_mcp.disk_cache._CACHE_DIR", tmp_path / "cache"
-        ):
+        with patch("mathematica_mcp.disk_cache._CACHE_DIR", tmp_path / "cache"):
             put_cached(str(nb_file), "python_syntax", {"v": 1}, view="semantic")
             put_cached(str(nb_file), "python_syntax", {"v": 2}, view="raw")
 
@@ -577,12 +590,15 @@ class TestReadNotebookTool:
     def test_markdown_format(self):
         from mathematica_mcp.server import read_notebook
 
-        result = json.loads(asyncio.run(
-            read_notebook(
-                str(INTEGRATION_NB), output_format="markdown",
-                backend="python_syntax",
+        result = json.loads(
+            asyncio.run(
+                read_notebook(
+                    str(INTEGRATION_NB),
+                    output_format="markdown",
+                    backend="python_syntax",
+                )
             )
-        ))
+        )
         assert result["success"] is True
         assert result["format"] == "markdown"
         assert result["backend"] == "python_syntax"
@@ -591,12 +607,15 @@ class TestReadNotebookTool:
     def test_wolfram_format(self):
         from mathematica_mcp.server import read_notebook
 
-        result = json.loads(asyncio.run(
-            read_notebook(
-                str(INTEGRATION_NB), output_format="wolfram",
-                backend="python_syntax",
+        result = json.loads(
+            asyncio.run(
+                read_notebook(
+                    str(INTEGRATION_NB),
+                    output_format="wolfram",
+                    backend="python_syntax",
+                )
             )
-        ))
+        )
         assert result["success"] is True
         assert result["format"] == "wolfram"
         assert "Integrate" in result["content"]
@@ -604,12 +623,15 @@ class TestReadNotebookTool:
     def test_outline_format(self):
         from mathematica_mcp.server import read_notebook
 
-        result = json.loads(asyncio.run(
-            read_notebook(
-                str(COMPLEX_NB), output_format="outline",
-                backend="python_syntax",
+        result = json.loads(
+            asyncio.run(
+                read_notebook(
+                    str(COMPLEX_NB),
+                    output_format="outline",
+                    backend="python_syntax",
+                )
             )
-        ))
+        )
         assert result["success"] is True
         assert result["format"] == "outline"
         assert result["section_count"] >= 2
@@ -617,12 +639,15 @@ class TestReadNotebookTool:
     def test_json_format(self):
         from mathematica_mcp.server import read_notebook
 
-        result = json.loads(asyncio.run(
-            read_notebook(
-                str(COMPLEX_NB), output_format="json",
-                backend="python_syntax",
+        result = json.loads(
+            asyncio.run(
+                read_notebook(
+                    str(COMPLEX_NB),
+                    output_format="json",
+                    backend="python_syntax",
+                )
             )
-        ))
+        )
         assert result["success"] is True
         assert "cells" in result
         assert result["cell_count"] >= 1
@@ -630,14 +655,16 @@ class TestReadNotebookTool:
     def test_cell_types_filter(self):
         from mathematica_mcp.server import read_notebook
 
-        result = json.loads(asyncio.run(
-            read_notebook(
-                str(COMPLEX_NB),
-                output_format="json",
-                cell_types=["Input"],
-                backend="python_syntax",
+        result = json.loads(
+            asyncio.run(
+                read_notebook(
+                    str(COMPLEX_NB),
+                    output_format="json",
+                    cell_types=["Input"],
+                    backend="python_syntax",
+                )
             )
-        ))
+        )
         assert result["success"] is True
         for cell in result["cells"]:
             assert cell["style"] == "Input"
@@ -645,14 +672,16 @@ class TestReadNotebookTool:
     def test_exclude_outputs(self):
         from mathematica_mcp.server import read_notebook
 
-        result = json.loads(asyncio.run(
-            read_notebook(
-                str(COMPLEX_NB),
-                output_format="json",
-                include_outputs=False,
-                backend="python_syntax",
+        result = json.loads(
+            asyncio.run(
+                read_notebook(
+                    str(COMPLEX_NB),
+                    output_format="json",
+                    include_outputs=False,
+                    backend="python_syntax",
+                )
             )
-        ))
+        )
         assert result["success"] is True
         for cell in result["cells"]:
             assert cell["style"] not in ("Output", "Message", "Print")
@@ -660,34 +689,37 @@ class TestReadNotebookTool:
     def test_force_python_backend(self):
         from mathematica_mcp.server import read_notebook
 
-        result = json.loads(asyncio.run(
-            read_notebook(
-                str(INTEGRATION_NB),
-                output_format="json",
-                backend="python_syntax",
+        result = json.loads(
+            asyncio.run(
+                read_notebook(
+                    str(INTEGRATION_NB),
+                    output_format="json",
+                    backend="python_syntax",
+                )
             )
-        ))
+        )
         assert result["success"] is True
         assert result["backend"] == "python_syntax"
 
     def test_file_not_found(self):
         from mathematica_mcp.server import read_notebook
 
-        result = json.loads(asyncio.run(
-            read_notebook("/nonexistent/file.nb", backend="python_syntax")
-        ))
+        result = json.loads(asyncio.run(read_notebook("/nonexistent/file.nb", backend="python_syntax")))
         assert result["success"] is False
         assert "not found" in result["error"].lower()
 
     def test_plain_format(self):
         from mathematica_mcp.server import read_notebook
 
-        result = json.loads(asyncio.run(
-            read_notebook(
-                str(COMPLEX_NB), output_format="plain",
-                backend="python_syntax",
+        result = json.loads(
+            asyncio.run(
+                read_notebook(
+                    str(COMPLEX_NB),
+                    output_format="plain",
+                    backend="python_syntax",
+                )
             )
-        ))
+        )
         assert result["success"] is True
         assert result["format"] == "plain"
         assert "Analysis Notebook" in result["content"]
@@ -704,9 +736,7 @@ class TestBackwardCompatibility:
     def test_old_read_notebook_content_still_works(self):
         from mathematica_mcp.server import read_notebook_content
 
-        result = json.loads(asyncio.run(
-            read_notebook_content(str(INTEGRATION_NB))
-        ))
+        result = json.loads(asyncio.run(read_notebook_content(str(INTEGRATION_NB))))
         assert result["success"] is True
         assert result["cell_count"] >= 1
         assert "Integrate" in result["cells"][0]["content"]
@@ -714,36 +744,28 @@ class TestBackwardCompatibility:
     def test_old_convert_notebook_still_works(self):
         from mathematica_mcp.server import convert_notebook
 
-        result = json.loads(asyncio.run(
-            convert_notebook(str(INTEGRATION_NB), "markdown")
-        ))
+        result = json.loads(asyncio.run(convert_notebook(str(INTEGRATION_NB), "markdown")))
         assert result["success"] is True
         assert "Integrate" in result["content"]
 
     def test_old_get_notebook_outline_still_works(self):
         from mathematica_mcp.server import get_notebook_outline
 
-        result = json.loads(asyncio.run(
-            get_notebook_outline(str(COMPLEX_NB))
-        ))
+        result = json.loads(asyncio.run(get_notebook_outline(str(COMPLEX_NB))))
         assert result["success"] is True
         assert result["count"] >= 2
 
     def test_old_parse_notebook_python_still_works(self):
         from mathematica_mcp.server import parse_notebook_python
 
-        result = json.loads(asyncio.run(
-            parse_notebook_python(str(INTEGRATION_NB), "markdown")
-        ))
+        result = json.loads(asyncio.run(parse_notebook_python(str(INTEGRATION_NB), "markdown")))
         assert result["success"] is True
         assert "Integrate" in result["content"]
 
     def test_old_get_notebook_cell_still_works(self):
         from mathematica_mcp.server import get_notebook_cell
 
-        result = json.loads(asyncio.run(
-            get_notebook_cell(str(INTEGRATION_NB), 0)
-        ))
+        result = json.loads(asyncio.run(get_notebook_cell(str(INTEGRATION_NB), 0)))
         assert result["success"] is True
         assert "Integrate" in result["content"]
 
@@ -759,8 +781,7 @@ class TestWLHelperFixes:
     def test_wl_helper_uses_plain_import(self):
         """Fix 1: WL helper must use Import[file], not Import[file, {...}]."""
         wl_path = (
-            Path(__file__).resolve().parent.parent
-            / "src" / "mathematica_mcp" / "helpers" / "notebook_converter.wl"
+            Path(__file__).resolve().parent.parent / "src" / "mathematica_mcp" / "helpers" / "notebook_converter.wl"
         )
         content = wl_path.read_text()
         # Must NOT contain the broken element spec
@@ -771,8 +792,7 @@ class TestWLHelperFixes:
     def test_wl_helper_handles_cell_wrapping_cellgroupdata(self):
         """Fix 2: processTopLevel must handle Cell[CellGroupData[...], Open]."""
         wl_path = (
-            Path(__file__).resolve().parent.parent
-            / "src" / "mathematica_mcp" / "helpers" / "notebook_converter.wl"
+            Path(__file__).resolve().parent.parent / "src" / "mathematica_mcp" / "helpers" / "notebook_converter.wl"
         )
         content = wl_path.read_text()
         # Must have a pattern for Cell[CellGroupData[...], ...]
@@ -783,22 +803,31 @@ class TestWLHelperFixes:
         backend = KernelSemanticBackend()
         # Simulate kernel output with group structure
         # (as produced by the fixed WL helper)
-        sample = json.dumps({
-            "cells": [
-                {"style": "Title", "content": "My Title", "group_id": 1,
-                 "position_in_group": 1, "cell_id": 100},
-                {"style": "Text", "content": "Some text", "group_id": 1,
-                 "position_in_group": 2, "cell_id": 101},
-                {"style": "Input", "content": "1+1", "group_id": 1,
-                 "position_in_group": 3, "cell_id": 102,
-                 "cell_label": "In[1]:="},
-                {"style": "Output", "content": "2", "group_id": 1,
-                 "position_in_group": 4, "cell_id": 103,
-                 "is_generated": True},
-                {"style": "Section", "content": "Appendix", "group_id": 2,
-                 "position_in_group": 1, "cell_id": 104},
-            ],
-        })
+        sample = json.dumps(
+            {
+                "cells": [
+                    {"style": "Title", "content": "My Title", "group_id": 1, "position_in_group": 1, "cell_id": 100},
+                    {"style": "Text", "content": "Some text", "group_id": 1, "position_in_group": 2, "cell_id": 101},
+                    {
+                        "style": "Input",
+                        "content": "1+1",
+                        "group_id": 1,
+                        "position_in_group": 3,
+                        "cell_id": 102,
+                        "cell_label": "In[1]:=",
+                    },
+                    {
+                        "style": "Output",
+                        "content": "2",
+                        "group_id": 1,
+                        "position_in_group": 4,
+                        "cell_id": 103,
+                        "is_generated": True,
+                    },
+                    {"style": "Section", "content": "Appendix", "group_id": 2, "position_in_group": 1, "cell_id": 104},
+                ],
+            }
+        )
         result = backend._parse_kernel_output(sample, "/test.nb")
         assert result.cell_count == 5
         assert result.cells[0].group_id == 1
@@ -813,16 +842,12 @@ class TestViewSwitching:
         backend = PythonSyntaxBackend()
 
         # Semantic view (default)
-        result_semantic = asyncio.run(
-            backend.extract(str(COMPLEX_NB), view=CellView.SEMANTIC)
-        )
+        result_semantic = asyncio.run(backend.extract(str(COMPLEX_NB), view=CellView.SEMANTIC))
         # Raw view
-        result_raw = asyncio.run(
-            backend.extract(str(COMPLEX_NB), view=CellView.RAW)
-        )
+        result_raw = asyncio.run(backend.extract(str(COMPLEX_NB), view=CellView.RAW))
 
         # Find an Input cell that has BoxData (should have different content)
-        for sem_cell, raw_cell in zip(result_semantic.cells, result_raw.cells):
+        for sem_cell, raw_cell in zip(result_semantic.cells, result_raw.cells, strict=False):
             if sem_cell.style == "Input" and sem_cell._raw:
                 # Raw view should contain BoxData-like content
                 assert raw_cell.content == sem_cell._raw
@@ -845,11 +870,13 @@ class TestViewSwitching:
     def test_kernel_backend_stores_semantic_alternate(self):
         """Kernel backend should store semantic in alternates."""
         backend = KernelSemanticBackend()
-        sample = json.dumps({
-            "cells": [
-                {"style": "Input", "content": "Plot[Sin[x], {x, 0, 2 Pi}]"},
-            ],
-        })
+        sample = json.dumps(
+            {
+                "cells": [
+                    {"style": "Input", "content": "Plot[Sin[x], {x, 0, 2 Pi}]"},
+                ],
+            }
+        )
         result = backend._parse_kernel_output(sample, "/test.nb")
         assert result.cells[0]._semantic == "Plot[Sin[x], {x, 0, 2 Pi}]"
 
@@ -861,15 +888,17 @@ class TestIncludeOutputsFix:
         """cell_types=["Input","Output"] + include_outputs=False should exclude Output."""
         from mathematica_mcp.server import read_notebook
 
-        result = json.loads(asyncio.run(
-            read_notebook(
-                str(COMPLEX_NB),
-                output_format="json",
-                cell_types=["Input", "Output"],
-                include_outputs=False,
-                backend="python_syntax",
+        result = json.loads(
+            asyncio.run(
+                read_notebook(
+                    str(COMPLEX_NB),
+                    output_format="json",
+                    cell_types=["Input", "Output"],
+                    include_outputs=False,
+                    backend="python_syntax",
+                )
             )
-        ))
+        )
         assert result["success"] is True
         styles = {c["style"] for c in result["cells"]}
         assert "Output" not in styles
@@ -879,14 +908,16 @@ class TestIncludeOutputsFix:
         """include_outputs=True (default) should keep Output cells."""
         from mathematica_mcp.server import read_notebook
 
-        result = json.loads(asyncio.run(
-            read_notebook(
-                str(COMPLEX_NB),
-                output_format="json",
-                include_outputs=True,
-                backend="python_syntax",
+        result = json.loads(
+            asyncio.run(
+                read_notebook(
+                    str(COMPLEX_NB),
+                    output_format="json",
+                    include_outputs=True,
+                    backend="python_syntax",
+                )
             )
-        ))
+        )
         styles = {c["style"] for c in result["cells"]}
         assert "Output" in styles
 
@@ -911,14 +942,16 @@ class TestCacheEquivalence:
 
         # Parse from JSON string (uncached path)
         uncached = backend._parse_kernel_output(
-            sample_json, "/test.nb",
+            sample_json,
+            "/test.nb",
             view=CellView.SEMANTIC,
             truncation_threshold=25000,
         )
 
         # Build from dict directly (cached path — no JSON round-trip)
         cached = backend._build_result_from_data(
-            sample_data, "/test.nb",
+            sample_data,
+            "/test.nb",
             view=CellView.SEMANTIC,
             truncation_threshold=25000,
         )
@@ -927,7 +960,7 @@ class TestCacheEquivalence:
         assert uncached.title == cached.title
         assert uncached.backend == cached.backend
 
-        for uc, cc in zip(uncached.cells, cached.cells):
+        for uc, cc in zip(uncached.cells, cached.cells, strict=False):
             assert uc.content == cc.content
             assert uc.style == cc.style
             assert uc.cell_label == cc.cell_label
@@ -937,16 +970,19 @@ class TestCacheEquivalence:
     def test_parse_kernel_output_preserves_provenance(self):
         """Input→Output provenance tracking must work through parsing."""
         backend = KernelSemanticBackend()
-        sample = json.dumps({
-            "cells": [
-                {"style": "Input", "content": "x^2"},
-                {"style": "Output", "content": "x^2"},
-                {"style": "Input", "content": "1+1"},
-                {"style": "Output", "content": "2"},
-            ],
-        })
+        sample = json.dumps(
+            {
+                "cells": [
+                    {"style": "Input", "content": "x^2"},
+                    {"style": "Output", "content": "x^2"},
+                    {"style": "Input", "content": "1+1"},
+                    {"style": "Output", "content": "2"},
+                ],
+            }
+        )
         result = backend._parse_kernel_output(
-            sample, "/test.nb",
+            sample,
+            "/test.nb",
             view=CellView.SEMANTIC,
         )
         output_cells = [c for c in result.cells if c.style == "Output"]
@@ -965,7 +1001,8 @@ class TestCacheEquivalence:
             ],
         }
         result = backend._build_result_from_data(
-            data, "/test.nb",
+            data,
+            "/test.nb",
             view=CellView.SEMANTIC,
         )
         output_cells = [c for c in result.cells if c.style == "Output"]
@@ -974,9 +1011,7 @@ class TestCacheEquivalence:
 
     def test_extract_notebook_result_contract(self):
         """NotebookResult from extract_notebook must have expected structure."""
-        result = asyncio.run(
-            extract_notebook(str(INTEGRATION_NB), capability="full")
-        )
+        result = asyncio.run(extract_notebook(str(INTEGRATION_NB), capability="full"))
         assert hasattr(result, "cells")
         assert hasattr(result, "path")
         assert hasattr(result, "backend")
@@ -1005,15 +1040,19 @@ class TestCacheStaleness:
 
         with patch("mathematica_mcp.disk_cache._CACHE_DIR", tmp_path / "cache"):
             put_cached(
-                str(nb_file), "kernel_semantic",
+                str(nb_file),
+                "kernel_semantic",
                 {"cells": [{"content": "v1"}]},
-                truncation_threshold=25000, view="semantic",
+                truncation_threshold=25000,
+                view="semantic",
             )
 
             # Verify cache hit before modification
             cached = get_cached(
-                str(nb_file), "kernel_semantic",
-                truncation_threshold=25000, view="semantic",
+                str(nb_file),
+                "kernel_semantic",
+                truncation_threshold=25000,
+                view="semantic",
             )
             assert cached is not None
 
@@ -1022,15 +1061,15 @@ class TestCacheStaleness:
 
             # Cache must now miss
             cached = get_cached(
-                str(nb_file), "kernel_semantic",
-                truncation_threshold=25000, view="semantic",
+                str(nb_file),
+                "kernel_semantic",
+                truncation_threshold=25000,
+                view="semantic",
             )
             assert cached is None
 
     def test_kernel_code_includes_mtime_sentinel(self):
         """The WL code string must contain mtime for cache-busting."""
-        import os
-        backend = KernelSemanticBackend()
         # We can't run the full extract, but we can verify the code
         # would include mtime by checking the implementation
         abs_path = str(Path(INTEGRATION_NB).resolve())
@@ -1056,14 +1095,18 @@ class TestRawViewDispatchFix:
     def test_kernel_backend_marks_lossy_for_raw_view(self):
         """Kernel backend must set conversion_lossy=True for view=raw."""
         backend = KernelSemanticBackend()
-        sample = json.dumps({
-            "cells": [
-                {"style": "Input", "content": "1+1", "conversion_lossy": False},
-                {"style": "Text", "content": "hello", "conversion_lossy": False},
-            ],
-        })
+        sample = json.dumps(
+            {
+                "cells": [
+                    {"style": "Input", "content": "1+1", "conversion_lossy": False},
+                    {"style": "Text", "content": "hello", "conversion_lossy": False},
+                ],
+            }
+        )
         result = backend._parse_kernel_output(
-            sample, "/test.nb", view=CellView.RAW,
+            sample,
+            "/test.nb",
+            view=CellView.RAW,
         )
         for cell in result.cells:
             assert cell.conversion_lossy is True
@@ -1071,13 +1114,17 @@ class TestRawViewDispatchFix:
     def test_kernel_backend_not_lossy_for_semantic_view(self):
         """Kernel backend should NOT mark lossy for semantic view."""
         backend = KernelSemanticBackend()
-        sample = json.dumps({
-            "cells": [
-                {"style": "Input", "content": "1+1", "conversion_lossy": False},
-            ],
-        })
+        sample = json.dumps(
+            {
+                "cells": [
+                    {"style": "Input", "content": "1+1", "conversion_lossy": False},
+                ],
+            }
+        )
         result = backend._parse_kernel_output(
-            sample, "/test.nb", view=CellView.SEMANTIC,
+            sample,
+            "/test.nb",
+            view=CellView.SEMANTIC,
         )
         assert result.cells[0].conversion_lossy is False
 
@@ -1089,11 +1136,7 @@ class TestRawViewTruncationFix:
         """Raw content exceeding threshold must be truncated."""
         # Create a notebook with large BoxData
         large_box = "x" * 500
-        nb_content = (
-            'Notebook[{\n'
-            f'Cell[BoxData[RowBox[{{"{large_box}"}}]], "Input", CellID->1]\n'
-            '}]'
-        )
+        nb_content = f'Notebook[{{\nCell[BoxData[RowBox[{{"{large_box}"}}]], "Input", CellID->1]\n}}]'
         nb_file = tmp_path / "large.nb"
         nb_file.write_text(nb_content)
 
@@ -1120,9 +1163,7 @@ class TestRawViewTruncationFix:
     def test_semantic_view_truncation_unaffected(self):
         """Semantic view should still work with truncation as before."""
         backend = PythonSyntaxBackend()
-        result = asyncio.run(
-            backend.extract(str(INTEGRATION_NB), view=CellView.SEMANTIC)
-        )
+        result = asyncio.run(backend.extract(str(INTEGRATION_NB), view=CellView.SEMANTIC))
         # Integration.nb has small cells, no truncation expected
         for cell in result.cells:
             assert cell.was_truncated is False

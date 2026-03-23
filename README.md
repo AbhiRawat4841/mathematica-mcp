@@ -5,23 +5,26 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![Mathematica 14+](https://img.shields.io/badge/Mathematica-14+-red.svg)](https://www.wolfram.com/mathematica/)
+[![CI](https://github.com/AbhiRawat4841/mathematica-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/AbhiRawat4841/mathematica-mcp/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/AbhiRawat4841/mathematica-mcp/branch/main/graph/badge.svg)](https://codecov.io/gh/AbhiRawat4841/mathematica-mcp)
+[![PyPI](https://img.shields.io/pypi/v/mathematica-mcp-full)](https://pypi.org/project/mathematica-mcp-full/)
+
+---
+
+## Who This Is For
+
+| Audience | Use Case |
+|----------|----------|
+| Researchers using LLM coding assistants | Run Mathematica from Claude/Cursor/VS Code without leaving your editor |
+| Data scientists | Import, transform, and visualize data through natural language |
+| Educators | Create interactive Mathematica notebooks through AI conversation |
+| **Not for** | Production web services, untrusted multi-tenant environments |
 
 ---
 
 ## What is this?
 
-This **MCP Server** empowers **AI Agents & IDEs** (like Claude Desktop, Cursor, or VS Code) with a direct interface to your local **Wolfram Engine**. With **80+ tools** across configurable profiles, it enables your agent to perform **symbolic reasoning, precise calculation, and interactive visualization** natively.
-
-It works in two modes:
-*   **Inside your LLM** — Use Wolfram Language as a computational backend directly within any MCP-compatible chat interface or CLI agent. Your AI reasons, computes, and visualizes without leaving the conversation.
-*   **External notebook control** — Programmatically open, read, write, evaluate, screenshot, and export live Mathematica notebooks from outside the Mathematica GUI.
-
-**Capabilities:**
-*   **Execute Code**: Run Wolfram Language expressions in a secure sandbox.
-*   **Self-Correct**: Diagnose and fix syntax errors automatically.
-*   **Visualize**: Generate high-fidelity plots and export them as images.
-*   **Analyze Notebooks**: Parse and manipulate `.nb` files contextually.
-*   **Persist State**: Maintain a stateful session (e.g. `x = 5`) across interactions.
+An **MCP Server** that gives AI agents a direct interface to your local **Wolfram Engine**. 79 tools across configurable profiles for symbolic reasoning, visualization, and notebook control.
 
 ### Watch it in action
 
@@ -175,20 +178,57 @@ Pass `--profile` during setup or set `MATHEMATICA_PROFILE` env var. See the **[T
 
 ---
 
-## What you can do with it
+## What You Can Do
 
-*   **Symbolic computation** — Integrate, differentiate, solve equations, simplify, and verify derivations step-by-step.
-*   **Visualization** — Generate 2D/3D plots, export as PNG/SVG/PDF, create animations, and compare plots side-by-side.
-*   **Notebook operations** — Open, read, convert, and export `.nb` files. Parse notebooks offline without a running kernel.
-*   **Knowledge queries** — Access Wolfram Alpha, entity data, physical constants, and unit conversions directly from your agent.
-*   **Data workflows** — Import from 250+ formats (CSV, JSON, Excel, SQL, URLs), analyze, and export results.
-*   **Debugging** — Trace evaluation steps, time expressions, check syntax, and inspect kernel state.
+### 1. Solve and Verify a Calculus Problem
+
+> "Integrate x^2 sin(x) from 0 to pi, then verify by differentiating."
+
+```text
+Agent calls: execute_code("Integrate[x^2 Sin[x], {x, 0, Pi}]")
+=> -4 + Pi^2
+
+Agent calls: verify_derivation(
+  steps=["Integrate[x^2 Sin[x], {x, 0, Pi}]", "-4 + Pi^2"]
+)
+=> {"success": true, "report": "Step 1 → 2: ✓ VALID\n...\n**Summary**: All steps are valid!", "raw_data": {...}, "format": "text"}
+```
+
+### 2. Generate a 3D Plot
+
+> "Plot the sombrero function and export it."
+
+```text
+Agent calls: execute_code("Plot3D[Sinc[Sqrt[x^2 + y^2]], {x, -4, 4}, {y, -4, 4}]")
+=> [3D surface plot rendered as image]
+
+Agent calls: export_graphics("Plot3D[Sinc[Sqrt[x^2+y^2]], {x,-4,4}, {y,-4,4}]", "/tmp/sombrero.png", "PNG")
+```
+
+### 3. Read and Analyze a Notebook
+
+> "Show me the outline of SinPlot.nb, then extract the code cells."
+
+```text
+Agent calls: read_notebook("SinPlot.nb", output_format="outline")
+=> {"success": true, "format": "outline", "section_count": 0, "sections": []}
+
+Agent calls: read_notebook("SinPlot.nb", output_format="json")
+=> {"success": true, "cell_count": 2, "code_cells": 1, "cells": [{"style": "Input", "content": "Plot[Sin[x], {x, 0, 2 Pi}]"}, ...]}
+```
+
+Beyond these workflows: **symbolic computation**, **2D/3D visualization**, **notebook operations**, **Wolfram Alpha queries**, **data import/export** (250+ formats), and **debugging tools**. See the [Technical Reference](docs/technical-reference.md) for the full tool list.
 
 ---
 
 ## Documentation
 
-*   **[Technical Reference](docs/technical-reference.md)**: Deep dive into architecture, tools, and configuration.
+*   **[Technical Reference](docs/technical-reference.md)** — Architecture, tools, and configuration
+*   **[Security Model](SECURITY.md)** — Threat model, permissions, and vulnerability reporting
+*   **[Benchmarks](docs/benchmarks.md)** — Performance data and reproduction steps
+*   **[Contributing](CONTRIBUTING.md)** — Development setup, testing, and PR process
+*   **[Changelog](CHANGELOG.md)** — Version history
+*   **[Examples](docs/examples/)** — Polished agent session walkthroughs
 
 ---
 

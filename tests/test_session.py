@@ -6,11 +6,12 @@ using wolframscript as the execution backend.
 """
 
 import pytest
+
 from mathematica_mcp.session import (
-    execute_in_kernel,
-    _parse_association_output,
     _execute_via_wolframscript,
     _is_graphics_output,
+    _parse_association_output,
+    execute_in_kernel,
 )
 
 
@@ -263,10 +264,7 @@ class TestNumericalComputation:
         result = execute_in_kernel("NIntegrate[Sin[x^2], {x, 0, 1}]")
         assert result["success"] is True
         # Result should be approximately 0.31
-        assert (
-            "0.31" in result["output_inputform"]
-            or float(result["output_inputform"]) > 0.3
-        )
+        assert "0.31" in result["output_inputform"] or float(result["output_inputform"]) > 0.3
 
     def test_find_root(self):
         """Test root finding."""
@@ -336,10 +334,7 @@ class TestEdgeCases:
         """Test division by zero handling."""
         result = execute_in_kernel("1/0")
         assert result["success"] is True  # Should succeed but return $Failed
-        assert (
-            "$Failed" in result["output_inputform"]
-            or "ComplexInfinity" in result["output_inputform"]
-        )
+        assert "$Failed" in result["output_inputform"] or "ComplexInfinity" in result["output_inputform"]
 
     def test_indeterminate(self):
         """Test indeterminate form handling."""
@@ -443,8 +438,13 @@ class TestExecuteInKernelResponseContract:
     """
 
     REQUIRED_SUCCESS_KEYS = {
-        "success", "output", "output_inputform", "output_fullform",
-        "warnings", "timing_ms", "execution_method",
+        "success",
+        "output",
+        "output_inputform",
+        "output_fullform",
+        "warnings",
+        "timing_ms",
+        "execution_method",
     }
 
     @pytest.mark.usefixtures("require_wolfram_runtime")
@@ -480,7 +480,11 @@ class TestWolframscriptResponseContract:
     """Freeze the response shape of _execute_via_wolframscript."""
 
     REQUIRED_KEYS = {
-        "success", "output", "warnings", "timing_ms", "execution_method",
+        "success",
+        "output",
+        "warnings",
+        "timing_ms",
+        "execution_method",
     }
 
     @pytest.mark.usefixtures("require_wolfram_runtime")
@@ -497,7 +501,9 @@ class TestWolframscriptResponseContract:
     def test_missing_wolframscript_returns_failure(self, monkeypatch):
         """When wolframscript is not found, return success=False."""
         import shutil
+
         from mathematica_mcp.lazy_wolfram_tools import _clear_wolframscript_cache
+
         _clear_wolframscript_cache()
         monkeypatch.setattr(shutil, "which", lambda _: None)
         result = _execute_via_wolframscript("1 + 1")
@@ -521,15 +527,12 @@ class TestGraphicsRasterizationInvocation:
         result = execute_in_kernel("Graphics[Circle[]]", render_graphics=True)
         assert result["success"] is True
         # This MUST be true for a Graphics expression — not a conditional check
-        assert result.get("is_graphics") is True, \
-            "Graphics[Circle[]] must be detected as graphics"
-        assert "image_path" in result, \
-            "Graphics result must include image_path"
+        assert result.get("is_graphics") is True, "Graphics[Circle[]] must be detected as graphics"
+        assert "image_path" in result, "Graphics result must include image_path"
         import os
-        assert os.path.exists(result["image_path"]), \
-            "image_path must point to an existing file"
-        assert os.path.getsize(result["image_path"]) > 0, \
-            "image file must not be empty"
+
+        assert os.path.exists(result["image_path"]), "image_path must point to an existing file"
+        assert os.path.getsize(result["image_path"]) > 0, "image file must not be empty"
         os.remove(result["image_path"])
 
     @pytest.mark.usefixtures("require_wolfram_runtime")
@@ -537,8 +540,7 @@ class TestGraphicsRasterizationInvocation:
         """A non-graphics expression must NOT produce image_path."""
         result = execute_in_kernel("1 + 1", render_graphics=True)
         assert result["success"] is True
-        assert not result.get("is_graphics"), \
-            "1+1 must not be detected as graphics"
+        assert not result.get("is_graphics"), "1+1 must not be detected as graphics"
 
 
 # ============================================================================
@@ -563,7 +565,7 @@ class TestSingleSubprocessGraphics:
 
         monkeypatch.setattr(sp, "run", counting_run)
 
-        result = _execute_via_wolframscript(
+        _execute_via_wolframscript(
             "Graphics[Circle[]]",
             render_graphics=True,
         )
@@ -582,9 +584,11 @@ class TestSingleSubprocessGraphics:
                 returncode = 0
                 stdout = mock_output
                 stderr = ""
+
             return R()
 
         import shutil
+
         monkeypatch.setattr(shutil, "which", lambda _: "/usr/bin/wolframscript")
         monkeypatch.setattr(sp, "run", mock_run)
 
@@ -616,17 +620,17 @@ class TestCacheSafetyForImagePath:
             render_graphics=True,
         )
         if cached is not None:
-            assert "image_path" not in cached, \
-                "image_path must not be stored in cache"
-            assert "is_graphics" not in cached, \
-                "is_graphics must not be stored in cache"
+            assert "image_path" not in cached, "image_path must not be stored in cache"
+            assert "is_graphics" not in cached, "is_graphics must not be stored in cache"
             # Cached output should be the textual form, not placeholder
-            assert not cached["output"].startswith("[Graphics rendered"), \
+            assert not cached["output"].startswith("[Graphics rendered"), (
                 "Cached output must be textual, not placeholder"
+            )
 
         # Clean up image file if created
         if result.get("image_path"):
             import os
+
             if os.path.exists(result["image_path"]):
                 os.remove(result["image_path"])
 
@@ -636,8 +640,8 @@ class TestCacheSafetyForImagePath:
         result = execute_in_kernel("Graphics[Circle[]]", render_graphics=True)
         if result.get("is_graphics") and result.get("image_path"):
             import os
-            assert os.path.exists(result["image_path"]), \
-                "Temp file must persist for consumer to read"
+
+            assert os.path.exists(result["image_path"]), "Temp file must persist for consumer to read"
             # Clean up
             os.remove(result["image_path"])
 

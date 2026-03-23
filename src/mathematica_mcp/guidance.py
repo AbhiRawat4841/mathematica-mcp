@@ -34,8 +34,7 @@ def build_mathematica_expert_prompt(
         else "- Syntax uncertainty -> `check_syntax()`"
     )
     knowledge_line = (
-        "- Knowledge or entity query -> `wolfram_alpha()`, `entity_lookup()`, "
-        "`convert_units()`, or `get_constant()`"
+        "- Knowledge or entity query -> `wolfram_alpha()`, `entity_lookup()`, `convert_units()`, or `get_constant()`"
     )
     async_line = (
         "- Long computation (>5min) -> `submit_computation()`"
@@ -51,7 +50,7 @@ def build_mathematica_expert_prompt(
         )
         notebook_antipattern = (
             "NEVER: `create_notebook` -> `write_cell` -> `evaluate_cell` for fresh code execution\n"
-            "INSTEAD: `execute_code(code, output_target=\"notebook\")`\n"
+            'INSTEAD: `execute_code(code, output_target="notebook")`\n'
         )
 
     return f"""You are a Mathematica expert with access to a Wolfram Engine MCP server.

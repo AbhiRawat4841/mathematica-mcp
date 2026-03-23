@@ -10,11 +10,12 @@ This test suite covers:
 """
 
 import pytest
+
 from mathematica_mcp.error_analyzer import (
+    ERROR_PATTERNS,
     analyze_error,
     analyze_messages,
     format_error_for_llm,
-    ERROR_PATTERNS,
 )
 from mathematica_mcp.session import execute_in_kernel
 
@@ -158,16 +159,11 @@ class TestAnalyzeMessages:
 
     def test_part_recommendation(self):
         """Test that Part errors generate specific recommendations."""
-        messages = [
-            {"tag": "Part::partw", "text": "Part out of range", "type": "error"}
-        ]
+        messages = [{"tag": "Part::partw", "text": "Part out of range", "type": "error"}]
 
         result = analyze_messages(messages)
 
-        assert any(
-            "Length" in rec or "Dimensions" in rec
-            for rec in result["recommendations"]
-        )
+        assert any("Length" in rec or "Dimensions" in rec for rec in result["recommendations"])
 
 
 class TestFormatErrorForLLM:
@@ -188,7 +184,7 @@ class TestFormatErrorForLLM:
                 "type": "error",
             }
         ]
-        code = "CountryData[\"USA\", \"GDP\"] + Quantity[1, \"Hours\"]"
+        code = 'CountryData["USA", "GDP"] + Quantity[1, "Hours"]'
 
         result = format_error_for_llm(messages, code)
 
@@ -215,9 +211,7 @@ class TestFormatErrorForLLM:
 
     def test_format_includes_examples(self):
         """Test that formatting includes code examples."""
-        messages = [
-            {"tag": "Part::partw", "text": "Part out of range", "type": "error"}
-        ]
+        messages = [{"tag": "Part::partw", "text": "Part out of range", "type": "error"}]
         code = "list[[100]]"
 
         result = format_error_for_llm(messages, code)
@@ -269,10 +263,7 @@ class TestInlineErrorDetection:
 
         assert result["success"] is True
         # Should return ComplexInfinity or similar
-        assert (
-            "ComplexInfinity" in result["output_inputform"]
-            or "Infinity" in result["output_inputform"]
-        )
+        assert "ComplexInfinity" in result["output_inputform"] or "Infinity" in result["output_inputform"]
 
     def test_undefined_symbol_inline(self):
         """Test undefined symbol in inline execution."""
@@ -335,7 +326,7 @@ class TestErrorPatternCoverage:
 
     def test_all_patterns_analyzable(self):
         """Test that all patterns can be analyzed."""
-        for pattern in ERROR_PATTERNS.keys():
+        for pattern in ERROR_PATTERNS:
             result = analyze_error(pattern, "Test error text")
 
             assert result["matched_pattern"] == pattern

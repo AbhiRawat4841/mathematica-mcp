@@ -1,14 +1,14 @@
+import contextlib
 import hashlib
 import json
 import logging
-import platform
 import os
+import platform
 import re
 import subprocess
-import shutil
 import time
 import zlib
-from typing import Any, Dict, Optional
+from typing import Any
 
 logger = logging.getLogger("mathematica_mcp.session")
 
@@ -24,7 +24,7 @@ KERNEL_HEALTH_CHECK_INTERVAL = 5.0
 # Bounded: oldest entries evicted when ``_MAX_RASTER_ENTRIES`` is reached,
 #          and their temp files are deleted from disk.
 # ---------------------------------------------------------------------------
-from collections import OrderedDict
+from collections import OrderedDict  # noqa: E402
 
 _raster_cache: OrderedDict[str, str] = OrderedDict()
 _MAX_RASTER_ENTRIES = 50
@@ -34,7 +34,7 @@ def _raster_cache_key(code: str, image_size: int = 500) -> str:
     return hashlib.sha256(f"{code}|sz={image_size}".encode()).hexdigest()[:16]
 
 
-def _get_cached_raster(code: str, image_size: int = 500) -> Optional[str]:
+def _get_cached_raster(code: str, image_size: int = 500) -> str | None:
     """Return a cached raster file path if it exists and is valid."""
     key = _raster_cache_key(code, image_size)
     path = _raster_cache.get(key)
@@ -82,29 +82,26 @@ def clear_raster_cache() -> None:
     _raster_cache.clear()
 
 
-def _session_context(session_id: Optional[str]) -> Optional[str]:
+def _session_context(session_id: str | None) -> str | None:
     if not session_id:
         return None
     crc = zlib.crc32(session_id.encode("utf-8")) & 0xFFFFFFFF
     return f"MCP`{crc:08x}`"
 
 
-def _wrap_code_for_context(code: str, context: Optional[str]) -> str:
+def _wrap_code_for_context(code: str, context: str | None) -> str:
     if not context:
         return code
-    return (
-        f'Block[{{$Context = "{context}", $ContextPath = {{"{context}", "System`"}}}}, '
-        f"{code}]"
-    )
+    return f'Block[{{$Context = "{context}", $ContextPath = {{"{context}", "System`"}}}}, {code}]'
 
 
-def _wrap_code_for_determinism(code: str, deterministic_seed: Optional[int]) -> str:
+def _wrap_code_for_determinism(code: str, deterministic_seed: int | None) -> str:
     if deterministic_seed is None:
         return code
     return f"BlockRandom[SeedRandom[{deterministic_seed}]; {code}]"
 
 
-def find_wolfram_kernel() -> Optional[str]:
+def find_wolfram_kernel() -> str | None:
     system = platform.system()
     potential_paths: list[str] = []
 
@@ -115,7 +112,7 @@ def find_wolfram_kernel() -> Optional[str]:
             "/Applications/Wolfram Engine.app/Contents/MacOS/WolframKernel",
         ]
     elif system == "Windows":
-        program_files = os.environ.get("ProgramFiles", "C:\\Program Files")
+        program_files = os.environ.get("PROGRAMFILES", "C:\\Program Files")
         for version in ["14.2", "14.1", "14.0", "13.3", "13.2", "13.1", "13.0"]:
             potential_paths.append(
                 os.path.join(
@@ -125,9 +122,7 @@ def find_wolfram_kernel() -> Optional[str]:
             )
     elif system == "Linux":
         for version in ["14.2", "14.1", "14.0", "13.3", "13.2", "13.1", "13.0"]:
-            potential_paths.append(
-                f"/usr/local/Wolfram/Mathematica/{version}/Executables/WolframKernel"
-            )
+            potential_paths.append(f"/usr/local/Wolfram/Mathematica/{version}/Executables/WolframKernel")
 
     for path in potential_paths:
         if os.path.exists(path):
@@ -161,21 +156,15 @@ def _parse_association_output(output: str) -> dict[str, Any]:
 
     input_match = re.search(r'"output_inputform"\s*->\s*"((?:[^"\\]|\\.)*)"', output)
     if input_match:
-        result["output_inputform"] = (
-            input_match.group(1).replace('\\"', '"').replace("\\\\", "\\")
-        )
+        result["output_inputform"] = input_match.group(1).replace('\\"', '"').replace("\\\\", "\\")
 
     full_match = re.search(r'"output_fullform"\s*->\s*"((?:[^"\\]|\\.)*)"', output)
     if full_match:
-        result["output_fullform"] = (
-            full_match.group(1).replace('\\"', '"').replace("\\\\", "\\")
-        )
+        result["output_fullform"] = full_match.group(1).replace('\\"', '"').replace("\\\\", "\\")
 
     tex_match = re.search(r'"output_tex"\s*->\s*"((?:[^"\\]|\\.)*)"', output)
     if tex_match:
-        result["output_tex"] = (
-            tex_match.group(1).replace('\\"', '"').replace("\\\\", "\\")
-        )
+        result["output_tex"] = tex_match.group(1).replace('\\"', '"').replace("\\\\", "\\")
 
     msg_match = re.search(r'"messages"\s*->\s*"((?:[^"\\]|\\.)*)"', output)
 
@@ -198,8 +187,8 @@ def _execute_via_wolframscript(
     output_format: str = "text",
     *,
     timeout: int = 60,
-    deterministic_seed: Optional[int] = None,
-    session_id: Optional[str] = None,
+    deterministic_seed: int | None = None,
+    session_id: str | None = None,
     isolate_context: bool = False,
     render_graphics: bool = False,
     image_size: int = 500,
@@ -210,6 +199,7 @@ def _execute_via_wolframscript(
     same subprocess invocation (no second process needed).
     """
     from .lazy_wolfram_tools import _find_wolframscript
+
     wolframscript = _find_wolframscript()
     if not wolframscript:
         return {
@@ -232,6 +222,7 @@ def _execute_via_wolframscript(
 
     # Prepare temp file for optional graphics rasterization
     import tempfile
+
     raster_temp_path = ""
     if render_graphics:
         fd, raster_temp_path = tempfile.mkstemp(suffix=".png")
@@ -315,9 +306,7 @@ Module[{{startTime, result, messages, timing, response, outInput, outFull="", ou
             output_fullform = parsed.get("output_fullform", "")
             output_tex = parsed.get("output_tex", "")
             messages_str = parsed.get("messages", "")
-            warnings_list = (
-                [messages_str] if messages_str and messages_str != "{}" else []
-            )
+            warnings_list = [messages_str] if messages_str and messages_str != "{}" else []
         except json.JSONDecodeError:
             # Fallback to robust Association parser for older Mathematica
             parsed = _parse_association_output(output)
@@ -326,9 +315,7 @@ Module[{{startTime, result, messages, timing, response, outInput, outFull="", ou
             output_fullform = parsed.get("output_fullform", "")
             output_tex = parsed.get("output_tex", "")
             messages_str = parsed.get("messages", "")
-            warnings_list = (
-                [messages_str] if messages_str and messages_str != "{}" else []
-            )
+            warnings_list = [messages_str] if messages_str and messages_str != "{}" else []
 
         response: dict[str, Any] = {
             "success": True,
@@ -396,10 +383,8 @@ def get_kernel_session():
             return _kernel_session
         except Exception:
             logger.warning("Kernel session unresponsive, recreating...")
-            try:
+            with contextlib.suppress(Exception):
                 _kernel_session.terminate()
-            except Exception:
-                pass
             _kernel_session = None
 
     try:
@@ -425,9 +410,7 @@ def get_kernel_session():
         logger.info(f"Kernel session ready: {kernel_path}")
         return _kernel_session
     except Exception as e:
-        logger.warning(
-            f"WolframLanguageSession failed ({e}), falling back to wolframscript"
-        )
+        logger.warning(f"WolframLanguageSession failed ({e}), falling back to wolframscript")
         _use_wolframscript = True
         return None
 
@@ -435,10 +418,8 @@ def get_kernel_session():
 def close_kernel_session():
     global _kernel_session, _last_kernel_health_check
     if _kernel_session is not None:
-        try:
+        with contextlib.suppress(Exception):
             _kernel_session.terminate()
-        except Exception:
-            pass
         _kernel_session = None
         _last_kernel_health_check = 0.0
         logger.info("Closed kernel session")
@@ -463,11 +444,12 @@ def _is_graphics_output(output: str) -> bool:
     return any(output_stripped.startswith(p) for p in graphics_patterns)
 
 
-def _rasterize_via_wolframscript(code: str, image_size: int = 500) -> Optional[str]:
+def _rasterize_via_wolframscript(code: str, image_size: int = 500) -> str | None:
     """Rasterize a graphics expression via wolframscript, return temp file path."""
     import tempfile
 
     from .lazy_wolfram_tools import _find_wolframscript
+
     wolframscript = _find_wolframscript()
     if not wolframscript:
         return None
@@ -513,9 +495,7 @@ Module[{{result, img}},
         return None
 
 
-def _cache_textual_result(
-    cache, code: str, response: dict[str, Any], **cache_kwargs
-) -> None:
+def _cache_textual_result(cache, code: str, response: dict[str, Any], **cache_kwargs) -> None:
     """Cache only the textual pre-rasterization result.
 
     Strips image_path, is_graphics, and rendered_image so that cache hits
@@ -539,8 +519,8 @@ def execute_in_kernel(
     output_format: str = "text",
     *,
     render_graphics: bool = True,
-    deterministic_seed: Optional[int] = None,
-    session_id: Optional[str] = None,
+    deterministic_seed: int | None = None,
+    session_id: str | None = None,
     isolate_context: bool = False,
     timeout: int = 60,
 ) -> dict[str, Any]:
@@ -596,7 +576,9 @@ def execute_in_kernel(
         if result.get("success"):
             # Cache only the textual pre-rasterization result
             _cache_textual_result(
-                _query_cache, code, result,
+                _query_cache,
+                code,
+                result,
                 output_format=output_format,
                 render_graphics=render_graphics,
                 deterministic_seed=deterministic_seed,
@@ -655,9 +637,7 @@ Module[{{res = {wrapped_code}, imgPath = "{wl_raster_path}", didRaster = False}}
         timing_ms = int((time.time() - start_time) * 1000)
 
         if isinstance(combined_result, dict):
-            output_inputform = str(
-                combined_result.get("inputform", str(combined_result.get("result", "")))
-            )
+            output_inputform = str(combined_result.get("inputform", str(combined_result.get("result", ""))))
             output_fullform = str(combined_result.get("fullform", ""))
             output_tex = str(combined_result.get("tex", ""))
         else:
@@ -695,7 +675,9 @@ Module[{{res = {wrapped_code}, imgPath = "{wl_raster_path}", didRaster = False}}
 
         # Cache only the textual pre-rasterization result
         _cache_textual_result(
-            _query_cache, code, response,
+            _query_cache,
+            code,
+            response,
             output_format=output_format,
             render_graphics=render_graphics,
             deterministic_seed=deterministic_seed,

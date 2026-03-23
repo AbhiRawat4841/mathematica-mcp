@@ -69,7 +69,8 @@ def bench_cold_import():
     for _ in range(3):
         r = subprocess.run(
             [sys.executable, "-c", script],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
             env={**os.environ, "PYTHONPATH": SRC_ROOT},
             cwd=REPO_ROOT,
         )
@@ -81,6 +82,7 @@ def bench_cold_import():
 def bench_symbol_index_build():
     """Measure one-time symbol index build cost."""
     from mathematica_mcp import symbol_index
+
     symbol_index.invalidate()
 
     times = _timed(symbol_index._build_index_sync, iterations=1)
@@ -103,10 +105,10 @@ def bench_symbol_index_search():
     a usage-hydration subprocess on the first call for each symbol set.
     """
     from mathematica_mcp import symbol_index
+
     symbol_index.ensure_index()
 
-    queries = ["Plot", "Sin", "Integrate", "Table", "NDSolve",
-               "Graphics", "List", "Map", "Sort", "Select"]
+    queries = ["Plot", "Sin", "Integrate", "Table", "NDSolve", "Graphics", "List", "Map", "Sort", "Select"]
     all_times = []
     per_query = {}
     for q in queries:
@@ -128,6 +130,7 @@ def bench_symbol_subprocess():
     This is what every resolve_function call paid before the index existed.
     """
     import shutil
+
     ws = shutil.which("wolframscript")
     if not ws:
         return {"name": "symbol_subprocess_old", "skipped": True, "reason": "wolframscript not found"}
@@ -136,11 +139,15 @@ def bench_symbol_subprocess():
     all_times = []
     per_query = {}
     for q in queries:
+
         def run(q=q):
             subprocess.run(
                 [ws, "-code", f'Names["*{q}*"]'],
-                capture_output=True, text=True, timeout=30,
+                capture_output=True,
+                text=True,
+                timeout=30,
             )
+
         times = _timed(run, iterations=2)
         all_times.extend(times)
         per_query[q] = round(statistics.mean(times), 1)
@@ -162,6 +169,7 @@ def bench_lookup_end_to_end():
     This is a before/after comparison within the same run.
     """
     import shutil
+
     from mathematica_mcp import symbol_index
     from mathematica_mcp.server import _lookup_symbols_in_kernel
 
@@ -174,6 +182,7 @@ def bench_lookup_end_to_end():
     # --- Before: index cold (subprocess fallback) ---
     symbol_index.invalidate()
     from unittest.mock import patch
+
     cold_times = []
     for q in queries:
         with patch.object(symbol_index, "ensure_index", return_value=False):
@@ -205,8 +214,11 @@ def bench_raster_cache():
     overhead; the real savings are the avoided subprocess calls.
     """
     from mathematica_mcp.session import (
-        _get_cached_raster, _put_cached_raster, clear_raster_cache,
+        _get_cached_raster,
+        _put_cached_raster,
+        clear_raster_cache,
     )
+
     clear_raster_cache()
 
     fd, path = tempfile.mkstemp(suffix=".png")
@@ -237,6 +249,7 @@ def bench_notebook_python_parse():
         return {"name": "notebook_python_parse", "skipped": True, "reason": "Integration.nb not found"}
 
     import asyncio
+
     from mathematica_mcp.notebook_backend import PythonSyntaxBackend
 
     backend = PythonSyntaxBackend()
@@ -264,6 +277,7 @@ def bench_notebook_python_parse():
 def bench_cache_epoch():
     """Measure query cache hit/miss with epoch in key."""
     from types import SimpleNamespace
+
     import mathematica_mcp.cache as cache_mod
 
     original = cache_mod.FEATURES
@@ -295,6 +309,7 @@ def bench_telemetry_overhead():
     """Measure telemetry wrapper cost (enabled vs disabled)."""
     import asyncio
     from types import SimpleNamespace
+
     import mathematica_mcp.telemetry as tel
 
     original = tel.FEATURES
@@ -346,9 +361,9 @@ def run_all():
 
     results = []
     for label, fn in benchmarks:
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"  {label}")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
         try:
             r = fn()
             results.append(r)
@@ -356,8 +371,10 @@ def run_all():
             if r.get("skipped"):
                 print(f"  SKIPPED: {r.get('reason')}")
             elif "mean_ms" in r:
-                print(f"  mean={r['mean_ms']:.3f}ms  median={r['median_ms']:.3f}ms  "
-                      f"min={r['min_ms']:.3f}ms  max={r['max_ms']:.3f}ms")
+                print(
+                    f"  mean={r['mean_ms']:.3f}ms  median={r['median_ms']:.3f}ms  "
+                    f"min={r['min_ms']:.3f}ms  max={r['max_ms']:.3f}ms"
+                )
             else:
                 for k, v in r.items():
                     if k == "name":
@@ -392,9 +409,9 @@ def save_results(results, suffix):
 
 def print_comparison(results):
     """Print a human-readable comparison table."""
-    print(f"\n{'='*72}")
+    print(f"\n{'=' * 72}")
     print("  PERFORMANCE SUMMARY")
-    print(f"{'='*72}")
+    print(f"{'=' * 72}")
 
     for r in results:
         name = r.get("name", "?")
@@ -421,8 +438,9 @@ def print_comparison(results):
             d = r["disabled"]
             e = r["enabled"]
             overhead = e["mean_ms"] - d["mean_ms"]
-            print(f"  {name:<30} disabled={d['mean_ms']:.4f}ms  "
-                  f"enabled={e['mean_ms']:.4f}ms  overhead={overhead:.4f}ms")
+            print(
+                f"  {name:<30} disabled={d['mean_ms']:.4f}ms  enabled={e['mean_ms']:.4f}ms  overhead={overhead:.4f}ms"
+            )
         elif "per_query_mean_ms" in r:
             pq = r["per_query_mean_ms"]
             avg = statistics.mean(pq.values())

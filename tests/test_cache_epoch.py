@@ -7,8 +7,9 @@ within the same epoch.
 
 from __future__ import annotations
 
-import pytest
 from types import SimpleNamespace
+
+import pytest
 
 
 @pytest.fixture(autouse=True)
@@ -167,6 +168,7 @@ class TestMutatorsBumpEpoch:
 
     def test_restart_kernel_bumps_epoch(self, monkeypatch):
         import asyncio
+
         import mathematica_mcp.cache as cache_mod
 
         srv = self._make_monkeypatch_server(monkeypatch)
@@ -183,6 +185,7 @@ class TestMutatorsBumpEpoch:
 
     def test_set_variable_bumps_epoch(self, monkeypatch):
         import asyncio
+
         import mathematica_mcp.cache as cache_mod
 
         srv = self._make_monkeypatch_server(monkeypatch)
@@ -194,6 +197,7 @@ class TestMutatorsBumpEpoch:
 
     def test_clear_variables_bumps_epoch(self, monkeypatch):
         import asyncio
+
         import mathematica_mcp.cache as cache_mod
 
         srv = self._make_monkeypatch_server(monkeypatch)
@@ -205,6 +209,7 @@ class TestMutatorsBumpEpoch:
 
     def test_run_script_bumps_epoch(self, monkeypatch):
         import asyncio
+
         import mathematica_mcp.cache as cache_mod
 
         srv = self._make_monkeypatch_server(monkeypatch)
@@ -216,6 +221,7 @@ class TestMutatorsBumpEpoch:
 
     def test_load_package_bumps_epoch(self, monkeypatch):
         import asyncio
+
         import mathematica_mcp.cache as cache_mod
 
         srv = self._make_monkeypatch_server(monkeypatch)
@@ -266,8 +272,9 @@ class TestCacheCorrectnessLifecycle:
 
     def test_restart_clears_both_caches(self, monkeypatch):
         import asyncio
-        import mathematica_mcp.server as srv
+
         import mathematica_mcp.cache as cache_mod
+        import mathematica_mcp.server as srv
 
         # Mock addon.
         async def fake_addon_result(command, params=None):

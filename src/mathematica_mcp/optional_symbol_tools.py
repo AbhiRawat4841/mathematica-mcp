@@ -2,9 +2,8 @@ from __future__ import annotations
 
 import json
 import re
-import shutil
 import subprocess
-from typing import Literal, Optional
+from typing import Literal
 
 from mcp.server.fastmcp import FastMCP
 
@@ -23,7 +22,7 @@ def register_symbol_lookup_tools(
     @mcp.tool()
     async def resolve_function(
         query: str,
-        expression: Optional[str] = None,
+        expression: str | None = None,
         auto_execute: bool = True,
         max_candidates: int = 5,
         output_target: Literal["cli", "notebook"] = "cli",
@@ -72,6 +71,7 @@ def register_symbol_lookup_tools(
         # Also search Global symbols so user-defined names are not lost.
         if system_only or not candidates_raw:
             from .lazy_wolfram_tools import _find_wolframscript
+
             wolframscript = _find_wolframscript()
             if wolframscript:
                 try:
@@ -104,9 +104,7 @@ def register_symbol_lookup_tools(
 
         # Lazy metadata hydration: fetch usage for top candidates that lack it.
         symbols_needing_usage = [
-            c.get("symbol_name", c.get("symbol", ""))
-            for c in top_candidates
-            if not c.get("usage")
+            c.get("symbol_name", c.get("symbol", "")) for c in top_candidates if not c.get("usage")
         ]
         if symbols_needing_usage:
             usage_map = hydrate_usage(symbols_needing_usage)
@@ -148,21 +146,15 @@ def register_symbol_lookup_tools(
                 "resolved_symbol": resolved_symbol["symbol"],
                 "description": resolved_symbol["description"],
                 "example": resolved_symbol["example"],
-                "other_candidates": formatted_candidates[1:]
-                if len(formatted_candidates) > 1
-                else [],
+                "other_candidates": formatted_candidates[1:] if len(formatted_candidates) > 1 else [],
             }
 
             if auto_execute and expression:
-                exec_result = await execute_code(
-                    code=expression, format="text", output_target=output_target
-                )
+                exec_result = await execute_code(code=expression, format="text", output_target=output_target)
                 response["execution"] = {
                     "executed": True,
                     "expression": expression,
-                    "result": json.loads(exec_result)
-                    if exec_result.startswith("{")
-                    else exec_result,
+                    "result": json.loads(exec_result) if exec_result.startswith("{") else exec_result,
                 }
 
             return json.dumps(response, indent=2)
@@ -190,11 +182,10 @@ def register_symbol_lookup_tools(
             return json.dumps(cached, indent=2)
 
         from .lazy_wolfram_tools import _find_wolframscript
+
         wolframscript = _find_wolframscript()
         if not wolframscript:
-            return json.dumps(
-                {"success": False, "error": "wolframscript not found in PATH"}, indent=2
-            )
+            return json.dumps({"success": False, "error": "wolframscript not found in PATH"}, indent=2)
 
         info_code = f"""
 Module[{{sym, info, usage, opts, attrs, syntaxInfo, relatedSyms, examples}},
@@ -269,9 +260,7 @@ Module[{{sym, info, usage, opts, attrs, syntaxInfo, relatedSyms, examples}},
                 indent=2,
             )
         except Exception as e:
-            return json.dumps(
-                {"success": False, "error": str(e), "symbol": symbol}, indent=2
-            )
+            return json.dumps({"success": False, "error": str(e), "symbol": symbol}, indent=2)
 
     @mcp.tool()
     async def suggest_similar_functions(query: str) -> str:
@@ -286,21 +275,17 @@ Module[{{sym, info, usage, opts, attrs, syntaxInfo, relatedSyms, examples}},
                 {
                     "success": True,
                     "query": query,
-                    "matches": [
-                        {"name": m, "usage": usage_map.get(m, "")}
-                        for m in matches
-                    ],
+                    "matches": [{"name": m, "usage": usage_map.get(m, "")} for m in matches],
                 },
                 indent=2,
             )
 
         # Fallback: subprocess.
         from .lazy_wolfram_tools import _find_wolframscript
+
         wolframscript = _find_wolframscript()
         if not wolframscript:
-            return json.dumps(
-                {"success": False, "error": "wolframscript not found"}, indent=2
-            )
+            return json.dumps({"success": False, "error": "wolframscript not found"}, indent=2)
 
         code = f'''
 Module[{{query, matches}},

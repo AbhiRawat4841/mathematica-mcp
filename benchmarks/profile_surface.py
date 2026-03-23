@@ -7,13 +7,12 @@ import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from mathematica_mcp.config import FeatureFlags, VALID_PROFILES  # noqa: E402
+from mathematica_mcp.config import VALID_PROFILES, FeatureFlags  # noqa: E402
 
 
 @dataclass
@@ -37,9 +36,7 @@ async def _collect_profile(profile: str) -> ProfileSurface:
 
     tools = await server.mcp.list_tools()
     tool_names = sorted(tool.name for tool in tools)
-    schema_bytes = len(
-        json.dumps([tool.model_dump(mode="json") for tool in tools], sort_keys=True)
-    )
+    schema_bytes = len(json.dumps([tool.model_dump(mode="json") for tool in tools], sort_keys=True))
     return ProfileSurface(
         profile=profile,
         tool_count=len(tool_names),

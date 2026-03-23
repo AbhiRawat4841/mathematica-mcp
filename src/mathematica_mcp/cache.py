@@ -1,8 +1,8 @@
 import hashlib
 import time
 from collections import OrderedDict
-from typing import Dict, Any, Optional
 from dataclasses import dataclass, field
+from typing import Any
 
 from .config import FEATURES
 
@@ -17,7 +17,7 @@ class CachedExpression:
     last_accessed: float = field(default_factory=time.time)
 
 
-_expression_cache: Dict[str, CachedExpression] = {}
+_expression_cache: dict[str, CachedExpression] = {}
 
 # Kernel state epoch – monotonically increasing counter included in query
 # cache keys.  Bumped by any operation that mutates kernel state (e.g.
@@ -55,7 +55,7 @@ NON_CACHEABLE_PATTERNS = [
 
 class QueryCache:
     def __init__(self, max_size: int = 1000, ttl_seconds: float = 3600):
-        self._cache: OrderedDict[str, Dict[str, Any]] = OrderedDict()
+        self._cache: OrderedDict[str, dict[str, Any]] = OrderedDict()
         self.max_size = max_size
         self.ttl = ttl_seconds
         self.hits = 0
@@ -66,8 +66,8 @@ class QueryCache:
         code: str,
         output_format: str,
         render_graphics: bool,
-        deterministic_seed: Optional[int],
-        context_key: Optional[str],
+        deterministic_seed: int | None,
+        context_key: str | None,
     ) -> str:
         normalized = " ".join(code.split())
         options = (
@@ -85,15 +85,13 @@ class QueryCache:
         *,
         output_format: str = "text",
         render_graphics: bool = True,
-        deterministic_seed: Optional[int] = None,
-        context_key: Optional[str] = None,
-    ) -> Optional[Dict[str, Any]]:
+        deterministic_seed: int | None = None,
+        context_key: str | None = None,
+    ) -> dict[str, Any] | None:
         if not FEATURES.expression_cache or not self._is_cacheable(code):
             return None
 
-        key = self._hash_code(
-            code, output_format, render_graphics, deterministic_seed, context_key
-        )
+        key = self._hash_code(code, output_format, render_graphics, deterministic_seed, context_key)
         if key not in self._cache:
             self.misses += 1
             return None
@@ -112,19 +110,17 @@ class QueryCache:
     def put(
         self,
         code: str,
-        result: Dict[str, Any],
+        result: dict[str, Any],
         *,
         output_format: str = "text",
         render_graphics: bool = True,
-        deterministic_seed: Optional[int] = None,
-        context_key: Optional[str] = None,
+        deterministic_seed: int | None = None,
+        context_key: str | None = None,
     ) -> None:
         if not FEATURES.expression_cache or not self._is_cacheable(code):
             return
 
-        key = self._hash_code(
-            code, output_format, render_graphics, deterministic_seed, context_key
-        )
+        key = self._hash_code(code, output_format, render_graphics, deterministic_seed, context_key)
         while len(self._cache) >= self.max_size:
             self._cache.popitem(last=False)
 
@@ -135,7 +131,7 @@ class QueryCache:
             "access_count": 0,
         }
 
-    def stats(self) -> Dict[str, Any]:
+    def stats(self) -> dict[str, Any]:
         total = self.hits + self.misses
         return {
             "size": len(self._cache),
@@ -167,7 +163,7 @@ def cache_expression(name: str, expression: str, result: str) -> bool:
     return True
 
 
-def get_cached_expression(name: str) -> Optional[CachedExpression]:
+def get_cached_expression(name: str) -> CachedExpression | None:
     if not FEATURES.expression_cache:
         return None
 
@@ -178,13 +174,11 @@ def get_cached_expression(name: str) -> Optional[CachedExpression]:
     return cached
 
 
-def list_cached_expressions() -> Dict[str, Dict[str, Any]]:
+def list_cached_expressions() -> dict[str, dict[str, Any]]:
     return {
         name: {
             "expression": item.expression,
-            "result_preview": item.result[:100] + "..."
-            if len(item.result) > 100
-            else item.result,
+            "result_preview": item.result[:100] + "..." if len(item.result) > 100 else item.result,
             "access_count": item.access_count,
             "age_seconds": int(time.time() - item.created_at),
         }

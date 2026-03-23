@@ -65,7 +65,7 @@ def test_convert_notebook_markdown_avoids_subprocess(monkeypatch):
 def test_get_notebook_outline_uses_parser_for_sections(tmp_path: Path):
     notebook_path = tmp_path / "outline.nb"
     notebook_path.write_text(
-        '\n'.join(
+        "\n".join(
             [
                 "Notebook[{",
                 'Cell["Doc Title", "Title"],',

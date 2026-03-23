@@ -1,0 +1,82 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_call:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v4
+      - run: uv sync --frozen --extra dev
+      - run: uv run ruff check src/ tests/ benchmarks/
+      - run: uv run ruff format --check src/ tests/ benchmarks/
+
+  test:
+    needs: lint
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: ["3.10", "3.11", "3.12"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - uses: astral-sh/setup-uv@v4
+      - run: uv sync --frozen --extra dev
+      - run: >
+          uv run pytest tests/ -v --tb=short
+          --cov=src/mathematica_mcp
+          --cov-report=xml
+          --cov-report=term-missing
+      - uses: codecov/codecov-action@v4
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        with:
+          files: coverage.xml
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v4
+      - run: uv build
+      - name: Verify wheel contains bundled addon
+        run: |
+          python -m pip install --no-deps dist/*.whl --target /tmp/whl-verify
+          python -c "
+          import pathlib, sys
+          sys.path.insert(0, '/tmp/whl-verify')
+          addon = pathlib.Path('/tmp/whl-verify/mathematica_mcp/addon')
+          assert (addon / 'MathematicaMCP.wl').exists(), 'Missing MathematicaMCP.wl in wheel'
+          assert (addon / 'install.wl').exists(), 'Missing install.wl in wheel'
+          from mathematica_mcp.config import FeatureFlags
+          print('Wheel OK')
+          "
+      - name: Verify sdist installs cleanly
+        run: |
+          python -m pip install --no-deps dist/*.tar.gz --target /tmp/sdist-verify
+          python -c "
+          import pathlib, sys
+          sys.path.insert(0, '/tmp/sdist-verify')
+          addon = pathlib.Path('/tmp/sdist-verify/mathematica_mcp/addon')
+          assert (addon / 'MathematicaMCP.wl').exists(), 'Missing MathematicaMCP.wl in sdist'
+          assert (addon / 'install.wl').exists(), 'Missing install.wl in sdist'
+          from mathematica_mcp.config import FeatureFlags
+          print('Sdist OK')
+          "

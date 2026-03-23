@@ -1,22 +1,29 @@
 import asyncio
+import difflib
 import json
 import logging
 import os
 import re
-import difflib
-from typing import Callable, Literal, Optional, List, Dict, Any
+from collections.abc import Callable
+from typing import Any, Literal
 
 from mcp.server.fastmcp import FastMCP, Image
 
-from .connection import get_mathematica_connection, close_connection
-from .session import (
-    clear_raster_cache,
-    execute_in_kernel,
-    get_kernel_session,
-    close_kernel_session,
-    _is_graphics_output,
+from .cache import (
+    _query_cache,
+    bump_kernel_epoch,
+    clear_cache,
+    list_cached_expressions,
+)
+from .cache import (
+    cache_expression as _cache_expr,
+)
+from .cache import (
+    get_cached_expression as _get_cached,
 )
 from .config import FEATURES
+from .connection import get_mathematica_connection
+from .error_analyzer import analyze_messages, format_error_for_llm
 from .guidance import (
     build_mathematica_expert_prompt,
     create_notebook_doc,
@@ -27,25 +34,19 @@ from .guidance import (
     read_notebook_doc,
     write_cell_doc,
 )
+from .session import (
+    clear_raster_cache,
+    close_kernel_session,
+    execute_in_kernel,
+    get_kernel_session,
+)
 from .telemetry import get_usage_stats, reset_stats
-from .cache import (
-    _query_cache,
-    bump_kernel_epoch,
-    cache_expression as _cache_expr,
-    get_cached_expression as _get_cached,
-    list_cached_expressions,
-    clear_cache,
-    remove_cached_expression,
-)
-from .error_analyzer import analyze_messages, format_error_for_llm
 
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("mathematica_mcp")
 
 mcp = FastMCP("mathematica-mcp")
-_CORE_TOOL_REGISTRY: List[tuple[str, Callable[..., Any]]] = []
+_CORE_TOOL_REGISTRY: list[tuple[str, Callable[..., Any]]] = []
 
 
 def _tool(group: str):
@@ -76,13 +77,13 @@ async def _run_blocking(func, *args, **kwargs):
 
 async def _addon_result(
     command: str,
-    params: Optional[dict] = None,
-    timeout: Optional[float] = None,
+    params: dict | None = None,
+    timeout: float | None = None,
 ) -> dict:
     return await _run_blocking(_try_addon_command, command, params, timeout)
 
 
-async def _addon_json(command: str, params: Optional[dict] = None) -> str:
+async def _addon_json(command: str, params: dict | None = None) -> str:
     return _json_response(await _addon_result(command, params))
 
 
@@ -124,7 +125,7 @@ def _attach_image_if_valid(result: dict) -> None:
             result["output"] = result["output_inputform"]
 
 
-def _hydrate_usage(symbols: List[str]) -> Dict[str, str]:
+def _hydrate_usage(symbols: list[str]) -> dict[str, str]:
     """Batch-fetch usage strings for *symbols* via a single subprocess call.
 
     Returns a dict mapping symbol name → usage string.  Cached results
@@ -132,8 +133,8 @@ def _hydrate_usage(symbols: List[str]) -> Dict[str, str]:
     """
     from . import symbol_index
 
-    result: Dict[str, str] = {}
-    uncached: List[str] = []
+    result: dict[str, str] = {}
+    uncached: list[str] = []
 
     for sym in symbols:
         meta = symbol_index.get_cached_metadata(sym)
@@ -154,9 +155,7 @@ def _hydrate_usage(symbols: List[str]) -> Dict[str, str]:
     import subprocess
 
     sym_list = ", ".join(f'"{s}"' for s in uncached)
-    code = (
-        f'Association[Map[# -> Quiet[Check[ToString[ToExpression[# <> "::usage"]], ""]] &, {{{sym_list}}}]]'
-    )
+    code = f'Association[Map[# -> Quiet[Check[ToString[ToExpression[# <> "::usage"]], ""]] &, {{{sym_list}}}]]'
 
     try:
         proc = subprocess.run(
@@ -179,7 +178,7 @@ def _hydrate_usage(symbols: List[str]) -> Dict[str, str]:
     return result
 
 
-def _lookup_symbols_in_kernel(query: str) -> Dict[str, Any]:
+def _lookup_symbols_in_kernel(query: str) -> dict[str, Any]:
     """Search for Wolfram symbols matching *query*.
 
     Tries the in-memory symbol index first (pure Python, no subprocess).
@@ -241,16 +240,16 @@ Module[{{query, candidates, systemMatches, globalMatches, allMatches, getInfo}},
         return {"success": False, "error": str(e)}
 
 
-def _parse_wolfram_association(raw: str) -> Dict[str, Any]:
+def _parse_wolfram_association(raw: str) -> dict[str, Any]:
     """Convert Wolfram Association syntax (<|...|>) to Python dict."""
     try:
         s = raw.strip()
         # Remove newlines within the association (multiline Mathematica output)
-        s = re.sub(r'\n\s*', ' ', s)
+        s = re.sub(r"\n\s*", " ", s)
         # Remove carriage returns
-        s = s.replace('\r', '')
+        s = s.replace("\r", "")
         # Handle fractions like 100584/625 - quote them as strings
-        s = re.sub(r':\s*(\d+)/(\d+)\s*([,}])', r': "\1/\2"\3', s)
+        s = re.sub(r":\s*(\d+)/(\d+)\s*([,}])", r': "\1/\2"\3', s)
         # Convert Association delimiters
         s = re.sub(r"<\|", "{", s)
         s = re.sub(r"\|>", "}", s)
@@ -260,10 +259,9 @@ def _parse_wolfram_association(raw: str) -> Dict[str, Any]:
         s = s.replace("True", "true").replace("False", "false").replace("Null", "null")
         # Quote unquoted symbols (identifiers starting with letter, may contain ` $ digits)
         # But be careful not to match already quoted strings or numbers
-        s = re.sub(r':\s*([A-Za-z][A-Za-z0-9`$]*(?:\s+[A-Za-z][A-Za-z0-9`$]*)*)\s*([,}])', 
-                   r': "\1"\2', s)
+        s = re.sub(r":\s*([A-Za-z][A-Za-z0-9`$]*(?:\s+[A-Za-z][A-Za-z0-9`$]*)*)\s*([,}])", r': "\1"\2', s)
         # Handle special Mathematica output like "100584 kilometers" with line breaks
-        s = re.sub(r':\s*(\d+)\s+([A-Za-z]+)\s*([,}])', r': "\1 \2"\3', s)
+        s = re.sub(r":\s*(\d+)\s+([A-Za-z]+)\s*([,}])", r': "\1 \2"\3', s)
         return json.loads(s)
     except Exception:
         return {"success": True, "raw": raw, "parse_error": True}
@@ -293,7 +291,7 @@ def _extract_example_signature(usage: str, symbol: str) -> str:
     return f"{symbol}[...]"
 
 
-def _rank_candidates(query: str, candidates: List[Dict]) -> List[Dict]:
+def _rank_candidates(query: str, candidates: list[dict]) -> list[dict]:
     """Rank symbol candidates by relevance using exact/prefix/similarity scoring."""
     query_lower = query.lower()
     scored = []
@@ -328,8 +326,8 @@ def _rank_candidates(query: str, candidates: List[Dict]) -> List[Dict]:
 
 def _try_addon_command(
     command: str,
-    params: Optional[dict] = None,
-    timeout: Optional[float] = None,
+    params: dict | None = None,
+    timeout: float | None = None,
 ) -> dict:
     try:
         conn = get_mathematica_connection()
@@ -379,35 +377,29 @@ async def get_notebooks() -> str:
 
 
 @_tool("notebook_primary")
-async def get_notebook_info(
-    notebook: Optional[str] = None, session_id: Optional[str] = None
-) -> str:
+async def get_notebook_info(notebook: str | None = None, session_id: str | None = None) -> str:
     """Get details about a notebook (filename, directory, cell count)."""
-    result = await _addon_result(
-        "get_notebook_info", {"notebook": notebook, "session_id": session_id}
-    )
+    result = await _addon_result("get_notebook_info", {"notebook": notebook, "session_id": session_id})
     return _json_response(result)
 
 
 @_tool("notebook_advanced")
-async def create_notebook(title: str = "Untitled", session_id: Optional[str] = None) -> str:
+async def create_notebook(title: str = "Untitled", session_id: str | None = None) -> str:
     """Create a new empty notebook. Returns notebook ID.
-    
+
     NOTE: For executing code in a notebook, prefer execute_code(code, output_target="notebook")
     which handles notebook creation, cell writing, and evaluation atomically.
     """
-    result = await _addon_result(
-        "create_notebook", {"title": title, "session_id": session_id}
-    )
+    result = await _addon_result("create_notebook", {"title": title, "session_id": session_id})
     return _json_response(result)
 
 
 @_tool("notebook_primary")
 async def save_notebook(
-    notebook: Optional[str] = None,
-    path: Optional[str] = None,
+    notebook: str | None = None,
+    path: str | None = None,
     format: Literal["Notebook", "PDF", "HTML", "TeX"] = "Notebook",
-    session_id: Optional[str] = None,
+    session_id: str | None = None,
 ) -> str:
     """Save a notebook to disk."""
     result = await _addon_result(
@@ -423,23 +415,19 @@ async def save_notebook(
 
 
 @_tool("notebook_primary")
-async def close_notebook(
-    notebook: Optional[str] = None, session_id: Optional[str] = None
-) -> str:
+async def close_notebook(notebook: str | None = None, session_id: str | None = None) -> str:
     """Close a notebook."""
-    result = await _addon_result(
-        "close_notebook", {"notebook": notebook, "session_id": session_id}
-    )
+    result = await _addon_result("close_notebook", {"notebook": notebook, "session_id": session_id})
     return _json_response(result)
 
 
 @_tool("notebook_primary")
 async def get_cells(
-    notebook: Optional[str] = None,
-    style: Optional[str] = None,
-    session_id: Optional[str] = None,
+    notebook: str | None = None,
+    style: str | None = None,
+    session_id: str | None = None,
     offset: int = 0,
-    limit: Optional[int] = None,
+    limit: int | None = None,
     include_content: bool = True,
 ) -> str:
     """Get list of cells in a notebook."""
@@ -460,8 +448,8 @@ async def get_cells(
 @_tool("notebook_primary")
 async def get_cell_content(
     cell_id: str,
-    notebook: Optional[str] = None,
-    session_id: Optional[str] = None,
+    notebook: str | None = None,
+    session_id: str | None = None,
 ) -> str:
     """Get the full content of a specific cell."""
     result = await _addon_result(
@@ -475,14 +463,14 @@ async def get_cell_content(
 async def write_cell(
     content: str,
     style: str = "Input",
-    notebook: Optional[str] = None,
+    notebook: str | None = None,
     position: Literal["After", "Before", "End", "Beginning"] = "After",
-    session_id: Optional[str] = None,
+    session_id: str | None = None,
     sync: Literal["none", "refresh", "strict"] = "none",
     sync_wait: float = 2,
 ) -> str:
     """Write a new cell to a notebook without evaluating it.
-    
+
     NOTE: For executing code, prefer execute_code(code, output_target="notebook")
     which writes AND evaluates the cell atomically.
     """
@@ -504,8 +492,8 @@ async def write_cell(
 @_tool("notebook_advanced")
 async def delete_cell(
     cell_id: str,
-    notebook: Optional[str] = None,
-    session_id: Optional[str] = None,
+    notebook: str | None = None,
+    session_id: str | None = None,
 ) -> str:
     """Delete a cell from a notebook."""
     result = await _addon_result(
@@ -518,8 +506,8 @@ async def delete_cell(
 @_tool("notebook_advanced")
 async def evaluate_cell(
     cell_id: str,
-    notebook: Optional[str] = None,
-    session_id: Optional[str] = None,
+    notebook: str | None = None,
+    session_id: str | None = None,
     max_wait: int = 10,
     sync: Literal["none", "refresh", "strict"] = "none",
     sync_wait: float = 2,
@@ -543,11 +531,11 @@ async def evaluate_cell(
 async def execute_code(
     code: str,
     format: Literal["text", "latex", "mathematica"] = "text",
-    output_target: Optional[Literal["cli", "notebook"]] = None,
+    output_target: Literal["cli", "notebook"] | None = None,
     mode: Literal["kernel", "frontend"] = "kernel",
     render_graphics: bool = True,
-    deterministic_seed: Optional[int] = None,
-    session_id: Optional[str] = None,
+    deterministic_seed: int | None = None,
+    session_id: str | None = None,
     isolate_context: bool = False,
     timeout: int = 300,
     max_wait: int = 30,
@@ -577,9 +565,7 @@ async def execute_code(
                 params["deterministic_seed"] = deterministic_seed
             # Use timeout + 10s margin for socket so the addon can enforce its own timeout
             socket_timeout = float(timeout) + 10.0
-            result = await _addon_result(
-                "execute_code_notebook", params, timeout=socket_timeout
-            )
+            result = await _addon_result("execute_code_notebook", params, timeout=socket_timeout)
 
             # Handle timeout: return immediately, do NOT fall through to CLI
             if result.get("timed_out"):
@@ -640,17 +626,12 @@ async def execute_code(
                         if error_msgs:
                             summary_parts.append(
                                 f"{len(error_msgs)} error(s): "
-                                + "; ".join(
-                                    f"{m.get('tag', 'Unknown')}" for m in error_msgs[:3]
-                                )
+                                + "; ".join(f"{m.get('tag', 'Unknown')}" for m in error_msgs[:3])
                             )
                         if warning_msgs:
                             summary_parts.append(
                                 f"{len(warning_msgs)} warning(s): "
-                                + "; ".join(
-                                    f"{m.get('tag', 'Unknown')}"
-                                    for m in warning_msgs[:3]
-                                )
+                                + "; ".join(f"{m.get('tag', 'Unknown')}" for m in warning_msgs[:3])
                             )
                         response["error_summary"] = " | ".join(summary_parts)
 
@@ -679,9 +660,7 @@ async def execute_code(
                             ]
 
                         # Add formatted error message for LLM
-                        response["llm_error_report"] = format_error_for_llm(
-                            messages, code
-                        )
+                        response["llm_error_report"] = format_error_for_llm(messages, code)
 
                         # Add output preview if available
                         if result.get("output_preview"):
@@ -689,9 +668,7 @@ async def execute_code(
 
                 return _json_response(response)
             else:
-                raise RuntimeError(
-                    result.get("error", "Atomic notebook execution failed")
-                )
+                raise RuntimeError(result.get("error", "Atomic notebook execution failed"))
 
         except Exception as e:
             logger.warning(f"Notebook execution failed: {e}. Falling back to CLI.")
@@ -709,9 +686,7 @@ async def execute_code(
                 if deterministic_seed is not None:
                     params["deterministic_seed"] = deterministic_seed
                 socket_timeout = float(timeout) + 10.0
-                result = await _addon_result(
-                    "execute_code", params, timeout=socket_timeout
-                )
+                result = await _addon_result("execute_code", params, timeout=socket_timeout)
                 if isinstance(result, dict):
                     result["note"] = "Executed via CLI (notebook error)."
                     _attach_image_if_valid(result)
@@ -729,9 +704,7 @@ async def execute_code(
                     timeout=timeout,
                 )
                 result["execution_mode"] = "kernel_fallback"
-                result["note"] = (
-                    "Executed via CLI (notebook error). Run StartMCPServer[] in Mathematica."
-                )
+                result["note"] = "Executed via CLI (notebook error). Run StartMCPServer[] in Mathematica."
                 _attach_image_if_valid(result)
                 return _json_response(result)
 
@@ -765,15 +738,15 @@ async def execute_code(
 
 
 @_tool("admin")
-async def batch_commands(commands: List[Dict[str, Any]]) -> str:
+async def batch_commands(commands: list[dict[str, Any]]) -> str:
     """Execute multiple commands in one round-trip."""
     return await _addon_json("batch_commands", {"commands": commands})
 
 
 @_tool("notebook_advanced")
 async def evaluate_selection(
-    notebook: Optional[str] = None,
-    session_id: Optional[str] = None,
+    notebook: str | None = None,
+    session_id: str | None = None,
     max_wait: int = 10,
     sync: Literal["none", "refresh", "strict"] = "none",
     sync_wait: float = 2,
@@ -799,9 +772,9 @@ async def evaluate_selection(
 
 @_tool("notebook_primary")
 async def screenshot_notebook(
-    notebook: Optional[str] = None,
+    notebook: str | None = None,
     max_height: int = 2000,
-    session_id: Optional[str] = None,
+    session_id: str | None = None,
     use_rasterize: bool = False,
     wait_ms: int = 100,
 ) -> Image:
@@ -831,8 +804,8 @@ async def screenshot_notebook(
 @_tool("notebook_primary")
 async def screenshot_cell(
     cell_id: str,
-    notebook: Optional[str] = None,
-    session_id: Optional[str] = None,
+    notebook: str | None = None,
+    session_id: str | None = None,
     use_rasterize: bool = False,
 ) -> Image:
     """
@@ -873,17 +846,15 @@ async def rasterize_expression(expression: str, image_size: int = 400) -> Image:
         rasterize_expression("MatrixForm[{{1, 2}, {3, 4}}]")
         rasterize_expression("Graphics[Circle[]]", image_size=200)
     """
-    result = await _addon_result(
-        "rasterize_expression", {"expression": expression, "image_size": image_size}
-    )
+    result = await _addon_result("rasterize_expression", {"expression": expression, "image_size": image_size})
     return await _image_from_result(result)
 
 
 @_tool("notebook_advanced")
 async def select_cell(
     cell_id: str,
-    notebook: Optional[str] = None,
-    session_id: Optional[str] = None,
+    notebook: str | None = None,
+    session_id: str | None = None,
 ) -> str:
     """Select a cell in the notebook (moves cursor to it)."""
     result = await _addon_result(
@@ -896,8 +867,8 @@ async def select_cell(
 @_tool("notebook_advanced")
 async def scroll_to_cell(
     cell_id: str,
-    notebook: Optional[str] = None,
-    session_id: Optional[str] = None,
+    notebook: str | None = None,
+    session_id: str | None = None,
 ) -> str:
     """Scroll the notebook view to make a cell visible."""
     result = await _addon_result(
@@ -910,9 +881,9 @@ async def scroll_to_cell(
 @_tool("notebook_primary")
 async def export_notebook(
     path: str,
-    notebook: Optional[str] = None,
+    notebook: str | None = None,
     format: Literal["PDF", "HTML", "TeX", "Markdown"] = "PDF",
-    session_id: Optional[str] = None,
+    session_id: str | None = None,
 ) -> str:
     """Export a notebook to PDF, HTML, TeX, or Markdown."""
     result = await _addon_result(
@@ -924,7 +895,7 @@ async def export_notebook(
 
 @_tool("debug")
 async def verify_derivation(
-    steps: List[str],
+    steps: list[str],
     format: Literal["text", "latex", "mathematica"] = "text",
     timeout: int = 120,
 ) -> str:
@@ -944,9 +915,7 @@ async def get_kernel_state() -> str:
     """Get current Wolfram kernel session state (memory, uptime, version)."""
     from . import lazy_wolfram_tools as _lazy_wolfram_tools
 
-    return await _lazy_wolfram_tools.get_kernel_state(
-        parse_wolfram_association=_parse_wolfram_association
-    )
+    return await _lazy_wolfram_tools.get_kernel_state(parse_wolfram_association=_parse_wolfram_association)
 
 
 @_tool("kernel_tools")
@@ -972,9 +941,7 @@ async def list_loaded_packages() -> str:
     """List all currently loaded packages and contexts."""
     from . import lazy_wolfram_tools as _lazy_wolfram_tools
 
-    return await _lazy_wolfram_tools.list_loaded_packages(
-        parse_wolfram_association=_parse_wolfram_association
-    )
+    return await _lazy_wolfram_tools.list_loaded_packages(parse_wolfram_association=_parse_wolfram_association)
 
 
 # ============================================================================
@@ -1030,8 +997,8 @@ async def set_variable(name: str, value: str) -> str:
 
 @_tool("session")
 async def clear_variables(
-    names: Optional[List[str]] = None,
-    pattern: Optional[str] = None,
+    names: list[str] | None = None,
+    pattern: str | None = None,
     clear_all: bool = False,
 ) -> str:
     """
@@ -1218,16 +1185,12 @@ def _register_optional_tools() -> None:
     if FEATURES.function_repository:
         from .optional_repository_tools import register_function_repository_tools
 
-        register_function_repository_tools(
-            instrumented_mcp, parse_wolfram_association=_parse_wolfram_association
-        )
+        register_function_repository_tools(instrumented_mcp, parse_wolfram_association=_parse_wolfram_association)
 
     if FEATURES.data_repository:
         from .optional_repository_tools import register_data_repository_tools
 
-        register_data_repository_tools(
-            instrumented_mcp, parse_wolfram_association=_parse_wolfram_association
-        )
+        register_data_repository_tools(instrumented_mcp, parse_wolfram_association=_parse_wolfram_association)
 
     if FEATURES.async_computation:
         from .optional_async_jobs import register_async_computation_tools
@@ -1263,27 +1226,17 @@ def _apply_guidance_docs() -> None:
     evaluate_cell.__doc__ = evaluate_cell_doc()
     evaluate_selection.__doc__ = evaluate_selection_doc()
     read_notebook.__doc__ = read_notebook_doc()
-    read_notebook_content.__doc__ = legacy_notebook_doc(
-        "Read notebook content as structured text."
-    )
+    read_notebook_content.__doc__ = legacy_notebook_doc("Read notebook content as structured text.")
     convert_notebook.__doc__ = legacy_notebook_doc(
         "Convert a notebook into markdown, LaTeX, plain text, or Wolfram code."
     )
-    get_notebook_outline.__doc__ = legacy_notebook_doc(
-        "Get the notebook's section outline."
-    )
-    parse_notebook_python.__doc__ = legacy_notebook_doc(
-        "Parse a notebook with the Python-native parser."
-    )
-    get_notebook_cell.__doc__ = legacy_notebook_doc(
-        "Read a single notebook cell by index."
-    )
+    get_notebook_outline.__doc__ = legacy_notebook_doc("Get the notebook's section outline.")
+    parse_notebook_python.__doc__ = legacy_notebook_doc("Parse a notebook with the Python-native parser.")
+    get_notebook_cell.__doc__ = legacy_notebook_doc("Read a single notebook cell by index.")
 
 
 @_tool("notebook_primary")
-async def open_notebook_file(
-    path: str, session_id: Optional[str] = None
-) -> str:
+async def open_notebook_file(path: str, session_id: str | None = None) -> str:
     """
     Open an existing Mathematica notebook file (.nb) in the Mathematica frontend.
 
@@ -1302,14 +1255,10 @@ async def open_notebook_file(
         open_notebook_file("~/Documents/analysis.nb") -> {id: "NotebookObject[...]", cell_count: 15}
     """
     expanded = _expand_path(path)
-    result = await _addon_result(
-        "open_notebook_file", {"path": expanded, "session_id": session_id}
-    )
+    result = await _addon_result("open_notebook_file", {"path": expanded, "session_id": session_id})
 
     if result.get("error"):
-        return _json_response(
-            {"success": False, "error": result["error"], "path": expanded}
-        )
+        return _json_response({"success": False, "error": result["error"], "path": expanded})
 
     return _json_response(result)
 
@@ -1335,9 +1284,7 @@ async def run_script(path: str) -> str:
     result = await _addon_result("run_script", {"path": expanded})
 
     if result.get("error"):
-        return _json_response(
-            {"success": False, "error": result["error"], "path": expanded}
-        )
+        return _json_response({"success": False, "error": result["error"], "path": expanded})
 
     bump_kernel_epoch()
     return _json_response(result)
@@ -1361,16 +1308,12 @@ async def read_notebook_content(path: str, include_outputs: bool = False) -> str
     expanded = _expand_path(path)
 
     if not os.path.exists(expanded):
-        return json.dumps(
-            {"success": False, "error": f"File not found: {expanded}"}, indent=2
-        )
+        return json.dumps({"success": False, "error": f"File not found: {expanded}"}, indent=2)
 
     try:
         from .notebook_parser import CellStyle
 
-        notebook = await _run_blocking(
-            _load_cached_notebook, expanded, truncation_threshold=25000
-        )
+        notebook = await _run_blocking(_load_cached_notebook, expanded, truncation_threshold=25000)
         allowed_styles = {
             CellStyle.INPUT,
             CellStyle.CODE,
@@ -1421,16 +1364,12 @@ async def convert_notebook(
     expanded = _expand_path(path)
 
     if not os.path.exists(expanded):
-        return json.dumps(
-            {"success": False, "error": f"File not found: {expanded}"}, indent=2
-        )
+        return json.dumps({"success": False, "error": f"File not found: {expanded}"}, indent=2)
 
     try:
         from .notebook_parser import NotebookParser
 
-        notebook = await _run_blocking(
-            _load_cached_notebook, expanded, truncation_threshold=25000
-        )
+        notebook = await _run_blocking(_load_cached_notebook, expanded, truncation_threshold=25000)
         parser = NotebookParser(truncation_threshold=25000)
 
         if output_format == "markdown":
@@ -1440,10 +1379,10 @@ async def convert_notebook(
         elif output_format == "plain":
             content = parser.to_plain_text(notebook)
         else:
-            import shutil
             import subprocess
 
             from .lazy_wolfram_tools import _find_wolframscript
+
             wolframscript = _find_wolframscript()
             if not wolframscript:
                 return _json_response({"success": False, "error": "wolframscript not found"})
@@ -1466,9 +1405,7 @@ Module[{{nb, content}},
             parsed = _parse_wolfram_association(output)
             return _json_response(parsed)
 
-        return _json_response(
-            {"success": True, "format": output_format, "content": content}
-        )
+        return _json_response({"success": True, "format": output_format, "content": content})
     except Exception as e:
         return _json_response({"success": False, "error": str(e)})
 
@@ -1489,14 +1426,10 @@ async def get_notebook_outline(path: str) -> str:
     expanded = _expand_path(path)
 
     if not os.path.exists(expanded):
-        return json.dumps(
-            {"success": False, "error": f"File not found: {expanded}"}, indent=2
-        )
+        return json.dumps({"success": False, "error": f"File not found: {expanded}"}, indent=2)
 
     try:
-        notebook = await _run_blocking(
-            _load_cached_notebook, expanded, truncation_threshold=25000
-        )
+        notebook = await _run_blocking(_load_cached_notebook, expanded, truncation_threshold=25000)
         sections = notebook.get_outline()
         return _json_response(
             {
@@ -1540,9 +1473,7 @@ async def parse_notebook_python(
     expanded = _expand_path(path)
 
     if not os.path.exists(expanded):
-        return json.dumps(
-            {"success": False, "error": f"File not found: {expanded}"}, indent=2
-        )
+        return json.dumps({"success": False, "error": f"File not found: {expanded}"}, indent=2)
 
     try:
         effective_threshold = truncation_threshold if truncation_threshold > 0 else 10**9
@@ -1603,9 +1534,7 @@ async def parse_notebook_python(
                     "content_length": len(c.content),
                     "truncated_in_json": len(c.content) > 500,
                     "was_truncated": c.was_truncated,
-                    "original_length": c.original_length
-                    if c.was_truncated
-                    else len(c.content),
+                    "original_length": c.original_length if c.was_truncated else len(c.content),
                 }
                 for c in notebook.cells
             ]
@@ -1651,20 +1580,15 @@ async def get_notebook_cell(
     Returns:
         Full cell content and metadata
     """
-    from .notebook_parser import NotebookParser
 
     expanded = _expand_path(path)
 
     if not os.path.exists(expanded):
-        return json.dumps(
-            {"success": False, "error": f"File not found: {expanded}"}, indent=2
-        )
+        return json.dumps({"success": False, "error": f"File not found: {expanded}"}, indent=2)
 
     try:
         threshold = 10**9 if full else 25000
-        notebook = await _run_blocking(
-            _load_cached_notebook, expanded, truncation_threshold=threshold
-        )
+        notebook = await _run_blocking(_load_cached_notebook, expanded, truncation_threshold=threshold)
 
         if cell_index < 0 or cell_index >= len(notebook.cells):
             return json.dumps(
@@ -1685,12 +1609,8 @@ async def get_notebook_cell(
                 "content": cell.content,
                 "content_length": len(cell.content),
                 "was_truncated": cell.was_truncated,
-                "original_length": cell.original_length
-                if cell.was_truncated
-                else len(cell.content),
-                "raw_content_preview": cell.raw_content[:500]
-                if cell.raw_content
-                else "",
+                "original_length": cell.original_length if cell.was_truncated else len(cell.content),
+                "raw_content_preview": cell.raw_content[:500] if cell.raw_content else "",
             },
             indent=2,
         )
@@ -1707,12 +1627,10 @@ async def get_notebook_cell(
 @_tool("notebook_primary")
 async def read_notebook(
     path: str,
-    output_format: Literal[
-        "markdown", "wolfram", "outline", "json", "plain"
-    ] = "markdown",
-    cell_types: Optional[List[str]] = None,
+    output_format: Literal["markdown", "wolfram", "outline", "json", "plain"] = "markdown",
+    cell_types: list[str] | None = None,
     include_outputs: bool = True,
-    backend: Optional[str] = None,
+    backend: str | None = None,
     view: str = "semantic",
     include_alternates: bool = False,
     truncation_threshold: int = 25000,
@@ -1744,13 +1662,11 @@ async def read_notebook(
     Returns:
         Notebook content in the requested format
     """
-    from .notebook_backend import extract_notebook, CellView
+    from .notebook_backend import CellView, extract_notebook
 
     expanded = _expand_path(path)
     if not os.path.exists(expanded):
-        return json.dumps(
-            {"success": False, "error": f"File not found: {expanded}"}, indent=2
-        )
+        return json.dumps({"success": False, "error": f"File not found: {expanded}"}, indent=2)
 
     # Build cell type filter
     effective_types = list(cell_types) if cell_types else None
@@ -1762,9 +1678,16 @@ async def read_notebook(
         else:
             # No explicit types: include everything except output styles
             effective_types = [
-                "Input", "Code", "Text", "Title", "Chapter",
-                "Section", "Subsection", "Subsubsection",
-                "Item", "ItemNumbered",
+                "Input",
+                "Code",
+                "Text",
+                "Title",
+                "Chapter",
+                "Section",
+                "Subsection",
+                "Subsubsection",
+                "Item",
+                "ItemNumbered",
             ]
 
     # Map format to capability hint for dispatch
@@ -1798,43 +1721,51 @@ async def read_notebook(
             return _json_response({"success": False, "error": result.error})
 
         if output_format == "markdown":
-            return _json_response({
-                "success": True,
-                "format": "markdown",
-                "backend": result.backend,
-                "path": expanded,
-                "cell_count": result.cell_count,
-                "code_cells": result.code_cell_count,
-                "content": result.to_markdown(),
-            })
+            return _json_response(
+                {
+                    "success": True,
+                    "format": "markdown",
+                    "backend": result.backend,
+                    "path": expanded,
+                    "cell_count": result.cell_count,
+                    "code_cells": result.code_cell_count,
+                    "content": result.to_markdown(),
+                }
+            )
         elif output_format == "wolfram":
-            return _json_response({
-                "success": True,
-                "format": "wolfram",
-                "backend": result.backend,
-                "path": expanded,
-                "code_cells": result.code_cell_count,
-                "content": result.to_wolfram_code(),
-            })
+            return _json_response(
+                {
+                    "success": True,
+                    "format": "wolfram",
+                    "backend": result.backend,
+                    "path": expanded,
+                    "code_cells": result.code_cell_count,
+                    "content": result.to_wolfram_code(),
+                }
+            )
         elif output_format == "outline":
             outline = result.to_outline()
-            return _json_response({
-                "success": True,
-                "format": "outline",
-                "backend": result.backend,
-                "path": expanded,
-                "section_count": len(outline),
-                "sections": outline,
-            })
+            return _json_response(
+                {
+                    "success": True,
+                    "format": "outline",
+                    "backend": result.backend,
+                    "path": expanded,
+                    "section_count": len(outline),
+                    "sections": outline,
+                }
+            )
         elif output_format == "plain":
-            return _json_response({
-                "success": True,
-                "format": "plain",
-                "backend": result.backend,
-                "path": expanded,
-                "cell_count": result.cell_count,
-                "content": result.to_plain_text(),
-            })
+            return _json_response(
+                {
+                    "success": True,
+                    "format": "plain",
+                    "backend": result.backend,
+                    "path": expanded,
+                    "cell_count": result.cell_count,
+                    "content": result.to_plain_text(),
+                }
+            )
         elif output_format == "json":
             return _json_response(result.to_dict(include_alternates))
         else:
@@ -1911,7 +1842,7 @@ async def interpret_natural_language(text: str) -> str:
 async def entity_lookup(
     entity_type: str,
     name: str,
-    properties: Optional[List[str]] = None,
+    properties: list[str] | None = None,
 ) -> str:
     """
     Look up real-world entity data from Wolfram's curated knowledge base.
@@ -1983,9 +1914,7 @@ async def get_constant(name: str) -> str:
     """
     from . import lazy_wolfram_tools as _lazy_wolfram_tools
 
-    return await _lazy_wolfram_tools.get_constant(
-        name, parse_wolfram_association=_parse_wolfram_association
-    )
+    return await _lazy_wolfram_tools.get_constant(name, parse_wolfram_association=_parse_wolfram_association)
 
 
 # ============================================================================
@@ -2010,9 +1939,7 @@ async def time_expression(expression: str) -> str:
     """Time the evaluation of an expression with memory tracking."""
     from . import lazy_wolfram_tools as _lazy_wolfram_tools
 
-    return await _lazy_wolfram_tools.time_expression(
-        expression, addon_result=_addon_result
-    )
+    return await _lazy_wolfram_tools.time_expression(expression, addon_result=_addon_result)
 
 
 @_tool("core")
@@ -2020,9 +1947,7 @@ async def check_syntax(code: str) -> str:
     """Validate Wolfram Language code syntax without executing it."""
     from . import lazy_wolfram_tools as _lazy_wolfram_tools
 
-    return await _lazy_wolfram_tools.check_syntax(
-        code, addon_result=_addon_result
-    )
+    return await _lazy_wolfram_tools.check_syntax(code, addon_result=_addon_result)
 
 
 # ============================================================================
@@ -2033,7 +1958,7 @@ async def check_syntax(code: str) -> str:
 @_tool("data")
 async def import_data(
     path: str,
-    format: Optional[str] = None,
+    format: str | None = None,
 ) -> str:
     """Import data from a file or URL into Mathematica."""
     from . import lazy_wolfram_tools as _lazy_wolfram_tools
@@ -2050,7 +1975,7 @@ async def import_data(
 async def export_data(
     expression: str,
     path: str,
-    format: Optional[str] = None,
+    format: str | None = None,
 ) -> str:
     """Export data or graphics to a file."""
     from . import lazy_wolfram_tools as _lazy_wolfram_tools
@@ -2085,9 +2010,7 @@ async def inspect_graphics(expression: str) -> str:
     """Analyze the structure of a graphics object."""
     from . import lazy_wolfram_tools as _lazy_wolfram_tools
 
-    return await _lazy_wolfram_tools.inspect_graphics(
-        expression, parse_wolfram_association=_parse_wolfram_association
-    )
+    return await _lazy_wolfram_tools.inspect_graphics(expression, parse_wolfram_association=_parse_wolfram_association)
 
 
 @_tool("graphics")
@@ -2111,9 +2034,7 @@ async def export_graphics(
 
 
 @_tool("graphics")
-async def compare_plots(
-    expressions: List[str], labels: Optional[List[str]] = None
-) -> str:
+async def compare_plots(expressions: list[str], labels: list[str] | None = None) -> str:
     """Generate a side-by-side comparison of multiple plots."""
     from . import lazy_wolfram_tools as _lazy_wolfram_tools
 

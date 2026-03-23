@@ -74,6 +74,4 @@ def register_cache_tools(
     async def clear_expression_cache() -> str:
         """Clear all cached expressions."""
         clear_cache_fn()
-        return json.dumps(
-            {"success": True, "message": "Expression cache cleared"}, indent=2
-        )
+        return json.dumps({"success": True, "message": "Expression cache cleared"}, indent=2)

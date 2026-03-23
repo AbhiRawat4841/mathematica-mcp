@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import Dict, FrozenSet, Optional
 
 VALID_PROFILES = ("math", "notebook", "full")
 
-PROFILE_TOOL_GROUPS: Dict[str, FrozenSet[str]] = {
+PROFILE_TOOL_GROUPS: dict[str, frozenset[str]] = {
     "math": frozenset(
         {
             "core",
@@ -47,7 +46,7 @@ PROFILE_TOOL_GROUPS: Dict[str, FrozenSet[str]] = {
     ),
 }
 
-PROFILE_FEATURE_DEFAULTS: Dict[str, Dict[str, bool]] = {
+PROFILE_FEATURE_DEFAULTS: dict[str, dict[str, bool]] = {
     "math": {
         "function_repository": False,
         "data_repository": False,
@@ -92,7 +91,7 @@ def _parse_bool(value: str) -> bool:
     return value.strip().lower() in {"true", "1", "yes", "on"}
 
 
-def _env_explicit_bool(key: str) -> Optional[bool]:
+def _env_explicit_bool(key: str) -> bool | None:
     value = os.getenv(key)
     if value is None:
         return None
@@ -116,7 +115,7 @@ def _resolve_feature(name: str, profile: str) -> bool:
 @dataclass(frozen=True)
 class FeatureFlags:
     profile: str
-    tool_groups: FrozenSet[str]
+    tool_groups: frozenset[str]
     function_repository: bool
     data_repository: bool
     async_computation: bool
@@ -128,7 +127,7 @@ class FeatureFlags:
     default_output_target: str
 
     @classmethod
-    def from_env(cls, profile_override: Optional[str] = None) -> "FeatureFlags":
+    def from_env(cls, profile_override: str | None = None) -> FeatureFlags:
         profile = profile_override or _env_profile()
         if profile not in VALID_PROFILES:
             profile = "full"
@@ -154,7 +153,7 @@ class FeatureFlags:
     def tool_group_enabled(self, group: str) -> bool:
         return group in self.tool_groups
 
-    def to_dict(self) -> Dict[str, object]:
+    def to_dict(self) -> dict[str, object]:
         return {
             "profile": self.profile,
             "default_output_target": self.default_output_target,

@@ -8,7 +8,6 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-
 README_PATH = Path(__file__).resolve().parents[1] / "README.md"
 REPO_ROOT = Path(__file__).resolve().parents[1]
 ALLOW_NETWORK = os.environ.get("README_RUN_NETWORK") == "1"
@@ -199,11 +198,7 @@ def test_readme_commands_smoke(tmp_path: Path):
             if lang != "bash":
                 continue
 
-            placeholder_lines = [
-                ln
-                for ln in body.splitlines()
-                if "<PID>" in ln or re.search(r"\bkill\b.*<", ln)
-            ]
+            placeholder_lines = [ln for ln in body.splitlines() if "<PID>" in ln or re.search(r"\bkill\b.*<", ln)]
             for ln in placeholder_lines:
                 results.append(
                     CommandResult(
@@ -244,9 +239,7 @@ def test_readme_commands_smoke(tmp_path: Path):
                 )
                 venv_bin = venv_dir / ("Scripts" if os.name == "nt" else "bin")
                 venv_env = env.copy()
-                venv_env["PATH"] = (
-                    str(venv_bin) + os.pathsep + venv_env.get("PATH", "")
-                )
+                venv_env["PATH"] = str(venv_bin) + os.pathsep + venv_env.get("PATH", "")
                 proc = _run_bash(f"set -e\n{script}", env=venv_env, timeout_s=600)
             else:
                 run_env = env.copy()
@@ -293,7 +286,7 @@ def test_readme_commands_smoke(tmp_path: Path):
                 body.strip()
                 + "\n\n"
                 + "Quiet[Check[StopMCPServer[], Null]];\n"
-                + "ExportString[MCPServerStatus[], \"RawJSON\"]\n"
+                + 'ExportString[MCPServerStatus[], "RawJSON"]\n'
             )
             proc = _run_wolfram(code, env=env)
             ok = proc.returncode == 0
@@ -315,9 +308,7 @@ def test_readme_commands_smoke(tmp_path: Path):
 
             statements = _extract_python_statements(body)
             for stmt in statements:
-                if stmt == "__README_ELLIPSIS__" or stmt.startswith(
-                    "__README_INCOMPLETE__"
-                ):
+                if stmt == "__README_ELLIPSIS__" or stmt.startswith("__README_INCOMPLETE__"):
                     results.append(
                         CommandResult(
                             kind="python",

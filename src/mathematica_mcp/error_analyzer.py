@@ -5,9 +5,7 @@ This module provides pattern matching and suggestion generation for common
 Mathematica errors encountered during code execution.
 """
 
-from typing import Dict, List, Optional, Any
-import re
-
+from typing import Any
 
 # Knowledge base of common error patterns and fixes
 ERROR_PATTERNS = {
@@ -15,7 +13,7 @@ ERROR_PATTERNS = {
         "description": "Incompatible units error",
         "common_cause": "Attempting to convert between incompatible unit types (e.g., time and currency)",
         "suggested_fix": "Use QuantityMagnitude[] to extract numeric values before performing arithmetic operations",
-        "example": "QuantityMagnitude[CountryData[\"USA\", \"GDP\"], \"USDollars\"] instead of CountryData[\"USA\", \"GDP\"]",
+        "example": 'QuantityMagnitude[CountryData["USA", "GDP"], "USDollars"] instead of CountryData["USA", "GDP"]',
         "severity": "error",
     },
     "Part::partw": {
@@ -84,7 +82,7 @@ ERROR_PATTERNS = {
 }
 
 
-def analyze_error(error_tag: str, error_text: str) -> Dict[str, Any]:
+def analyze_error(error_tag: str, error_text: str) -> dict[str, Any]:
     """
     Analyze a Mathematica error and provide suggestions.
 
@@ -137,7 +135,7 @@ def analyze_error(error_tag: str, error_text: str) -> Dict[str, Any]:
     }
 
 
-def analyze_messages(messages: List[Dict[str, Any]]) -> Dict[str, Any]:
+def analyze_messages(messages: list[dict[str, Any]]) -> dict[str, Any]:
     """
     Analyze a list of error/warning messages and provide overall assessment.
 
@@ -168,36 +166,23 @@ def analyze_messages(messages: List[Dict[str, Any]]) -> Dict[str, Any]:
 
     # Generate recommendations
     recommendations = []
-    high_confidence_fixes = [
-        a for a in analyses if a.get("confidence") == "high"
-    ]
+    high_confidence_fixes = [a for a in analyses if a.get("confidence") == "high"]
 
     if high_confidence_fixes:
-        recommendations.append(
-            "High-confidence fixes available for the following errors:"
-        )
+        recommendations.append("High-confidence fixes available for the following errors:")
         for fix in high_confidence_fixes[:3]:  # Top 3
-            recommendations.append(
-                f"  • {fix['matched_pattern']}: {fix['suggested_fix']}"
-            )
+            recommendations.append(f"  • {fix['matched_pattern']}: {fix['suggested_fix']}")
 
     # Check for common patterns
-    if any(
-        a.get("matched_pattern") and "UnitConvert" in a.get("matched_pattern", "")
-        for a in analyses
-    ):
+    if any(a.get("matched_pattern") and "UnitConvert" in a.get("matched_pattern", "") for a in analyses):
         recommendations.append(
             "TIP: When working with Entity data (countries, cities, etc.), "
             "use QuantityMagnitude[] to extract numeric values."
         )
 
-    if any(
-        a.get("matched_pattern") and "Part::" in a.get("matched_pattern", "")
-        for a in analyses
-    ):
+    if any(a.get("matched_pattern") and "Part::" in a.get("matched_pattern", "") for a in analyses):
         recommendations.append(
-            "TIP: Use Length[], Dimensions[], or Depth[] to inspect data "
-            "structure before accessing elements."
+            "TIP: Use Length[], Dimensions[], or Depth[] to inspect data structure before accessing elements."
         )
 
     return {
@@ -205,18 +190,14 @@ def analyze_messages(messages: List[Dict[str, Any]]) -> Dict[str, Any]:
         "errors": len(errors),
         "warnings": len(warnings),
         "severity": "error" if errors else "warning" if warnings else "info",
-        "assessment": (
-            f"Found {len(errors)} error(s) and {len(warnings)} warning(s)"
-        ),
+        "assessment": (f"Found {len(errors)} error(s) and {len(warnings)} warning(s)"),
         "analyses": analyses,
         "recommendations": recommendations,
         "should_retry": len(high_confidence_fixes) > 0,
     }
 
 
-def format_error_for_llm(
-    messages: List[Dict[str, Any]], code: str
-) -> str:
+def format_error_for_llm(messages: list[dict[str, Any]], code: str) -> str:
     """
     Format error messages and analysis for LLM consumption.
 
@@ -236,9 +217,7 @@ def format_error_for_llm(
     output.append("=" * 60)
     output.append("EXECUTION ERRORS DETECTED")
     output.append("=" * 60)
-    output.append(
-        f"\nSummary: {analysis['assessment']}"
-    )
+    output.append(f"\nSummary: {analysis['assessment']}")
 
     if analysis["errors"] > 0:
         output.append("\n--- ERRORS ---")
@@ -248,9 +227,7 @@ def format_error_for_llm(
                 output.append(f"  {msg.get('text', '')}")
 
                 # Add analysis
-                err_analysis = analyze_error(
-                    msg.get("tag", ""), msg.get("text", "")
-                )
+                err_analysis = analyze_error(msg.get("tag", ""), msg.get("text", ""))
                 if err_analysis.get("matched_pattern"):
                     output.append(f"\n  Analysis: {err_analysis['description']}")
                     output.append(f"  Likely cause: {err_analysis['common_cause']}")

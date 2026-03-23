@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import json
-import shutil
 import subprocess
-from typing import Optional
 
 from mcp.server.fastmcp import FastMCP
 
@@ -13,11 +11,10 @@ def register_function_repository_tools(mcp: FastMCP, *, parse_wolfram_associatio
     async def search_function_repository(query: str, max_results: int = 10) -> str:
         """Search the Wolfram Function Repository."""
         from .lazy_wolfram_tools import _find_wolframscript
+
         wolframscript = _find_wolframscript()
         if not wolframscript:
-            return json.dumps(
-                {"success": False, "error": "wolframscript not found in PATH"}, indent=2
-            )
+            return json.dumps({"success": False, "error": "wolframscript not found in PATH"}, indent=2)
 
         safe_query = query.replace('"', '\\"')
         search_code = f"""
@@ -62,9 +59,7 @@ Module[{{results, query, clean, fetch, maxRes}},
                 )
             return json.dumps(json.loads(raw_output), indent=2)
         except subprocess.TimeoutExpired:
-            return json.dumps(
-                {"success": False, "error": "Search timed out", "query": query}, indent=2
-            )
+            return json.dumps({"success": False, "error": "Search timed out", "query": query}, indent=2)
         except Exception as e:
             return json.dumps({"success": False, "error": str(e), "query": query}, indent=2)
 
@@ -72,11 +67,10 @@ Module[{{results, query, clean, fetch, maxRes}},
     async def get_function_repository_info(function_name: str) -> str:
         """Get details about a Wolfram Function Repository function."""
         from .lazy_wolfram_tools import _find_wolframscript
+
         wolframscript = _find_wolframscript()
         if not wolframscript:
-            return json.dumps(
-                {"success": False, "error": "wolframscript not found in PATH"}, indent=2
-            )
+            return json.dumps({"success": False, "error": "wolframscript not found in PATH"}, indent=2)
 
         info_code = f"""
 Module[{{ro, info}},
@@ -111,19 +105,16 @@ Module[{{ro, info}},
                 indent=2,
             )
         except Exception as e:
-            return json.dumps(
-                {"success": False, "error": str(e), "function": function_name}, indent=2
-            )
+            return json.dumps({"success": False, "error": str(e), "function": function_name}, indent=2)
 
     @mcp.tool()
     async def load_resource_function(function_name: str) -> str:
         """Load a function from the Wolfram Function Repository."""
         from .lazy_wolfram_tools import _find_wolframscript
+
         wolframscript = _find_wolframscript()
         if not wolframscript:
-            return json.dumps(
-                {"success": False, "error": "wolframscript not found in PATH"}, indent=2
-            )
+            return json.dumps({"success": False, "error": "wolframscript not found in PATH"}, indent=2)
 
         load_code = f"""
 Module[{{fn, result}},
@@ -154,9 +145,7 @@ Module[{{fn, result}},
                 indent=2,
             )
         except Exception as e:
-            return json.dumps(
-                {"success": False, "error": str(e), "function": function_name}, indent=2
-            )
+            return json.dumps({"success": False, "error": str(e), "function": function_name}, indent=2)
 
 
 def register_data_repository_tools(mcp: FastMCP, *, parse_wolfram_association) -> None:
@@ -164,11 +153,10 @@ def register_data_repository_tools(mcp: FastMCP, *, parse_wolfram_association) -
     async def search_data_repository(query: str, max_results: int = 10) -> str:
         """Search the Wolfram Data Repository."""
         from .lazy_wolfram_tools import _find_wolframscript
+
         wolframscript = _find_wolframscript()
         if not wolframscript:
-            return json.dumps(
-                {"success": False, "error": "wolframscript not found in PATH"}, indent=2
-            )
+            return json.dumps({"success": False, "error": "wolframscript not found in PATH"}, indent=2)
 
         search_code = f"""
 Module[{{results}},
@@ -205,11 +193,10 @@ Module[{{results}},
     async def get_dataset_info(dataset_name: str) -> str:
         """Get detailed information about a Wolfram Data Repository dataset."""
         from .lazy_wolfram_tools import _find_wolframscript
+
         wolframscript = _find_wolframscript()
         if not wolframscript:
-            return json.dumps(
-                {"success": False, "error": "wolframscript not found in PATH"}, indent=2
-            )
+            return json.dumps({"success": False, "error": "wolframscript not found in PATH"}, indent=2)
 
         info_code = f"""
 Module[{{rd, info}},
@@ -236,22 +223,19 @@ Module[{{rd, info}},
             )
             return json.dumps(parse_wolfram_association(result.stdout.strip()), indent=2)
         except Exception as e:
-            return json.dumps(
-                {"success": False, "error": str(e), "dataset": dataset_name}, indent=2
-            )
+            return json.dumps({"success": False, "error": str(e), "dataset": dataset_name}, indent=2)
 
     @mcp.tool()
     async def load_dataset(
         dataset_name: str,
-        sample_size: Optional[int] = None,
+        sample_size: int | None = None,
     ) -> str:
         """Load a dataset from the Wolfram Data Repository."""
         from .lazy_wolfram_tools import _find_wolframscript
+
         wolframscript = _find_wolframscript()
         if not wolframscript:
-            return json.dumps(
-                {"success": False, "error": "wolframscript not found in PATH"}, indent=2
-            )
+            return json.dumps({"success": False, "error": "wolframscript not found in PATH"}, indent=2)
 
         sample_clause = f"Take[#, UpTo[{sample_size}]]&" if sample_size else "Identity"
         load_code = f"""
@@ -295,6 +279,4 @@ Module[{{data, info}},
                 indent=2,
             )
         except Exception as e:
-            return json.dumps(
-                {"success": False, "error": str(e), "dataset": dataset_name}, indent=2
-            )
+            return json.dumps({"success": False, "error": str(e), "dataset": dataset_name}, indent=2)

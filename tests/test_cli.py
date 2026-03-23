@@ -52,9 +52,7 @@ def test_install_claude_code_guidance_writes_command_and_marked_block(tmp_path: 
 
 def test_install_claude_code_guidance_updates_existing_marked_block(tmp_path: Path):
     claude_md_path = tmp_path / "CLAUDE.md"
-    claude_md_path.write_text(
-        "Project notes\n\n<!-- mathematica-mcp:start -->\nold\n<!-- mathematica-mcp:end -->\n"
-    )
+    claude_md_path.write_text("Project notes\n\n<!-- mathematica-mcp:start -->\nold\n<!-- mathematica-mcp:end -->\n")
 
     cli.install_claude_code_guidance(tmp_path, profile="math")
     updated = claude_md_path.read_text()

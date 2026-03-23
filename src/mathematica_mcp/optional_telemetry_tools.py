@@ -20,6 +20,4 @@ def register_telemetry_tools(
     async def reset_telemetry() -> str:
         """Reset all telemetry statistics to zero."""
         reset_stats()
-        return json.dumps(
-            {"success": True, "message": "Telemetry statistics reset"}, indent=2
-        )
+        return json.dumps({"success": True, "message": "Telemetry statistics reset"}, indent=2)

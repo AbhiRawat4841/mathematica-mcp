@@ -104,8 +104,8 @@ class TestRasterCacheBasics:
 class TestRasterCacheClear:
     def test_clear_removes_files(self):
         from mathematica_mcp.session import (
-            _put_cached_raster,
             _get_cached_raster,
+            _put_cached_raster,
             clear_raster_cache,
         )
 
@@ -122,7 +122,7 @@ class TestRasterCacheClear:
 
     def test_overwrite_deletes_old_file(self):
         """Overwriting a key must delete the previous file, not leak it."""
-        from mathematica_mcp.session import _put_cached_raster, _get_cached_raster
+        from mathematica_mcp.session import _get_cached_raster, _put_cached_raster
 
         fd1, path1 = tempfile.mkstemp(suffix=".png")
         os.write(fd1, b"OLD PNG")
@@ -156,8 +156,9 @@ class TestRasterCacheClear:
 
     def test_restart_kernel_clears_raster_cache(self, monkeypatch):
         import asyncio
+
         import mathematica_mcp.server as srv
-        from mathematica_mcp.session import _put_cached_raster, _get_cached_raster
+        from mathematica_mcp.session import _get_cached_raster, _put_cached_raster
 
         async def fake_addon_result(command, params=None):
             return {"success": True, "pong": True}
@@ -210,9 +211,9 @@ class TestRasterCacheKey:
         from mathematica_mcp.session import (
             _get_cached_raster,
             _put_cached_raster,
+            _session_context,
             _wrap_code_for_context,
             _wrap_code_for_determinism,
-            _session_context,
         )
 
         raw_code = "Plot[Sin[x], {x, 0, Pi}]"
@@ -238,10 +239,10 @@ class TestRasterCacheKey:
 class TestRasterCacheBounded:
     def test_evicts_oldest_when_full(self):
         from mathematica_mcp.session import (
-            _put_cached_raster,
-            _get_cached_raster,
-            _raster_cache,
             _MAX_RASTER_ENTRIES,
+            _get_cached_raster,
+            _put_cached_raster,
+            _raster_cache,
         )
 
         paths = []
@@ -271,10 +272,9 @@ class TestRasterCacheBounded:
 
     def test_lru_move_to_end_on_hit(self):
         from mathematica_mcp.session import (
-            _put_cached_raster,
-            _get_cached_raster,
-            _raster_cache,
             _MAX_RASTER_ENTRIES,
+            _get_cached_raster,
+            _put_cached_raster,
         )
 
         # Fill cache to near capacity.

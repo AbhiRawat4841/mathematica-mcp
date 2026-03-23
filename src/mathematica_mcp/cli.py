@@ -17,9 +17,9 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Optional, Dict, Any, Tuple
+from typing import Any
 
-from .config import FeatureFlags, VALID_PROFILES
+from .config import VALID_PROFILES, FeatureFlags
 from .guidance import build_claude_command, build_claude_hint
 
 # ANSI colors
@@ -30,27 +30,32 @@ BLUE = "\033[94m"
 BOLD = "\033[1m"
 RESET = "\033[0m"
 
+
 def color(text: str, c: str) -> str:
     """Apply color if stdout is a tty."""
     if sys.stdout.isatty():
         return f"{c}{text}{RESET}"
     return text
 
+
 def success(msg: str) -> None:
     print(f"{color('✓', GREEN)} {msg}")
+
 
 def error(msg: str) -> None:
     print(f"{color('✗', RED)} {msg}")
 
+
 def warn(msg: str) -> None:
     print(f"{color('!', YELLOW)} {msg}")
+
 
 def info(msg: str) -> None:
     print(f"{color('→', BLUE)} {msg}")
 
 
 # Client configuration definitions
-CLIENT_CONFIGS: Dict[str, Dict[str, Any]] = {
+CLIENT_CONFIGS: dict[str, dict[str, Any]] = {
     "claude-desktop": {
         "name": "Claude Desktop",
         "config_paths": {
@@ -131,7 +136,7 @@ def expand_path(path: str) -> Path:
     return Path(expanded)
 
 
-def get_config_path(client: str) -> Optional[Path]:
+def get_config_path(client: str) -> Path | None:
     """Get the config file path for a client on the current system."""
     if client not in CLIENT_CONFIGS:
         return None
@@ -164,13 +169,13 @@ def get_addon_dir() -> Path:
     return pkg_addon
 
 
-def find_wolframscript() -> Optional[Path]:
+def find_wolframscript() -> Path | None:
     """Find wolframscript executable."""
     # Check PATH first
     ws = shutil.which("wolframscript")
     if ws:
         return Path(ws)
-    
+
     # Common locations
     system = get_system()
     if system == "Darwin":
@@ -192,16 +197,16 @@ def find_wolframscript() -> Optional[Path]:
         ]
     else:
         candidates = []
-    
+
     for candidate in candidates:
         p = Path(candidate)
         if p.exists():
             return p
-    
+
     return None
 
 
-def check_python_version() -> Tuple[bool, str]:
+def check_python_version() -> tuple[bool, str]:
     """Check if Python version is sufficient."""
     version = sys.version_info
     if version >= (3, 10):
@@ -209,17 +214,12 @@ def check_python_version() -> Tuple[bool, str]:
     return False, f"Python {version.major}.{version.minor}.{version.micro} (need 3.10+)"
 
 
-def check_wolframscript() -> Tuple[bool, str]:
+def check_wolframscript() -> tuple[bool, str]:
     """Check if wolframscript is available."""
     ws = find_wolframscript()
     if ws:
         try:
-            result = subprocess.run(
-                [str(ws), "-version"],
-                capture_output=True,
-                text=True,
-                timeout=10
-            )
+            result = subprocess.run([str(ws), "-version"], capture_output=True, text=True, timeout=10)
             version = result.stdout.strip() or "found"
             return True, f"wolframscript {version} at {ws}"
         except Exception:
@@ -227,7 +227,7 @@ def check_wolframscript() -> Tuple[bool, str]:
     return False, "wolframscript not found in PATH"
 
 
-def check_mathematica_addon() -> Tuple[bool, str]:
+def check_mathematica_addon() -> tuple[bool, str]:
     """Check if Mathematica addon is installed."""
     system = get_system()
     init_paths = get_addon_init_paths(Path.home(), system)
@@ -264,9 +264,10 @@ def get_addon_init_paths(home: Path, system: str) -> list[Path]:
     return []
 
 
-def check_mcp_server_port() -> Tuple[bool, str]:
+def check_mcp_server_port() -> tuple[bool, str]:
     """Check if MCP server is listening on expected port."""
     import socket
+
     port = int(os.environ.get("MATHEMATICA_PORT", 9881))
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -280,22 +281,22 @@ def check_mcp_server_port() -> Tuple[bool, str]:
         return False, f"Could not check port {port}: {e}"
 
 
-def check_client_config(client: str) -> Tuple[bool, str]:
+def check_client_config(client: str) -> tuple[bool, str]:
     """Check if client config exists and contains mathematica server."""
     config_path = get_config_path(client)
     if not config_path:
         return False, f"Unknown client: {client}"
-    
+
     if not config_path.exists():
         return False, f"Config file not found: {config_path}"
-    
+
     client_info = CLIENT_CONFIGS[client]
     config_format = client_info.get("format", "json")
     server_name = client_info["server_name"]
-    
+
     try:
         content = config_path.read_text()
-        
+
         if config_format == "toml":
             # For TOML (Codex CLI), check for [mcp_servers.mathematica] section
             if f"[mcp_servers.{server_name}]" in content:
@@ -305,7 +306,7 @@ def check_client_config(client: str) -> Tuple[bool, str]:
             # JSON format
             config = json.loads(content)
             key = client_info["key"]
-            
+
             if key in config and server_name in config[key]:
                 return True, f"mathematica server configured in {config_path}"
             return False, f"mathematica server not in {config_path}"
@@ -315,20 +316,14 @@ def check_client_config(client: str) -> Tuple[bool, str]:
         return False, f"Error reading config: {e}"
 
 
-def generate_mcp_config(use_uvx: bool = True, profile: Optional[str] = None) -> Dict[str, Any]:
+def generate_mcp_config(use_uvx: bool = True, profile: str | None = None) -> dict[str, Any]:
     """Generate the MCP server configuration."""
     if use_uvx:
-        config = {
-            "command": "uvx",
-            "args": ["mathematica-mcp-full"]
-        }
+        config = {"command": "uvx", "args": ["mathematica-mcp-full"]}
     else:
         # Use absolute path for local development
         pkg_dir = get_package_dir()
-        config = {
-            "command": "uv",
-            "args": ["--directory", str(pkg_dir), "run", "mathematica-mcp-full"]
-        }
+        config = {"command": "uv", "args": ["--directory", str(pkg_dir), "run", "mathematica-mcp-full"]}
 
     if profile:
         config["env"] = {"MATHEMATICA_PROFILE": profile}
@@ -341,7 +336,7 @@ def install_addon(wolframscript: Path, addon_dir: Path) -> bool:
     if not install_script.exists():
         error(f"Addon install script not found: {install_script}")
         return False
-    
+
     info(f"Running: wolframscript -file {install_script}")
     try:
         result = subprocess.run(
@@ -349,7 +344,7 @@ def install_addon(wolframscript: Path, addon_dir: Path) -> bool:
             capture_output=True,
             text=True,
             timeout=60,
-            cwd=str(addon_dir)
+            cwd=str(addon_dir),
         )
         print(result.stdout)
         if result.stderr:
@@ -363,16 +358,14 @@ def install_addon(wolframscript: Path, addon_dir: Path) -> bool:
         return False
 
 
-def generate_toml_config(
-    server_name: str, use_uvx: bool = True, profile: Optional[str] = None
-) -> str:
+def generate_toml_config(server_name: str, use_uvx: bool = True, profile: str | None = None) -> str:
     """Generate TOML config for Codex CLI."""
     if use_uvx:
-        config = f'''
+        config = f"""
 [mcp_servers.{server_name}]
 command = "uvx"
 args = ["mathematica-mcp-full"]
-'''
+"""
     else:
         pkg_dir = get_package_dir()
         config = f'''
@@ -386,22 +379,20 @@ args = ["--directory", "{pkg_dir}", "run", "mathematica-mcp-full"]
     return config
 
 
-def update_client_config(
-    client: str, use_uvx: bool = True, profile: Optional[str] = None
-) -> bool:
+def update_client_config(client: str, use_uvx: bool = True, profile: str | None = None) -> bool:
     """Update the client configuration to add mathematica server."""
     config_path = get_config_path(client)
     if not config_path:
         error(f"Unknown client: {client}")
         return False
-    
+
     client_info = CLIENT_CONFIGS[client]
     config_format = client_info.get("format", "json")
     server_name = client_info["server_name"]
-    
+
     # Ensure parent directory exists
     config_path.parent.mkdir(parents=True, exist_ok=True)
-    
+
     if config_format == "toml":
         # Handle TOML config (Codex CLI)
         return update_toml_config(config_path, server_name, use_uvx, profile)
@@ -414,7 +405,7 @@ def update_toml_config(
     config_path: Path,
     server_name: str,
     use_uvx: bool,
-    profile: Optional[str],
+    profile: str | None,
 ) -> bool:
     """Update TOML config file for Codex CLI."""
     existing_content = ""
@@ -425,10 +416,10 @@ def update_toml_config(
             warn(f"mathematica server already configured in {config_path}")
             info("To reconfigure, remove the [mcp_servers.mathematica] section first")
             return True
-    
+
     # Generate new TOML section
     new_section = generate_toml_config(server_name, use_uvx, profile)
-    
+
     # Append to existing config
     try:
         with open(config_path, "a") as f:
@@ -442,14 +433,14 @@ def update_toml_config(
 
 def update_json_config(
     config_path: Path,
-    client_info: Dict[str, Any],
+    client_info: dict[str, Any],
     use_uvx: bool,
-    profile: Optional[str],
+    profile: str | None,
 ) -> bool:
     """Update JSON config file."""
     key = client_info["key"]
     server_name = client_info["server_name"]
-    
+
     # Read existing config or start fresh
     if config_path.exists():
         try:
@@ -461,11 +452,11 @@ def update_json_config(
             config = {}
     else:
         config = {}
-    
+
     # Add server config
     if key not in config:
         config[key] = {}
-    
+
     existing_server = config.get(key, {}).get(server_name, {})
     server_config = generate_mcp_config(use_uvx, profile)
 
@@ -478,9 +469,9 @@ def update_json_config(
     # Add extra fields if needed (e.g., "type": "stdio" for VS Code)
     if "extra_fields" in client_info:
         server_config.update(client_info["extra_fields"])
-    
+
     config[key][server_name] = server_config
-    
+
     # Write config
     try:
         config_path.write_text(json.dumps(config, indent=2) + "\n")
@@ -499,9 +490,7 @@ def _write_if_changed(path: Path, content: str) -> bool:
     return True
 
 
-def _upsert_marked_block(
-    existing: str, block: str, *, start_marker: str, end_marker: str
-) -> str:
+def _upsert_marked_block(existing: str, block: str, *, start_marker: str, end_marker: str) -> str:
     marked = f"{start_marker}\n{block.rstrip()}\n{end_marker}\n"
     if start_marker in existing and end_marker in existing:
         before, _, rest = existing.partition(start_marker)
@@ -517,7 +506,7 @@ def _upsert_marked_block(
     return f"{base}\n\n{marked}"
 
 
-def install_claude_code_guidance(project_dir: Path, profile: Optional[str]) -> list[Path]:
+def install_claude_code_guidance(project_dir: Path, profile: str | None) -> list[Path]:
     features = FeatureFlags.from_env(profile_override=profile)
     written: list[Path] = []
 
@@ -546,7 +535,7 @@ def install_claude_code_guidance(project_dir: Path, profile: Optional[str]) -> l
 def cmd_setup(args: argparse.Namespace) -> int:
     """Run the setup command."""
     client = args.client.lower()
-    
+
     # Normalize client names
     client_aliases = {
         "claude": "claude-desktop",
@@ -564,15 +553,15 @@ def cmd_setup(args: argparse.Namespace) -> int:
         "google-gemini": "gemini",
     }
     client = client_aliases.get(client, client)
-    
+
     if client not in CLIENT_CONFIGS:
         error(f"Unknown client: {args.client}")
         print(f"\nSupported clients: {', '.join(CLIENT_CONFIGS.keys())}")
         return 1
-    
+
     client_name = CLIENT_CONFIGS[client]["name"]
     print(f"\n{color(f'Setting up mathematica-mcp-full for {client_name}', BOLD)}\n")
-    
+
     # Step 1: Check wolframscript
     info("Checking wolframscript...")
     ws = find_wolframscript()
@@ -582,7 +571,7 @@ def cmd_setup(args: argparse.Namespace) -> int:
         print("See: https://github.com/AbhiRawat4841/mathematica-mcp#prerequisites")
         return 1
     success(f"Found wolframscript at {ws}")
-    
+
     # Step 2: Install Mathematica addon
     if not args.skip_addon:
         info("Installing Mathematica addon...")
@@ -592,7 +581,7 @@ def cmd_setup(args: argparse.Namespace) -> int:
             print("\nThis may happen if running via uvx before the package is published.")
             print("Please clone the repo and run: wolframscript -file addon/install.wl")
             return 1
-        
+
         if install_addon(ws, addon_dir):
             success("Mathematica addon installed")
         else:
@@ -600,7 +589,7 @@ def cmd_setup(args: argparse.Namespace) -> int:
             warn("Run: wolframscript -file addon/install.wl")
     else:
         info("Skipping addon installation (--skip-addon)")
-    
+
     # Step 3: Update client config
     info(f"Configuring {client_name}...")
     use_uvx = not args.local
@@ -619,23 +608,23 @@ def cmd_setup(args: argparse.Namespace) -> int:
             info(f"Claude Code guidance already up to date in {project_dir}")
     elif client == "claude-code":
         info("No project guidance installed. Re-run with --project-dir to add .claude/commands and CLAUDE.md hints.")
-    
+
     # Done!
     print(f"\n{color('Setup complete!', GREEN + BOLD)}\n")
     print("Next steps:")
     print(f"  1. {color('Restart Mathematica', BOLD)} (for the addon to load)")
     print(f"  2. {color(f'Restart {client_name}', BOLD)} (to load the MCP server)")
     print(f"\nTo verify: {color('uvx mathematica-mcp-full doctor', BLUE)}")
-    
+
     return 0
 
 
 def cmd_doctor(args: argparse.Namespace) -> int:
     """Run diagnostics to verify installation."""
     print(f"\n{color('mathematica-mcp-full doctor', BOLD)}\n")
-    
+
     all_ok = True
-    
+
     # Python version
     ok, msg = check_python_version()
     if ok:
@@ -643,7 +632,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     else:
         error(msg)
         all_ok = False
-    
+
     # wolframscript
     ok, msg = check_wolframscript()
     if ok:
@@ -651,7 +640,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     else:
         error(msg)
         all_ok = False
-    
+
     # Mathematica addon
     ok, msg = check_mathematica_addon()
     if ok:
@@ -659,7 +648,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     else:
         warn(msg)
         print(f"    Run: {color('uvx mathematica-mcp-full setup <client>', BLUE)}")
-    
+
     # MCP server port
     ok, msg = check_mcp_server_port()
     if ok:
@@ -667,7 +656,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     else:
         warn(msg)
         print("    Start Mathematica to launch the MCP server")
-    
+
     # Client configs
     print(f"\n{color('Client configurations:', BOLD)}")
     for client in CLIENT_CONFIGS:
@@ -681,20 +670,20 @@ def cmd_doctor(args: argparse.Namespace) -> int:
                 warn(f"{name}: {msg}")
             else:
                 info(f"{name}: not configured")
-    
+
     print()
     if all_ok:
         success("All core checks passed!")
     else:
         warn("Some checks failed. Run setup to fix.")
-    
+
     return 0 if all_ok else 1
 
 
 def cmd_config(args: argparse.Namespace) -> int:
     """Print the MCP config for a client."""
     client = args.client.lower()
-    
+
     # Normalize
     client_aliases = {
         "claude": "claude-desktop",
@@ -703,18 +692,18 @@ def cmd_config(args: argparse.Namespace) -> int:
         "gemini-cli": "gemini",
     }
     client = client_aliases.get(client, client)
-    
+
     if client not in CLIENT_CONFIGS:
         error(f"Unknown client: {args.client}")
         return 1
-    
+
     client_info = CLIENT_CONFIGS[client]
     config_format = client_info.get("format", "json")
     use_uvx = not args.local
     config_path = get_config_path(client)
-    
+
     print(f"# Add to: {config_path}\n")
-    
+
     if config_format == "toml":
         # Output TOML format for Codex
         print(generate_toml_config(client_info["server_name"], use_uvx, args.profile).strip())
@@ -723,14 +712,10 @@ def cmd_config(args: argparse.Namespace) -> int:
         server_config = generate_mcp_config(use_uvx, args.profile)
         if "extra_fields" in client_info:
             server_config.update(client_info["extra_fields"])
-        
-        config = {
-            client_info["key"]: {
-                client_info["server_name"]: server_config
-            }
-        }
+
+        config = {client_info["key"]: {client_info["server_name"]: server_config}}
         print(json.dumps(config, indent=2))
-    
+
     return 0
 
 
@@ -740,12 +725,7 @@ def main_cli() -> int:
         prog="mathematica-mcp-full",
         description="Mathematica MCP Server - Give your AI Agent the power of Wolfram Language",
     )
-    parser.add_argument(
-        "--profile",
-        choices=VALID_PROFILES,
-        default=None,
-        help="Runtime tool profile override"
-    )
+    parser.add_argument("--profile", choices=VALID_PROFILES, default=None, help="Runtime tool profile override")
 
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
@@ -753,76 +733,49 @@ def main_cli() -> int:
     setup_parser = subparsers.add_parser(
         "setup",
         help="Configure mathematica-mcp-full for an MCP client",
-        description="Automatically configure mathematica-mcp-full for your editor/AI assistant"
+        description="Automatically configure mathematica-mcp-full for your editor/AI assistant",
     )
     setup_parser.add_argument(
         "client",
         choices=list(CLIENT_CONFIGS.keys()) + ["claude", "code", "openai-codex", "gemini-cli"],
-        help="The MCP client to configure"
+        help="The MCP client to configure",
     )
+    setup_parser.add_argument("--skip-addon", action="store_true", help="Skip Mathematica addon installation")
+    setup_parser.add_argument("--local", action="store_true", help="Use local path instead of uvx (for development)")
     setup_parser.add_argument(
-        "--skip-addon",
-        action="store_true",
-        help="Skip Mathematica addon installation"
+        "--profile", choices=VALID_PROFILES, default=None, help="Tool profile to configure in the client MCP config"
     )
-    setup_parser.add_argument(
-        "--local",
-        action="store_true",
-        help="Use local path instead of uvx (for development)"
-    )
-    setup_parser.add_argument(
-        "--profile",
-        choices=VALID_PROFILES,
-        default=None,
-        help="Tool profile to configure in the client MCP config"
-    )
-    setup_parser.add_argument(
-        "--project-dir",
-        default=None,
-        help="Project root for Claude Code guidance installation"
-    )
+    setup_parser.add_argument("--project-dir", default=None, help="Project root for Claude Code guidance installation")
     setup_parser.set_defaults(func=cmd_setup)
-    
+
     # doctor command
-    doctor_parser = subparsers.add_parser(
-        "doctor",
-        help="Check installation and diagnose issues"
-    )
+    doctor_parser = subparsers.add_parser("doctor", help="Check installation and diagnose issues")
     doctor_parser.set_defaults(func=cmd_doctor)
-    
+
     # config command
-    config_parser = subparsers.add_parser(
-        "config",
-        help="Print MCP config JSON for a client"
-    )
+    config_parser = subparsers.add_parser("config", help="Print MCP config JSON for a client")
     config_parser.add_argument(
         "client",
         choices=list(CLIENT_CONFIGS.keys()) + ["claude", "code", "openai-codex", "gemini-cli"],
-        help="The MCP client"
+        help="The MCP client",
     )
+    config_parser.add_argument("--local", action="store_true", help="Use local path instead of uvx")
     config_parser.add_argument(
-        "--local",
-        action="store_true",
-        help="Use local path instead of uvx"
-    )
-    config_parser.add_argument(
-        "--profile",
-        choices=VALID_PROFILES,
-        default=None,
-        help="Tool profile to emit in the printed config"
+        "--profile", choices=VALID_PROFILES, default=None, help="Tool profile to emit in the printed config"
     )
     config_parser.set_defaults(func=cmd_config)
-    
+
     args = parser.parse_args()
-    
+
     if args.command is None:
         # No subcommand - run the MCP server (default behavior)
         if args.profile:
             os.environ["MATHEMATICA_PROFILE"] = args.profile
         from .server import main as server_main
+
         server_main()
         return 0
-    
+
     return args.func(args)
 
 

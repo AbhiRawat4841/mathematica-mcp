@@ -7,22 +7,38 @@ subprocesses.
 
 from __future__ import annotations
 
-import json
 from unittest.mock import patch
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # symbol_index unit tests (mocked — no wolframscript needed)
 # ---------------------------------------------------------------------------
 
 FAKE_SYMBOLS = [
-    "Abs", "AbsoluteTime", "Accumulate", "AcyclicGraphQ",
-    "Integrate", "IntegerQ", "InterpolatingFunction",
-    "Plot", "Plot3D", "PlotRange", "Plus", "Power",
-    "Sin", "Sinc", "Sinh", "Solve", "Sort", "Sqrt",
-    "Table", "Take", "Tan", "Thread", "Timing",
+    "Abs",
+    "AbsoluteTime",
+    "Accumulate",
+    "AcyclicGraphQ",
+    "Integrate",
+    "IntegerQ",
+    "InterpolatingFunction",
+    "Plot",
+    "Plot3D",
+    "PlotRange",
+    "Plus",
+    "Power",
+    "Sin",
+    "Sinc",
+    "Sinh",
+    "Solve",
+    "Sort",
+    "Sqrt",
+    "Table",
+    "Take",
+    "Tan",
+    "Thread",
+    "Timing",
 ]
 
 
@@ -233,6 +249,7 @@ class TestLookupSymbolsFastPath:
         _populate_index()
 
         import subprocess as sp
+
         original_run = sp.run
         call_count = 0
 
@@ -243,6 +260,7 @@ class TestLookupSymbolsFastPath:
 
         with patch.object(sp, "run", tracking_run):
             from mathematica_mcp.server import _lookup_symbols_in_kernel
+
             _lookup_symbols_in_kernel("Sin")
 
         assert call_count == 0, "subprocess.run should not be called when index is available"
@@ -251,12 +269,15 @@ class TestLookupSymbolsFastPath:
         """When index is empty and no wolframscript, returns error."""
         import mathematica_mcp.symbol_index as idx
 
-        with patch.object(idx, "ensure_index", return_value=False):
-            with patch("mathematica_mcp.lazy_wolfram_tools._find_wolframscript", return_value=None):
-                from mathematica_mcp.server import _lookup_symbols_in_kernel
-                result = _lookup_symbols_in_kernel("Sin")
-                assert result["success"] is False
-                assert "error" in result
+        with (
+            patch.object(idx, "ensure_index", return_value=False),
+            patch("mathematica_mcp.lazy_wolfram_tools._find_wolframscript", return_value=None),
+        ):
+            from mathematica_mcp.server import _lookup_symbols_in_kernel
+
+            result = _lookup_symbols_in_kernel("Sin")
+            assert result["success"] is False
+            assert "error" in result
 
 
 class TestGetSymbolInfoCache:

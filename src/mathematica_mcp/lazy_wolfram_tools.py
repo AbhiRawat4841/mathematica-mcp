@@ -5,11 +5,12 @@ import functools
 import json
 import shutil
 import subprocess
-from typing import Callable, Literal, Optional
+from collections.abc import Callable
+from typing import Literal
 
 
 @functools.lru_cache(maxsize=1)
-def _find_wolframscript() -> Optional[str]:
+def _find_wolframscript() -> str | None:
     """Locate wolframscript on PATH. Result is cached across calls."""
     return shutil.which("wolframscript")
 
@@ -43,9 +44,7 @@ async def verify_derivation(
 
     wolframscript = _find_wolframscript()
     if not wolframscript:
-        return json.dumps(
-            {"success": False, "error": "wolframscript not found in PATH"}, indent=2
-        )
+        return json.dumps({"success": False, "error": "wolframscript not found in PATH"}, indent=2)
 
     steps_list = ", ".join([f'"{step}"' for step in steps])
     format_fn = "TeXForm" if format == "latex" else "InputForm" if format == "mathematica" else "ToString"
@@ -118,9 +117,7 @@ Module[{{steps, results, i, prev, current, isEqual, simplified, formatExpr}},
                     report_lines.append("")
             summary = "All steps are valid!" if all_valid else "Some steps failed verification."
             report_lines.append(f"**Summary**: {summary}")
-            report_lines.append(
-                f"Valid: {parsed.get('valid_count', 0)}/{parsed.get('total_steps', 0)} steps"
-            )
+            report_lines.append(f"Valid: {parsed.get('valid_count', 0)}/{parsed.get('total_steps', 0)} steps")
         else:
             report_lines.append("Could not parse verification results.")
             report_lines.append(f"Raw output: {raw_output}")
@@ -140,17 +137,13 @@ Module[{{steps, results, i, prev, current, isEqual, simplified, formatExpr}},
             indent=2,
         )
     except Exception as e:
-        return json.dumps(
-            {"success": False, "error": f"Verification failed: {str(e)}"}, indent=2
-        )
+        return json.dumps({"success": False, "error": f"Verification failed: {str(e)}"}, indent=2)
 
 
 async def get_kernel_state(*, parse_wolfram_association: Callable[[str], dict]) -> str:
     wolframscript = _find_wolframscript()
     if not wolframscript:
-        return json.dumps(
-            {"success": False, "error": "wolframscript not found in PATH"}, indent=2
-        )
+        return json.dumps({"success": False, "error": "wolframscript not found in PATH"}, indent=2)
 
     state_code = """
 <|
@@ -194,14 +187,10 @@ async def get_kernel_state(*, parse_wolfram_association: Callable[[str], dict]) 
         return json.dumps({"success": False, "error": str(e)}, indent=2)
 
 
-async def load_package(
-    package_name: str, *, parse_wolfram_association: Callable[[str], dict]
-) -> str:
+async def load_package(package_name: str, *, parse_wolfram_association: Callable[[str], dict]) -> str:
     wolframscript = _find_wolframscript()
     if not wolframscript:
-        return json.dumps(
-            {"success": False, "error": "wolframscript not found in PATH"}, indent=2
-        )
+        return json.dumps({"success": False, "error": "wolframscript not found in PATH"}, indent=2)
 
     if not package_name.endswith("`"):
         package_name = package_name + "`"
@@ -231,17 +220,13 @@ Module[{{beforeContexts, afterContexts, newSymbols, result}},
         parsed = parse_wolfram_association(raw_output)
         return json.dumps(parsed if isinstance(parsed, dict) else {"raw": raw_output}, indent=2)
     except Exception as e:
-        return json.dumps(
-            {"success": False, "error": str(e), "package": package_name}, indent=2
-        )
+        return json.dumps({"success": False, "error": str(e), "package": package_name}, indent=2)
 
 
 async def list_loaded_packages(*, parse_wolfram_association: Callable[[str], dict]) -> str:
     wolframscript = _find_wolframscript()
     if not wolframscript:
-        return json.dumps(
-            {"success": False, "error": "wolframscript not found in PATH"}, indent=2
-        )
+        return json.dumps({"success": False, "error": "wolframscript not found in PATH"}, indent=2)
 
     list_code = """
 Module[{pkgs},
@@ -330,7 +315,7 @@ async def interpret_natural_language(text: str) -> str:
         return json.dumps({"success": False, "error": "wolframscript not found"}, indent=2)
 
     safe_text = text.replace('"', '\\"')
-    code = '''
+    code = """
 Module[{query, props, inputSpec, inputExpr, inputForm, resultExpr},
   query = "__MCP_QUERY__";
   props = Quiet[Check[WolframAlpha[query, "Properties"], {}]];
@@ -365,7 +350,7 @@ Module[{query, props, inputSpec, inputExpr, inputForm, resultExpr},
     ]
   ]
 ]
-'''.replace("__MCP_QUERY__", safe_text)
+""".replace("__MCP_QUERY__", safe_text)
     try:
         result = await _run_subprocess(
             [wolframscript, "-code", code],
@@ -374,14 +359,10 @@ Module[{query, props, inputSpec, inputExpr, inputForm, resultExpr},
             timeout=30,
         )
         if result.returncode != 0:
-            return json.dumps(
-                {"success": False, "error": result.stderr or "Query failed"}, indent=2
-            )
+            return json.dumps({"success": False, "error": result.stderr or "Query failed"}, indent=2)
         output = result.stdout.strip()
         if not output:
-            return json.dumps(
-                {"success": False, "error": "Empty WolframAlpha response"}, indent=2
-            )
+            return json.dumps({"success": False, "error": "Empty WolframAlpha response"}, indent=2)
         try:
             return json.dumps(json.loads(output), indent=2)
         except json.JSONDecodeError as e:
@@ -400,7 +381,7 @@ Module[{query, props, inputSpec, inputExpr, inputForm, resultExpr},
 async def entity_lookup(
     entity_type: str,
     name: str,
-    properties: Optional[list[str]] = None,
+    properties: list[str] | None = None,
     *,
     parse_wolfram_association: Callable[[str], dict],
 ) -> str:
@@ -482,9 +463,7 @@ Module[{{input, result}},
         return json.dumps({"success": False, "error": str(e)}, indent=2)
 
 
-async def get_constant(
-    name: str, *, parse_wolfram_association: Callable[[str], dict]
-) -> str:
+async def get_constant(name: str, *, parse_wolfram_association: Callable[[str], dict]) -> str:
     wolframscript = _find_wolframscript()
     if not wolframscript:
         return json.dumps({"success": False, "error": "wolframscript not found"}, indent=2)
@@ -516,28 +495,22 @@ async def trace_evaluation(
     expression: str,
     max_depth: int = 5,
     *,
-    addon_result: Callable[[str, Optional[dict]], dict],
+    addon_result: Callable[[str, dict | None], dict],
 ) -> str:
-    result = await addon_result(
-        "trace_evaluation", {"expression": expression, "max_depth": max_depth}
-    )
+    result = await addon_result("trace_evaluation", {"expression": expression, "max_depth": max_depth})
     if result.get("error"):
         return json.dumps({"success": False, "error": result["error"]}, indent=2)
     return json.dumps(result, indent=2)
 
 
-async def time_expression(
-    expression: str, *, addon_result: Callable[[str, Optional[dict]], dict]
-) -> str:
+async def time_expression(expression: str, *, addon_result: Callable[[str, dict | None], dict]) -> str:
     result = await addon_result("time_expression", {"expression": expression})
     if result.get("error"):
         return json.dumps({"success": False, "error": result["error"]}, indent=2)
     return json.dumps(result, indent=2)
 
 
-async def check_syntax(
-    code: str, *, addon_result: Callable[[str, Optional[dict]], dict]
-) -> str:
+async def check_syntax(code: str, *, addon_result: Callable[[str, dict | None], dict]) -> str:
     result = await addon_result("check_syntax", {"code": code})
     if result.get("error"):
         return json.dumps({"success": False, "error": result["error"]}, indent=2)
@@ -546,15 +519,13 @@ async def check_syntax(
 
 async def import_data(
     path: str,
-    format: Optional[str] = None,
+    format: str | None = None,
     *,
-    addon_result: Callable[[str, Optional[dict]], dict],
+    addon_result: Callable[[str, dict | None], dict],
     expand_path: Callable[[str], str],
 ) -> str:
     expanded = expand_path(path) if not path.startswith("http") else path
-    result = await addon_result(
-        "import_data", {"path": expanded, "format": format or "Automatic"}
-    )
+    result = await addon_result("import_data", {"path": expanded, "format": format or "Automatic"})
     if result.get("error"):
         return json.dumps({"success": False, "error": result["error"]}, indent=2)
     return json.dumps(result, indent=2)
@@ -563,9 +534,9 @@ async def import_data(
 async def export_data(
     expression: str,
     path: str,
-    format: Optional[str] = None,
+    format: str | None = None,
     *,
-    addon_result: Callable[[str, Optional[dict]], dict],
+    addon_result: Callable[[str, dict | None], dict],
     expand_path: Callable[[str], str],
 ) -> str:
     expanded = expand_path(path)
@@ -580,7 +551,7 @@ async def export_data(
 
 async def list_supported_formats(
     *,
-    addon_result: Callable[[str, Optional[dict]], dict],
+    addon_result: Callable[[str, dict | None], dict],
     parse_wolfram_association: Callable[[str], dict],
 ) -> str:
     result = await addon_result("list_import_formats", {})
@@ -610,9 +581,7 @@ async def list_supported_formats(
     return json.dumps(result, indent=2)
 
 
-async def inspect_graphics(
-    expression: str, *, parse_wolfram_association: Callable[[str], dict]
-) -> str:
+async def inspect_graphics(expression: str, *, parse_wolfram_association: Callable[[str], dict]) -> str:
     wolframscript = _find_wolframscript()
     if not wolframscript:
         return json.dumps({"success": False, "error": "wolframscript not found"}, indent=2)
@@ -650,7 +619,7 @@ async def export_graphics(
     format: Literal["PNG", "PDF", "SVG", "EPS", "JPEG"] = "PNG",
     size: int = 600,
     *,
-    addon_result: Callable[[str, Optional[dict]], dict],
+    addon_result: Callable[[str, dict | None], dict],
     expand_path: Callable[[str], str],
 ) -> str:
     expanded = expand_path(path)
@@ -665,7 +634,7 @@ async def export_graphics(
 
 async def compare_plots(
     expressions: list[str],
-    labels: Optional[list[str]] = None,
+    labels: list[str] | None = None,
     *,
     parse_wolfram_association: Callable[[str], dict],
 ) -> str:
@@ -673,7 +642,7 @@ async def compare_plots(
     if not wolframscript:
         return json.dumps({"success": False, "error": "wolframscript not found"}, indent=2)
     plots_list = "{" + ", ".join(expressions) + "}"
-    labels_code = "None" if not labels else "{" + ", ".join(f'"{l}"' for l in labels) + "}"
+    labels_code = "None" if not labels else "{" + ", ".join(f'"{label}"' for label in labels) + "}"
     code = f"""
 Module[{{plots, labels, grid}},
   plots = {plots_list};

@@ -26,6 +26,8 @@
 
 **Performance:** Notebook execution uses an atomic command that combines notebook lookup, cell creation, and evaluation into a single round-trip (vs. 4 separate calls), resulting in 3-4x faster plot rendering.
 
+**Security:** See [SECURITY.md](../SECURITY.md) for the full threat model, permissions matrix, and vulnerability reporting process.
+
 ---
 
 ## Tool Profiles

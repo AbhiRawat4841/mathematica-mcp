@@ -17,18 +17,15 @@ This parser works offline without requiring wolframscript.
 from __future__ import annotations
 
 import re
-from functools import lru_cache
 from dataclasses import dataclass, field
 from enum import Enum
+from functools import lru_cache
 from pathlib import Path
-from typing import Any
 
 TRUNCATION_THRESHOLD = 25000  # 25KB
 
 
-def truncate_large_expression(
-    text: str, threshold: int = TRUNCATION_THRESHOLD
-) -> tuple[str, bool, int]:
+def truncate_large_expression(text: str, threshold: int = TRUNCATION_THRESHOLD) -> tuple[str, bool, int]:
     """Truncate text if it exceeds the threshold."""
     original_length = len(text)
     if original_length <= threshold:
@@ -263,9 +260,7 @@ SPECIAL_CHARS = {
     r"\[BlankNullSequence]": "___",
 }
 
-SPECIAL_CHAR_PATTERN = re.compile(
-    "|".join(re.escape(token) for token in sorted(SPECIAL_CHARS, key=len, reverse=True))
-)
+SPECIAL_CHAR_PATTERN = re.compile("|".join(re.escape(token) for token in sorted(SPECIAL_CHARS, key=len, reverse=True)))
 SPECIAL_CHAR_FALLBACK_PATTERN = re.compile(r"\\\\?\[([A-Z][A-Za-z]+)\]")
 
 
@@ -305,22 +300,24 @@ class BoxDataParser:
             return ""
 
         # Check if already clean
-        if not any(
-            x in content
-            for x in [
-                "BoxData",
-                "RowBox",
-                "FractionBox",
-                "SuperscriptBox",
-                "SubscriptBox",
-                "SqrtBox",
-                "GridBox",
-                "TemplateBox",
-                "FormBox",
-            ]
+        if (
+            not any(
+                x in content
+                for x in [
+                    "BoxData",
+                    "RowBox",
+                    "FractionBox",
+                    "SuperscriptBox",
+                    "SubscriptBox",
+                    "SqrtBox",
+                    "GridBox",
+                    "TemplateBox",
+                    "FormBox",
+                ]
+            )
+            and "Cell[" not in content
         ):
-            if "Cell[" not in content:
-                return convert_special_chars(content)
+            return convert_special_chars(content)
 
         try:
             if "BoxData[" in content:
@@ -492,9 +489,8 @@ class BoxDataParser:
             elif exp == "*":
                 return f"Conjugate[{base}]"
             else:
-                if len(base) > 1 and not (base.startswith("(") and base.endswith(")")):
-                    if not base[0].isupper():
-                        base = f"({base})"
+                if len(base) > 1 and not (base.startswith("(") and base.endswith(")")) and not base[0].isupper():
+                    base = f"({base})"
                 return f"{base}^{exp}"
         return content
 
@@ -958,9 +954,7 @@ class NotebookParser:
             else:
                 parsed_content = convert_special_chars(raw_content)
 
-        trunc, was_trunc, orig_len = truncate_large_expression(
-            parsed_content, self.truncation_threshold
-        )
+        trunc, was_trunc, orig_len = truncate_large_expression(parsed_content, self.truncation_threshold)
 
         return Cell(style, trunc, raw_content, label, index, was_trunc, orig_len)
 
@@ -1089,14 +1083,10 @@ def _parse_notebook_cached(
     resolved_path: str, mtime_ns: int, file_size: int, truncation_threshold: int
 ) -> NotebookStructure:
     del mtime_ns, file_size
-    return NotebookParser(truncation_threshold=truncation_threshold).parse_file(
-        resolved_path
-    )
+    return NotebookParser(truncation_threshold=truncation_threshold).parse_file(resolved_path)
 
 
-def parse_notebook_cached(
-    path: str | Path, truncation_threshold: int = TRUNCATION_THRESHOLD
-) -> NotebookStructure:
+def parse_notebook_cached(path: str | Path, truncation_threshold: int = TRUNCATION_THRESHOLD) -> NotebookStructure:
     resolved = Path(path).resolve()
     stat = resolved.stat()
     return _parse_notebook_cached(

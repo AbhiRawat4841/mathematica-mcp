@@ -8,13 +8,14 @@ Invalidated when the source file changes (mtime + size check).
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import logging
 import os
 import tempfile
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 logger = logging.getLogger("mathematica_mcp.disk_cache")
 
@@ -52,7 +53,7 @@ def get_cached(
     path: str,
     backend: str,
     **options: Any,
-) -> Optional[dict[str, Any]]:
+) -> dict[str, Any] | None:
     """Retrieve cached notebook extraction result, or None if miss/stale."""
     resolved = Path(path).resolve()
     if not resolved.exists():
@@ -64,8 +65,11 @@ def get_cached(
         return None
 
     key = _cache_key(
-        str(resolved), stat.st_mtime_ns, stat.st_size,
-        backend, _options_hash(**options),
+        str(resolved),
+        stat.st_mtime_ns,
+        stat.st_size,
+        backend,
+        _options_hash(**options),
     )
     cache_file = get_cache_dir() / f"{key}.json"
 
@@ -103,8 +107,11 @@ def put_cached(
         return
 
     key = _cache_key(
-        str(resolved), stat.st_mtime_ns, stat.st_size,
-        backend, _options_hash(**options),
+        str(resolved),
+        stat.st_mtime_ns,
+        stat.st_size,
+        backend,
+        _options_hash(**options),
     )
 
     # Add staleness guards to data
@@ -118,11 +125,9 @@ def put_cached(
     cache_file = cache_dir / f"{key}.json"
 
     # Atomic write: write to temp, then rename
-    tmp_path: Optional[str] = None
+    tmp_path: str | None = None
     try:
-        fd, tmp_path = tempfile.mkstemp(
-            dir=str(cache_dir), suffix=".tmp", prefix="mcp_"
-        )
+        fd, tmp_path = tempfile.mkstemp(dir=str(cache_dir), suffix=".tmp", prefix="mcp_")
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(cache_data, f)
         os.replace(tmp_path, str(cache_file))
@@ -130,10 +135,8 @@ def put_cached(
     except OSError as e:
         logger.warning("Failed to write cache: %s", e)
         if tmp_path is not None:
-            try:
+            with contextlib.suppress(OSError):
                 os.unlink(tmp_path)
-            except OSError:
-                pass
 
 
 def clear_cache() -> int:

@@ -14,17 +14,17 @@ from __future__ import annotations
 import logging
 import subprocess
 import threading
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger("mathematica_mcp.symbol_index")
 
 _index_lock = threading.Lock()
-_system_symbols: List[str] = []
-_system_symbols_lower: List[tuple[str, str]] = []  # (lower_name, original_name)
+_system_symbols: list[str] = []
+_system_symbols_lower: list[tuple[str, str]] = []  # (lower_name, original_name)
 _kernel_version: str = ""
 
 _metadata_lock = threading.Lock()
-_symbol_metadata: Dict[str, Dict[str, Any]] = {}
+_symbol_metadata: dict[str, dict[str, Any]] = {}
 
 
 # ---------------------------------------------------------------------------
@@ -67,9 +67,7 @@ def _build_index_sync() -> bool:
             _system_symbols = symbols
             _system_symbols_lower = [(s.lower(), s) for s in symbols]
 
-        logger.info(
-            "Symbol index built: %d symbols for version %s", len(symbols), version
-        )
+        logger.info("Symbol index built: %d symbols for version %s", len(symbols), version)
         return True
     except Exception as e:
         logger.warning("Failed to build symbol index: %s", e)
@@ -100,7 +98,7 @@ def invalidate() -> None:
 # ---------------------------------------------------------------------------
 
 
-def search(query: str, *, max_results: int = 20) -> List[str]:
+def search(query: str, *, max_results: int = 20) -> list[str]:
     """Return symbol names matching *query* (case-insensitive).
 
     Results are ordered: exact match first, then prefix matches, then
@@ -138,13 +136,13 @@ def get_version() -> str:
 # ---------------------------------------------------------------------------
 
 
-def get_cached_metadata(symbol: str) -> Optional[Dict[str, Any]]:
+def get_cached_metadata(symbol: str) -> dict[str, Any] | None:
     """Return cached metadata for *symbol*, or ``None`` on miss."""
     with _metadata_lock:
         return _symbol_metadata.get(symbol)
 
 
-def cache_metadata(symbol: str, metadata: Dict[str, Any]) -> None:
+def cache_metadata(symbol: str, metadata: dict[str, Any]) -> None:
     """Merge *metadata* into the cache entry for *symbol*.
 
     Existing keys are preserved; new keys are added.  This prevents

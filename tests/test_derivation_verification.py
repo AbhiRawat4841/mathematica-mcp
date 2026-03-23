@@ -6,8 +6,8 @@ can be validated using Mathematica's Simplify function.
 """
 
 import pytest
-from mathematica_mcp.session import execute_in_kernel
 
+from mathematica_mcp.session import execute_in_kernel
 
 pytestmark = pytest.mark.usefixtures("require_wolfram_runtime")
 
@@ -69,9 +69,7 @@ class TestDerivationVerification:
     def test_logarithm_laws(self):
         """Test logarithm laws."""
         # log(a*b) = log(a) + log(b)
-        result = execute_in_kernel(
-            "Simplify[Log[a*b] - (Log[a] + Log[b]), Assumptions -> {a > 0, b > 0}]"
-        )
+        result = execute_in_kernel("Simplify[Log[a*b] - (Log[a] + Log[b]), Assumptions -> {a > 0, b > 0}]")
         assert result["success"] is True
         assert result["output_inputform"] == "0"
 
@@ -111,9 +109,7 @@ class TestDerivationVerification:
         for i in range(len(steps) - 1):
             result = execute_in_kernel(f"Simplify[({steps[i]}) - ({steps[i + 1]})]")
             assert result["success"] is True, f"Step {i + 1} failed"
-            assert result["output_inputform"] == "0", (
-                f"Step {i + 1} -> {i + 2} is not valid: {result['output']}"
-            )
+            assert result["output_inputform"] == "0", f"Step {i + 1} -> {i + 2} is not valid: {result['output']}"
 
     def test_euler_identity(self):
         """Test Euler's identity: e^(i*pi) + 1 = 0."""
@@ -149,9 +145,7 @@ class TestSymbolicEquivalence:
         for expr1, expr2 in pairs:
             result = execute_in_kernel(f"Simplify[{expr1} - ({expr2})]")
             assert result["success"] is True
-            assert result["output_inputform"] == "0", (
-                f"{expr1} != {expr2}: got {result['output']}"
-            )
+            assert result["output_inputform"] == "0", f"{expr1} != {expr2}: got {result['output']}"
 
     def test_non_equivalent_expressions(self):
         """Test that non-equivalent expressions are not equal."""
@@ -164,9 +158,7 @@ class TestSymbolicEquivalence:
         for expr1, expr2 in pairs:
             result = execute_in_kernel(f"Simplify[{expr1} - ({expr2})]")
             assert result["success"] is True
-            assert result["output_inputform"] != "0", (
-                f"{expr1} should not equal {expr2}"
-            )
+            assert result["output_inputform"] != "0", f"{expr1} should not equal {expr2}"
 
 
 if __name__ == "__main__":

@@ -39,7 +39,7 @@ class TestTelemetryTool:
     """Test the telemetry_tool decorator in isolation."""
 
     def test_records_timing_on_success(self):
-        from mathematica_mcp.telemetry import telemetry_tool, get_usage_stats
+        from mathematica_mcp.telemetry import get_usage_stats, telemetry_tool
 
         @telemetry_tool("test_success")
         async def my_tool():
@@ -53,7 +53,7 @@ class TestTelemetryTool:
         assert stats["test_success"]["total_time_ms"] >= 0
 
     def test_records_timing_on_error(self):
-        from mathematica_mcp.telemetry import telemetry_tool, get_usage_stats
+        from mathematica_mcp.telemetry import get_usage_stats, telemetry_tool
 
         @telemetry_tool("test_error")
         async def my_tool():
@@ -67,7 +67,7 @@ class TestTelemetryTool:
         assert stats["test_error"]["errors"] == 1
 
     def test_accumulates_multiple_calls(self):
-        from mathematica_mcp.telemetry import telemetry_tool, get_usage_stats
+        from mathematica_mcp.telemetry import get_usage_stats, telemetry_tool
 
         @telemetry_tool("test_multi")
         async def my_tool():
@@ -82,7 +82,7 @@ class TestTelemetryTool:
         assert stats["test_multi"]["total_time_ms"] >= 0
 
     def test_percentiles_present_after_calls(self):
-        from mathematica_mcp.telemetry import telemetry_tool, get_usage_stats
+        from mathematica_mcp.telemetry import get_usage_stats, telemetry_tool
 
         @telemetry_tool("test_pct")
         async def my_tool():
@@ -103,9 +103,9 @@ class TestTelemetryTool:
 
     def test_reset_clears_everything(self):
         from mathematica_mcp.telemetry import (
-            telemetry_tool,
             get_usage_stats,
             reset_stats,
+            telemetry_tool,
         )
 
         @telemetry_tool("test_reset")
@@ -129,7 +129,7 @@ class TestTelemetryTool:
         assert getattr(my_tool, "_telemetry_name", None) == "test_marker"
 
     def test_instrumented_tools_tracking(self):
-        from mathematica_mcp.telemetry import telemetry_tool, get_instrumented_tools
+        from mathematica_mcp.telemetry import get_instrumented_tools, telemetry_tool
 
         @telemetry_tool("test_tracking_a")
         async def tool_a():
@@ -210,6 +210,9 @@ class TestConnectionLockMetrics:
             def getpeername(self):
                 return ("localhost", 9881)
 
+            def settimeout(self, timeout):
+                pass
+
             def sendall(self, data):
                 pass
 
@@ -236,6 +239,9 @@ class TestConnectionLockMetrics:
             def getpeername(self):
                 return ("localhost", 9881)
 
+            def settimeout(self, timeout):
+                pass
+
             def sendall(self, data):
                 pass
 
@@ -261,10 +267,11 @@ class TestConnectionLockMetrics:
             def getpeername(self):
                 return ("localhost", 9881)
 
-            def sendall(self, data):
-                import socket
+            def settimeout(self, timeout):
+                pass
 
-                raise socket.timeout("timed out")
+            def sendall(self, data):
+                raise TimeoutError("timed out")
 
             def recv(self, bufsize):
                 return b""
@@ -291,6 +298,9 @@ class TestConnectionLockMetrics:
         class FakeSocket:
             def getpeername(self):
                 return ("localhost", 9881)
+
+            def settimeout(self, timeout):
+                pass
 
             def sendall(self, data):
                 pass
@@ -353,9 +363,7 @@ def test_all_full_profile_tools_instrumented():
     instrumented = set(data["instrumented"])
 
     missing = registered - instrumented
-    assert not missing, (
-        f"Tools registered but NOT instrumented: {sorted(missing)}"
-    )
+    assert not missing, f"Tools registered but NOT instrumented: {sorted(missing)}"
 
 
 def test_all_math_profile_tools_instrumented():
@@ -365,9 +373,7 @@ def test_all_math_profile_tools_instrumented():
     instrumented = set(data["instrumented"])
 
     missing = registered - instrumented
-    assert not missing, (
-        f"Math-profile tools registered but NOT instrumented: {sorted(missing)}"
-    )
+    assert not missing, f"Math-profile tools registered but NOT instrumented: {sorted(missing)}"
 
 
 def test_all_notebook_profile_tools_instrumented():
@@ -377,9 +383,7 @@ def test_all_notebook_profile_tools_instrumented():
     instrumented = set(data["instrumented"])
 
     missing = registered - instrumented
-    assert not missing, (
-        f"Notebook-profile tools registered but NOT instrumented: {sorted(missing)}"
-    )
+    assert not missing, f"Notebook-profile tools registered but NOT instrumented: {sorted(missing)}"
 
 
 # ---------------------------------------------------------------------------
@@ -402,6 +406,7 @@ class TestTelemetryMcpWrapper:
                 def decorator(func):
                     self.registered.append(func)
                     return func
+
                 return decorator
 
         fake = FakeMcp()
@@ -436,7 +441,7 @@ class TestBenchmarkSchema:
     """Verify the stats output format is stable for benchmark tooling."""
 
     def test_stats_schema_with_calls(self):
-        from mathematica_mcp.telemetry import telemetry_tool, get_usage_stats
+        from mathematica_mcp.telemetry import get_usage_stats, telemetry_tool
 
         @telemetry_tool("schema_test")
         async def my_tool():
@@ -468,7 +473,7 @@ class TestBenchmarkSchema:
         assert stats == {}
 
     def test_stats_serializable_to_json(self):
-        from mathematica_mcp.telemetry import telemetry_tool, get_usage_stats
+        from mathematica_mcp.telemetry import get_usage_stats, telemetry_tool
 
         @telemetry_tool("json_test")
         async def my_tool():
