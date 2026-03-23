@@ -576,6 +576,8 @@ class TestSingleSubprocessGraphics:
         """render_graphics=False must not produce image_path."""
         import subprocess as sp
 
+        import mathematica_mcp.lazy_wolfram_tools as lwt
+
         # Mock wolframscript to return simple JSON output
         mock_output = '{"output":"42","output_inputform":"42","output_fullform":"","output_tex":"","messages":"{}","timing_ms":10,"failed":false,"image_path":"","is_graphics":false}'
 
@@ -587,9 +589,9 @@ class TestSingleSubprocessGraphics:
 
             return R()
 
-        import shutil
-
-        monkeypatch.setattr(shutil, "which", lambda _: "/usr/bin/wolframscript")
+        # Clear lru_cache and patch shutil.which in the module where it's used
+        lwt._find_wolframscript.cache_clear()
+        monkeypatch.setattr(lwt.shutil, "which", lambda _: "/usr/bin/wolframscript")
         monkeypatch.setattr(sp, "run", mock_run)
 
         result = _execute_via_wolframscript("42", render_graphics=False)
