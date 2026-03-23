@@ -1219,4 +1219,4 @@ MIT License
 
 ---
 
-*Last updated: March 2026 (v0.5.0 — Performance: single-eval graphics, socket framing, disk-cache optimization, runtime discovery caching)*
+*Last updated: March 2026 (v0.6.0 — Performance: symbol index, cache epoch, raster cache, telemetry wiring, notebook routing)*
