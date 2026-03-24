@@ -6,8 +6,8 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![Mathematica 14+](https://img.shields.io/badge/Mathematica-14+-red.svg)](https://www.wolfram.com/mathematica/)
 [![CI](https://github.com/AbhiRawat4841/mathematica-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/AbhiRawat4841/mathematica-mcp/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/AbhiRawat4841/mathematica-mcp/branch/main/graph/badge.svg)](https://codecov.io/gh/AbhiRawat4841/mathematica-mcp)
-[![PyPI](https://img.shields.io/pypi/v/mathematica-mcp-full)](https://pypi.org/project/mathematica-mcp-full/)
+[![Repo](https://img.shields.io/github/v/tag/AbhiRawat4841/mathematica-mcp?label=repo)](https://github.com/AbhiRawat4841/mathematica-mcp/releases)
+[![Published](https://img.shields.io/pypi/v/mathematica-mcp-full?label=published)](https://pypi.org/project/mathematica-mcp-full/)
 
 ---
 

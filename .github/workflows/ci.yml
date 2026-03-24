@@ -7,6 +7,9 @@ on:
     branches: [main]
   workflow_call:
 
+permissions:
+  contents: read
+
 jobs:
   lint:
     runs-on: ubuntu-latest
@@ -38,14 +41,7 @@ jobs:
       - run: >
           uv run pytest tests/ -v --tb=short
           --cov=src/mathematica_mcp
-          --cov-report=xml
           --cov-report=term-missing
-      - uses: codecov/codecov-action@v4
-        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
-        with:
-          files: coverage.xml
-          token: ${{ secrets.CODECOV_TOKEN }}
-          fail_ci_if_error: false
 
   package:
     runs-on: ubuntu-latest

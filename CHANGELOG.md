@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.5] - 2026-03-24
+
+### Changed
+
+- Removed Codecov integration from CI while keeping terminal coverage output
+- Switched PyPI publishing to run from version tag pushes or manual dispatch
+- Clarified README badges to distinguish repo version from latest published version
+
 ## [0.7.0] - 2026-03-24
 
 ### Added
@@ -14,7 +22,7 @@ All notable changes to this project will be documented in this file.
 - Benchmark documentation with offline and live-addon timing data
 - Two polished example sessions (symbolic calculus, notebook analysis)
 - GitHub issue templates for bug reports and feature requests
-- CI, codecov, and PyPI badges in README
+- CI and PyPI badges in README
 
 ### Changed
 
