@@ -18,6 +18,8 @@ If[!ValueQ[$MCPHost], $MCPHost = "127.0.0.1"];
 If[!ValueQ[$MCPAuthToken], $MCPAuthToken = Quiet[Check[Environment["MATHEMATICA_MCP_TOKEN"], ""]]];
 If[!ValueQ[$MCPMaxMessageBytes], $MCPMaxMessageBytes = 5*1024*1024]; (* 5MB max request *)
 If[!ValueQ[$MCPMaxResponseBytes], $MCPMaxResponseBytes = 20*1024*1024]; (* 20MB max response *)
+If[!ValueQ[$MCPMaxFieldChars], $MCPMaxFieldChars = 5*1024*1024]; (* 5M chars per string field *)
+If[!ValueQ[$MCPMaxTotalFieldChars], $MCPMaxTotalFieldChars = 15*1024*1024]; (* 15M total across all string fields *)
 If[!ValueQ[$MCPBuffers], $MCPBuffers = <||>]; (* per-socket input buffers *)
 If[!ValueQ[$MCPActiveNotebook], $MCPActiveNotebook = None];
 If[!ValueQ[$MCPSessionNotebooks], $MCPSessionNotebooks = <||>];
@@ -142,7 +144,7 @@ handleConnection[assoc_Association] := Module[
         ];
         
         If[StringLength[responseStr] > $MCPMaxResponseBytes,
-          responseStr = "{\"status\":\"error\",\"message\":\"Response too large\"}";
+          responseStr = "{\"status\":\"error\",\"message\":\"Response too large (" <> ToString[StringLength[responseStr]] <> " chars after truncation). The result was too large to serialize.\"}";
         ];
         responseStr <> "\n"
       ]
@@ -157,24 +159,60 @@ handleConnection[assoc_Association] := Module[
 ];
 
 (* ============================================================================ *)
+(* LARGE RESPONSE SAFETY NET                                                    *)
+(* ============================================================================ *)
+
+(* Truncate oversized string fields in a result Association to stay within
+   the wire budget. Applied in processCommand before JSON serialization.
+   This is targeted hardening for execute_code/notebook output fields. *)
+truncateLargeResult[result_] := result /; !AssociationQ[result];
+truncateLargeResult[result_Association] := Module[
+  {r = result, totalSize = 0, truncated = {},
+   fields = {"output_fullform", "output_tex", "output", "output_inputform", "result", "output_preview"},
+   stringFields, cap},
+
+  stringFields = Select[fields, KeyExistsQ[r, #] && StringQ[r[#]] &];
+  totalSize = Total[StringLength[r[#]] & /@ stringFields];
+  If[totalSize <= $MCPMaxTotalFieldChars, Return[r]];
+
+  (* Over budget: apply equal cap across oversized string fields *)
+  cap = Floor[$MCPMaxTotalFieldChars / Max[1, Length[stringFields]]];
+  Do[
+    If[StringLength[r[f]] > cap,
+      AppendTo[truncated, <|"field" -> f, "original_size" -> StringLength[r[f]]|>];
+      r[f] = StringTake[r[f], cap];
+    ],
+    {f, stringFields}
+  ];
+  If[Length[truncated] > 0,
+    r["truncated"] = True;
+    r["truncated_fields"] = truncated;
+  ];
+  r
+];
+
+(* ============================================================================ *)
 (* COMMAND DISPATCHER                                                           *)
 (* ============================================================================ *)
 
 processCommand[request_Association] := Module[
   {id, command, params, token, result, response},
-  
+
   id = Lookup[request, "id", CreateUUID[]];
   command = Lookup[request, "command", "unknown"];
   params = Lookup[request, "params", <||>];
   token = Lookup[request, "token", ""];
-  
+
   debugLog["Processing command: " <> command];
-  
+
   If[StringLength[$MCPAuthToken] > 0 && token =!= $MCPAuthToken,
     Return[<|"id" -> id, "status" -> "error", "message" -> "Unauthorized"|>]
   ];
-  
+
   result = dispatchCommand[command, params];
+
+  (* Safety net: truncate oversized string fields before serialization *)
+  result = truncateLargeResult[result];
 
   response = If[KeyExistsQ[result, "error"],
     <|"id" -> id, "status" -> "error", "message" -> result["error"]|>,
@@ -798,9 +836,9 @@ graphicsHeadQ[expr_] := MatchQ[Head[expr], Graphics|Graphics3D|Legended|Image] |
 
 cmdExecuteCode[params_] := Module[
   {code, format, result, outputInput, outputFull = "", outputTex = "", messages,
-   timing, failed, deterministicSeed, timeout, sessionId, isolateContext, ctx, exprToEval,
-   formattedMessages, hasErrors, hasWarnings, errorType,
-   renderGraphics, imageSize},
+   timing, failed, deterministicSeed, timeout, sessionId, isolateContext, ctx,
+   formattedMessages, hasErrors, hasWarnings, errorType, parseFailed = False,
+   truncatedOutput = False, renderGraphics, imageSize},
 
   code = Lookup[params, "code", ""];
   format = Lookup[params, "format", "text"];
@@ -817,29 +855,50 @@ cmdExecuteCode[params_] := Module[
 
   ctx = If[isolateContext, getSessionContext[sessionId], None];
 
-  exprToEval = ToExpression[code];
-  If[ctx =!= None,
-    exprToEval = Block[{$Context = ctx, $ContextPath = {ctx, "System`"}}, exprToEval]
-  ];
-  If[deterministicSeed =!= None && deterministicSeed =!= Null,
-    exprToEval = BlockRandom[SeedRandom[deterministicSeed]; exprToEval]
-  ];
-  If[NumberQ[timeout],
-    exprToEval = TimeConstrained[exprToEval, timeout, $Aborted]
-  ];
-
+  (* Parse and evaluate inside AbsoluteTiming so timing, context isolation,
+     and timeout all work correctly. Uses HoldComplete to defer evaluation
+     until inside the timed block. With[] injects held values safely. *)
   {timing, {result, messages}} = AbsoluteTiming[
     Block[{$MessageList = {}},
-      {Quiet @ Check[exprToEval, $Failed], $MessageList}
+      Module[{heldExpr, evalBody},
+        heldExpr = Quiet[Check[ToExpression[code, InputForm, HoldComplete], $Failed]];
+        If[heldExpr === $Failed,
+          parseFailed = True;
+          {$Failed, $MessageList},
+          evalBody = heldExpr;
+          If[ctx =!= None,
+            evalBody = With[{b = evalBody},
+              HoldComplete[Block[{$Context = ctx, $ContextPath = {ctx, "System`"}}, ReleaseHold[b]]]]
+          ];
+          If[deterministicSeed =!= None && deterministicSeed =!= Null,
+            evalBody = With[{b = evalBody},
+              HoldComplete[BlockRandom[SeedRandom[deterministicSeed]; ReleaseHold[b]]]]
+          ];
+          If[NumberQ[timeout],
+            evalBody = With[{b = evalBody},
+              HoldComplete[TimeConstrained[ReleaseHold[b], timeout, $Aborted]]]
+          ];
+          {Quiet @ Check[ReleaseHold[evalBody], $Failed], $MessageList}
+        ]
+      ]
     ]
   ];
 
   failed = (result === $Failed || result === $Aborted);
-  errorType = If[result === $Aborted, "timeout", "evaluation_error"];
+  errorType = Which[result === $Aborted, "timeout", parseFailed, "syntax_error", True, "evaluation_error"];
 
+  (* Command-level truncation: compute primary representation, skip
+     redundant FullForm/TeXForm if primary is already large. *)
   outputInput = ToString[result, InputForm];
-  If[format === "mathematica", outputFull = ToString[result, FullForm]];
-  If[format === "latex", outputTex = ToString[TeXForm[result]]];
+  truncatedOutput = False;
+  If[StringLength[outputInput] > $MCPMaxFieldChars,
+    outputInput = StringTake[outputInput, $MCPMaxFieldChars];
+    truncatedOutput = True;
+  ];
+  If[!truncatedOutput,
+    If[format === "mathematica", outputFull = ToString[result, FullForm]];
+    If[format === "latex", outputTex = ToString[TeXForm[result]]];
+  ];
 
   formattedMessages = Map[
     Function[msg,
@@ -894,6 +953,7 @@ cmdExecuteCode[params_] := Module[
       "execution_method" -> "addon"
     |>;
     If[failed, response["error"] = errorType];
+    If[truncatedOutput, response["truncated"] = True];
     If[didRaster,
       response["image_path"] = imgPath;
       response["is_graphics"] = True;
@@ -1004,7 +1064,8 @@ cmdExecuteCodeNotebook[params_] := Module[
 ];
 
 executeCodeNotebookKernel[nb_, code_, timeout_, syncMode_, createdNew_, sessionId_, deterministicSeed_, isolateContext_, syncWait_] := Module[
-  {result, messages, timing, isGraphics, outputCell, inputCellId, inputCellObj, exprToEval, ctx},
+  {result, messages, timing, isGraphics, outputCell, inputCellId, inputCellObj, ctx,
+   parseFailed = False, outputInput, truncatedOutput = False},
 
   inputCellId = newCellId[];
   SelectionMove[nb, After, Notebook];
@@ -1012,24 +1073,46 @@ executeCodeNotebookKernel[nb_, code_, timeout_, syncMode_, createdNew_, sessionI
   inputCellObj = Quiet@Check[First[Cells[nb, CellID -> inputCellId]], None];
 
   ctx = If[TrueQ[isolateContext], getSessionContext[sessionId], None];
-  exprToEval = ToExpression[code];
-  If[ctx =!= None,
-    exprToEval = Block[{$Context = ctx, $ContextPath = {ctx, "System`"}}, exprToEval]
-  ];
-  If[deterministicSeed =!= None && deterministicSeed =!= Null,
-    exprToEval = BlockRandom[SeedRandom[deterministicSeed]; exprToEval]
-  ];
-  If[NumberQ[timeout],
-    exprToEval = TimeConstrained[exprToEval, timeout, $Aborted]
-  ];
 
+  (* Parse and evaluate inside AbsoluteTiming so timing, context isolation,
+     and timeout all work correctly. Uses HoldComplete to defer evaluation
+     until inside the timed block. With[] injects held values safely. *)
   {timing, {result, messages}} = AbsoluteTiming[
     Block[{$MessageList = {}},
-      {Quiet @ Check[exprToEval, $Failed], $MessageList}
+      Module[{heldExpr, evalBody},
+        heldExpr = Quiet[Check[ToExpression[code, InputForm, HoldComplete], $Failed]];
+        If[heldExpr === $Failed,
+          parseFailed = True;
+          {$Failed, $MessageList},
+          evalBody = heldExpr;
+          If[ctx =!= None,
+            evalBody = With[{b = evalBody},
+              HoldComplete[Block[{$Context = ctx, $ContextPath = {ctx, "System`"}}, ReleaseHold[b]]]]
+          ];
+          If[deterministicSeed =!= None && deterministicSeed =!= Null,
+            evalBody = With[{b = evalBody},
+              HoldComplete[BlockRandom[SeedRandom[deterministicSeed]; ReleaseHold[b]]]]
+          ];
+          If[NumberQ[timeout],
+            evalBody = With[{b = evalBody},
+              HoldComplete[TimeConstrained[ReleaseHold[b], timeout, $Aborted]]]
+          ];
+          {Quiet @ Check[ReleaseHold[evalBody], $Failed], $MessageList}
+        ]
+      ]
     ]
   ];
 
   isGraphics = MatchQ[result, _Graphics | _Graphics3D | _Image | _Legended | _Graph];
+
+  (* Compute outputInput once; reuse for cell, preview, and response.
+     Truncate if too large — the notebook cell will show truncated output,
+     which is better than crashing with "Response too large". *)
+  outputInput = ToString[result, InputForm];
+  If[StringLength[outputInput] > $MCPMaxFieldChars,
+    outputInput = StringTake[outputInput, $MCPMaxFieldChars];
+    truncatedOutput = True;
+  ];
 
   outputCell = Which[
     result === $Aborted,
@@ -1039,7 +1122,7 @@ executeCodeNotebookKernel[nb_, code_, timeout_, syncMode_, createdNew_, sessionI
     isGraphics,
       Cell[BoxData[ToBoxes[result]], "Output", GeneratedCell -> True],
     True,
-      Cell[ToString[result, InputForm], "Output", GeneratedCell -> True]
+      Cell[outputInput, "Output", GeneratedCell -> True]
   ];
 
   SelectionMove[nb, After, Notebook];
@@ -1059,7 +1142,7 @@ executeCodeNotebookKernel[nb_, code_, timeout_, syncMode_, createdNew_, sessionI
     ]
   ];
 
-  Module[{formattedMessages, hasErrors, hasWarnings},
+  Module[{formattedMessages, hasErrors, hasWarnings, response},
     formattedMessages = Map[
       Function[msg,
         Quiet @ Check[
@@ -1080,8 +1163,12 @@ executeCodeNotebookKernel[nb_, code_, timeout_, syncMode_, createdNew_, sessionI
     hasErrors = Length[Select[formattedMessages, #["type"] == "error" &]] > 0;
     hasWarnings = Length[Select[formattedMessages, #["type"] == "warning" &]] > 0;
 
-    <|
-      "success" -> (result =!= $Aborted),
+    Module[{failed, errorType},
+    failed = (result === $Failed || result === $Aborted);
+    errorType = Which[result === $Aborted, "timeout", parseFailed, "syntax_error", True, "evaluation_error"];
+
+    response = <|
+      "success" -> Not[failed],
       "mode" -> "kernel",
       "notebook_id" -> ToString[nb, InputForm],
       "cell_id" -> If[inputCellObj === None, ToString[inputCellId], ToString[inputCellObj, InputForm]],
@@ -1093,9 +1180,13 @@ executeCodeNotebookKernel[nb_, code_, timeout_, syncMode_, createdNew_, sessionI
       "has_errors" -> hasErrors,
       "has_warnings" -> hasWarnings,
       "message_count" -> Length[formattedMessages],
-      "output_preview" -> StringTake[ToString[result, InputForm], UpTo[1000]],
+      "output_preview" -> StringTake[outputInput, UpTo[1000]],
       "is_graphics" -> isGraphics
-    |>
+    |>;
+    If[failed, response["error"] = errorType];
+    If[truncatedOutput, response["truncated"] = True];
+    response
+    ]
   ]
 ];
 

@@ -256,5 +256,63 @@ class TestPerformanceComparison:
         assert avg_kernel < 2000, f"Kernel mode too slow: {avg_kernel}ms"
 
 
+class TestKernelModeErrorSemantics:
+    """Verify notebook-kernel error reporting aligns with cmdExecuteCode."""
+
+    def test_syntax_error_returns_failure(self, mcp_client):
+        """Syntax errors must report success=False and error_type=syntax_error."""
+        result = mcp_client.send_command(
+            "execute_code_notebook", {"code": "1 +", "mode": "kernel"}
+        )
+
+        assert result.get("success") is False, (
+            f"Syntax error should report success=False, got: {result}"
+        )
+        assert result.get("error") == "syntax_error", (
+            f"Expected error='syntax_error', got: {result.get('error')}"
+        )
+
+    def test_runtime_failure_returns_failure(self, mcp_client):
+        """Runtime $Failed must report success=False."""
+        # Deliberately cause a $Failed by calling a function with wrong args
+        result = mcp_client.send_command(
+            "execute_code_notebook",
+            {"code": "Check[1/0, $Failed]", "mode": "kernel"},
+        )
+
+        # 1/0 produces ComplexInfinity, not $Failed — so use a surer path
+        result = mcp_client.send_command(
+            "execute_code_notebook",
+            {"code": "Quiet[Check[Import[\"nonexistent_file_xyz_123\"], $Failed]]", "mode": "kernel"},
+        )
+
+        assert result.get("success") is False, (
+            f"$Failed result should report success=False, got: {result}"
+        )
+
+    def test_timeout_returns_failure(self, mcp_client):
+        """Timeout must report success=False and timed_out=True."""
+        result = mcp_client.send_command(
+            "execute_code_notebook",
+            {"code": "Pause[10]", "mode": "kernel", "timeout": 1},
+        )
+
+        assert result.get("success") is False
+        assert result.get("timed_out") is True
+        assert result.get("error") == "timeout"
+
+    def test_timing_ms_nonzero_for_nontrivial(self, mcp_client):
+        """Nontrivial expressions must report timing_ms > 0."""
+        result = mcp_client.send_command(
+            "execute_code_notebook",
+            {"code": "Pause[0.05]; 1+1", "mode": "kernel"},
+        )
+
+        assert result.get("success") is True
+        assert result.get("timing_ms", 0) > 0, (
+            f"Expected timing_ms > 0 for Pause[0.05], got: {result.get('timing_ms')}"
+        )
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

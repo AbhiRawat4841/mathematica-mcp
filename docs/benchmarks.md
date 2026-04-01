@@ -12,7 +12,9 @@ Benchmark data from two separate measurement runs. All numbers are median unless
 | Operation | Median | Mean | Iterations | Notes |
 |-----------|--------|------|------------|-------|
 | `cold_import` | 695ms | 781ms | 3 | `import mathematica_mcp.server` |
-| `symbol_index_build` | 13,659ms | 13,659ms | 1 | One-time build, 7,800 System symbols |
+| `symbol_index_build` (raw) | 13,659ms | 13,659ms | 1 | One-time wolframscript build, ~7,800 System symbols |
+| `ensure_index` (cold) | ~13,700ms | ~13,700ms | 1 | Full cold start: disk cache miss + wolframscript build + disk cache write |
+| `ensure_index` (warm) | <100ms | <100ms | 3 | Disk cache hit (in-memory invalidated each iteration) |
 | `symbol_index_search` | 1.2ms | 1.4ms | 2,000 | Per-query name-match substep |
 | `symbol_subprocess_old` | 14,012ms | 16,131ms | 4 | Old path: full `Names[]` scan per call |
 | `lookup_end_to_end` (cold) | 23,394ms | 23,394ms | 2 | Subprocess fallback |
@@ -31,7 +33,10 @@ Benchmark data from two separate measurement runs. All numbers are median unless
 | Path | Median | Speedup |
 |------|--------|---------|
 | Old (subprocess per call) | 14,012ms | baseline |
-| New (cached index, hot) | 1.2ms | ~11,700x |
+| New (disk-cached index, warm) | <100ms | ~140x (cold start eliminated) |
+| New (in-memory index, hot) | 1.2ms | ~11,700x |
+
+The symbol index is now persisted to disk at `~/.cache/mathematica-mcp/symbols/`. On subsequent process starts, the index loads from disk in <100ms instead of rebuilding via wolframscript (~14s). The cache key is derived from the resolved wolframscript binary identity (path + mtime + size), so it auto-invalidates when the Wolfram Language installation changes.
 
 ---
 
@@ -52,7 +57,31 @@ Benchmark data from two separate measurement runs. All numbers are median unless
 | `get_notebook_info` | 21.5ms | 27.0ms | 10 |
 | `write_cell` | 39.4ms | 37.9ms | 5 |
 
-> These are pre-optimization baseline timings from January 2026. Post-optimization timings should be re-measured to capture symbol index, raster cache, and cache epoch improvements.
+> **Note:** These are pre-optimization baseline timings from January 2026. The notebook benchmark now uses a dedicated session (`session_id`) for all operations, matching the production usage pattern. The addon's `timing_ms` field reflects actual evaluation time (not socket transport), so do not compare it directly to wall-clock latency above.
+
+---
+
+## Addon Timing Accuracy
+
+The addon's reported `timing_ms` now correctly measures evaluation time. Previously, `ToExpression[code]` was called before `AbsoluteTiming`, causing all reported timings to be ~0ms. The fix uses `HoldComplete` to defer evaluation into the timed block, which also corrects context isolation and timeout behavior.
+
+| Aspect | Before | After |
+|--------|--------|-------|
+| `timing_ms` for `1+1` | 0 | 0 (correct: sub-ms rounds to 0) |
+| `timing_ms` for `Integrate[Sin[x]^10, x]` | 0 | Actual ms (e.g., 15-50ms) |
+| Context isolation | No-op (code already evaluated) | Correctly applied |
+| Timeout (`TimeConstrained`) | No-op (code already evaluated) | Correctly enforced |
+| Syntax error detection | Not distinguished | `error_type: "syntax_error"` |
+
+---
+
+## Large Response Handling
+
+Responses that previously hard-failed with "Response too large" at 20MB are now handled gracefully:
+
+- **Command-level truncation**: `execute_code` and notebook kernel mode skip redundant representations (FullForm, TeXForm) when the primary InputForm output exceeds 5M characters.
+- **processCommand safety net**: A total-budget check (15M characters across all string fields) truncates oversized fields before JSON serialization, preventing the 20MB wire cap from being hit.
+- **Explicit truncation flag**: Truncated responses include `"truncated": true` and `"truncated_fields"` metadata indicating which fields were shortened and their original sizes.
 
 ---
 
@@ -78,11 +107,19 @@ PYTHONPATH=src python benchmarks/benchmark_perf_phases.py my_run
 
 Results are written to `benchmarks/results/phase_<run_name>.json`.
 
+The offline suite includes:
+- `symbol_index_build` — raw wolframscript build cost (no cache)
+- `ensure_index_cold` — full cold start with disk cache cleared
+- `ensure_index_warm` — disk cache load (in-memory invalidated each iteration)
+- Symbol search, raster cache, notebook parse, cache epoch, telemetry overhead
+
 ### Live addon benchmarks (Mathematica + addon required)
 
 ```bash
 python benchmarks/benchmark_notebook_ops.py my_run
 ```
+
+The live benchmark creates a dedicated notebook session (`session_id=benchmark-session`) and threads it through all operations. The session is cleaned up at the end.
 
 ### Profile surface analysis
 
@@ -95,3 +132,5 @@ PYTHONPATH=src python benchmarks/profile_surface.py
 - Online benchmarks require a running Mathematica instance with the addon loaded
 - Some fixtures (e.g., `Integration.nb`) are optional and benchmarks handle their absence gracefully
 - Timings vary with hardware, kernel state, and whether the kernel is warm or cold
+- Addon `timing_ms` measures evaluation time only (excludes socket transport and frontend overhead)
+- Benchmark results are validated before recording: builds that produce 0 symbols are reported as failed, not as valid timings

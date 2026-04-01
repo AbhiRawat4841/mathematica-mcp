@@ -139,6 +139,20 @@ def run_benchmarks():
         return None
 
     results = []
+    session_id = "benchmark-session"
+
+    # Create a dedicated notebook session for all notebook operations
+    print("\n[Setup] Creating dedicated benchmark notebook session...")
+    try:
+        conn.send_command("create_notebook", {"title": "Benchmark Session", "session_id": session_id})
+        probe = conn.send_command("execute_code_notebook", {"code": "1 + 1", "mode": "kernel", "session_id": session_id})
+        if not probe.get("success"):
+            print(f"  WARNING: Probe execution failed: {probe}")
+        else:
+            print(f"  Notebook session ready (session_id={session_id})")
+    except Exception as e:
+        print(f"  WARNING: Could not create benchmark notebook: {e}")
+        print("  Notebook benchmarks may use implicit notebook selection")
 
     # 1. Simple execution (no notebook)
     print("\n[1] execute_code (kernel only, no notebook)")
@@ -150,7 +164,11 @@ def run_benchmarks():
     # 2. Execute code in notebook - KERNEL MODE (new fast path)
     print("\n[2] execute_code_notebook KERNEL MODE (fast path)")
     r = benchmark_operation(
-        conn, "execute_code_notebook_kernel", "execute_code_notebook", {"code": "2 + 2", "mode": "kernel"}, iterations=5
+        conn,
+        "execute_code_notebook_kernel",
+        "execute_code_notebook",
+        {"code": "2 + 2", "mode": "kernel", "session_id": session_id},
+        iterations=5,
     )
     if r:
         results.append(r)
@@ -162,7 +180,7 @@ def run_benchmarks():
         conn,
         "execute_code_notebook_frontend",
         "execute_code_notebook",
-        {"code": "2 + 2", "mode": "frontend", "max_wait": 10},
+        {"code": "2 + 2", "mode": "frontend", "max_wait": 10, "session_id": session_id},
         iterations=3,
     )
     if r:
@@ -175,7 +193,7 @@ def run_benchmarks():
         conn,
         "execute_code_notebook_kernel_integrate",
         "execute_code_notebook",
-        {"code": "Integrate[Sin[x]^2, x]", "mode": "kernel"},
+        {"code": "Integrate[Sin[x]^2, x]", "mode": "kernel", "session_id": session_id},
         iterations=5,
     )
     if r:
@@ -188,7 +206,7 @@ def run_benchmarks():
         conn,
         "execute_code_notebook_kernel_plot",
         "execute_code_notebook",
-        {"code": "Plot[Sin[x], {x, 0, 2 Pi}]", "mode": "kernel"},
+        {"code": "Plot[Sin[x], {x, 0, 2 Pi}]", "mode": "kernel", "session_id": session_id},
         iterations=3,
     )
     if r:
@@ -197,21 +215,29 @@ def run_benchmarks():
 
     # 6. Get cells (enumeration cost)
     print("\n[6] get_cells (notebook cell enumeration)")
-    r = benchmark_operation(conn, "get_cells", "get_cells", {}, iterations=10)
+    r = benchmark_operation(
+        conn, "get_cells", "get_cells", {"session_id": session_id}, iterations=10
+    )
     if r:
         results.append(r)
         print(f"  => Mean: {r['mean_ms']:.1f}ms, Median: {r['median_ms']:.1f}ms")
 
     # 7. Screenshot notebook (with ExportPacket optimization)
     print("\n[7] screenshot_notebook (ExportPacket or Rasterize)")
-    r = benchmark_operation(conn, "screenshot_notebook", "screenshot_notebook", {"max_height": 800}, iterations=3)
+    r = benchmark_operation(
+        conn, "screenshot_notebook", "screenshot_notebook",
+        {"max_height": 800, "session_id": session_id}, iterations=3,
+    )
     if r:
         results.append(r)
         print(f"  => Mean: {r['mean_ms']:.1f}ms, Median: {r['median_ms']:.1f}ms")
 
-    # 7. Get notebook info
+    # 8. Get notebook info
     print("\n[8] get_notebook_info")
-    r = benchmark_operation(conn, "get_notebook_info", "get_notebook_info", {}, iterations=10)
+    r = benchmark_operation(
+        conn, "get_notebook_info", "get_notebook_info",
+        {"session_id": session_id}, iterations=10,
+    )
     if r:
         results.append(r)
         print(f"  => Mean: {r['mean_ms']:.1f}ms, Median: {r['median_ms']:.1f}ms")
@@ -219,11 +245,20 @@ def run_benchmarks():
     # 9. Write cell (without evaluation, no refresh)
     print("\n[9] write_cell (no evaluation, no refresh)")
     r = benchmark_operation(
-        conn, "write_cell", "write_cell", {"content": "(* benchmark cell *)", "style": "Text"}, iterations=5
+        conn, "write_cell", "write_cell",
+        {"content": "(* benchmark cell *)", "style": "Text", "session_id": session_id},
+        iterations=5,
     )
     if r:
         results.append(r)
         print(f"  => Mean: {r['mean_ms']:.1f}ms, Median: {r['median_ms']:.1f}ms")
+
+    # Cleanup
+    print("\n[Cleanup] Closing benchmark notebook...")
+    try:
+        conn.send_command("close_notebook", {"session_id": session_id, "save": False})
+    except Exception as e:
+        print(f"  Cleanup warning: {e}")
 
     conn.close()
 

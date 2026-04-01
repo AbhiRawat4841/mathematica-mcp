@@ -1001,6 +1001,23 @@ Control features via environment variables. Defaults shown are for the `full` pr
 3. Try `RestartMCPServer[]`
 4. Check port: `lsof -i :9881`
 
+### Addon changes not taking effect after update
+
+Mathematica caches loaded packages in memory. After updating the package (e.g., `pip install --upgrade` or `git pull`), the running Mathematica session still serves the old addon code. Symptoms include missing new features, old error formats, or `timing_ms` always reporting 0.
+
+**Fix:** Reload the addon in your Mathematica session:
+```mathematica
+RestartMCPServer[]
+```
+
+Or for a full reload:
+```mathematica
+Get["~/mcp/mathematica-mcp/addon/MathematicaMCP.wl"]
+StartMCPServer[]
+```
+
+This applies any time `addon/MathematicaMCP.wl` changes — the Python server picks up changes automatically, but the Mathematica side requires an explicit reload.
+
 ### "Address already in use" on port 9881
 
 This happens when a zombie kernel process is holding the port, even after restarting Mathematica:
@@ -1063,6 +1080,7 @@ mathematica-mcp/
 │   ├── cli.py                 # Setup commands for 6 clients
 │   ├── cache.py               # In-memory expression caching
 │   ├── disk_cache.py          # Persistent notebook extraction cache
+│   ├── symbol_index.py        # Version-scoped symbol index with disk persistence
 │   ├── lazy_wolfram_tools.py  # Async helpers (verify_derivation etc.)
 │   ├── error_analyzer.py      # Error pattern matching & LLM formatting
 │   ├── telemetry.py           # Usage tracking
@@ -1221,4 +1239,4 @@ MIT License
 
 ---
 
-*Last updated: March 2026 (v0.6.0 — Performance: symbol index, cache epoch, raster cache, telemetry wiring, notebook routing)*
+*Last updated: April 2026 (v0.7.5 — Performance: symbol index with disk persistence, addon timing correctness fix, large response truncation, benchmark session management)*

@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Fixed
+
+- **Addon timing correctness**: `execute_code` and notebook kernel mode now correctly time evaluation by deferring `ToExpression` with `HoldComplete` inside `AbsoluteTiming`. Previously all `timing_ms` values reported ~0 because code was evaluated before the timed block. This also fixes context isolation and timeout enforcement, which were silently broken.
+- **Notebook kernel error semantics**: `executeCodeNotebookKernel` now reports `success: false` for `$Failed` results and includes `error_type` (syntax_error/evaluation_error/timeout), consistent with `cmdExecuteCode`.
+- **Large response hard-fail**: Responses exceeding 20MB previously returned an opaque "Response too large" error. Added command-level truncation (skip redundant FullForm/TeXForm for large results) and a processCommand safety net with total field budget. Truncated responses include `"truncated": true` metadata.
+
+### Added
+
+- **Symbol index disk persistence**: The symbol index (~7,800 symbols) is now cached to `~/.cache/mathematica-mcp/symbols/` with a cache key derived from the resolved wolframscript binary identity (realpath + mtime + size). Eliminates the ~16s cold-start subprocess call on subsequent process starts (warm load <100ms). Uses a singleflight state machine with generation counter to prevent stale publication after invalidation.
+- **Benchmark session management**: Notebook benchmarks now create a dedicated session (`session_id=benchmark-session`) and thread it through all operations, matching production usage patterns.
+- **Benchmark validation**: Symbol index build benchmarks validate that symbols were actually loaded before recording timings. Failed builds report `status: failed` instead of misleading zero-symbol timings.
+- **Cold/warm startup benchmarks**: New `ensure_index_cold` and `ensure_index_warm` benchmarks measure the full startup path with and without disk cache.
+
+### Changed
+
+- Updated benchmark and technical reference documentation to reflect timing fix, disk caching, and truncation behavior
+
 ## [0.7.5] - 2026-03-24
 
 ### Changed

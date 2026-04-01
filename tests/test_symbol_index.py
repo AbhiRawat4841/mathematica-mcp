@@ -113,8 +113,11 @@ class TestSymbolSearch:
     def test_empty_index_returns_empty(self):
         import mathematica_mcp.symbol_index as idx
 
-        # Index is empty and building is blocked.
-        with patch.object(idx, "_build_index_sync", return_value=False):
+        # Index is empty and both build and disk cache are blocked.
+        with (
+            patch.object(idx, "_build_index_sync", return_value=False),
+            patch.object(idx, "_load_from_disk_cache", return_value=False),
+        ):
             results = idx.search("Sin")
             assert results == []
 
@@ -153,8 +156,11 @@ class TestSymbolVersion:
 
         idx.invalidate()
         # After invalidation, search can't find anything (index is empty,
-        # and ensure_index will fail without wolframscript).
-        with patch.object(idx, "_build_index_sync", return_value=False):
+        # and both build and disk cache are blocked).
+        with (
+            patch.object(idx, "_build_index_sync", return_value=False),
+            patch.object(idx, "_load_from_disk_cache", return_value=False),
+        ):
             assert idx.search("Sin") == []
 
 

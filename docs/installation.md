@@ -332,6 +332,9 @@ Then set the environment variable for the Python client:
 export MATHEMATICA_PORT=9882
 ```
 
+### Addon out of date after package update
+After updating the Python package, the running Mathematica session still serves old addon code. Run `RestartMCPServer[]` in Mathematica (or `Get["...MathematicaMCP.wl"]; StartMCPServer[]` for a full reload). See [Troubleshooting](technical-reference.md#addon-changes-not-taking-effect-after-update) for details.
+
 ### wolframscript not found
 See [Add wolframscript to PATH](#add-wolframscript-to-path) above.
 

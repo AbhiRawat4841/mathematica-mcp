@@ -1,16 +1,20 @@
 # Benchmarking Mathematica MCP Guidance and Profiles
 
-This directory contains lightweight benchmarks for the routing/profile work.
+This directory contains benchmarks for performance measurement and routing/profile work.
 
 ## Goals
 
 - Measure tool-surface reduction by profile
 - Measure schema-size reduction by profile
+- Measure symbol index cold/warm startup and search performance
+- Measure live addon operation latency with dedicated notebook sessions
 - Score LLM task traces before and after guidance/skill changes
 - Detect notebook anti-patterns such as `create_notebook -> write_cell -> evaluate_cell`
 
 ## Files
 
+- `benchmark_perf_phases.py`: offline performance benchmarks (symbol index build/warm/cold, search, caching, telemetry). Results validate that builds succeed (symbol_count > 0) before recording timings.
+- `benchmark_notebook_ops.py`: live addon benchmarks with dedicated session (`session_id=benchmark-session`). Creates a notebook, threads session_id through all operations, cleans up at the end.
 - `scenarios.json`: canonical task corpus and forbidden tool patterns
 - `profile_surface.py`: reports tool count and schema byte size for each profile
 - `score_trace_corpus.py`: compares two trace corpora, such as baseline vs updated

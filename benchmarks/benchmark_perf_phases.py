@@ -80,7 +80,12 @@ def bench_cold_import():
 
 
 def bench_symbol_index_build():
-    """Measure one-time symbol index build cost."""
+    """Measure raw wolframscript build cost (no cache logic).
+
+    This benchmarks _build_index_sync() directly — the pure subprocess
+    path.  No disk cache clear needed since _build_index_sync() never
+    reads the cache.
+    """
     from mathematica_mcp import symbol_index
 
     symbol_index.invalidate()
@@ -89,10 +94,78 @@ def bench_symbol_index_build():
     count = len(symbol_index._system_symbols)
     version = symbol_index.get_version()
 
+    if count == 0:
+        return {
+            "name": "symbol_index_build",
+            "status": "failed",
+            "reason": "no symbols loaded (wolframscript may not be available or returned non-zero exit)",
+            **_stats(times),
+        }
+
     return {
         "name": "symbol_index_build",
         "symbol_count": count,
         "kernel_version": version,
+        **_stats(times),
+    }
+
+
+def bench_ensure_index_cold():
+    """Measure full ensure_index() cold-start cost (disk cache cleared)."""
+    from mathematica_mcp import symbol_index
+
+    symbol_index.invalidate()
+    symbol_index.clear_disk_cache()
+
+    times = _timed(symbol_index.ensure_index, iterations=1)
+    count = len(symbol_index._system_symbols)
+
+    if count == 0:
+        return {
+            "name": "ensure_index_cold",
+            "status": "failed",
+            "reason": "no symbols loaded",
+            **_stats(times),
+        }
+
+    return {
+        "name": "ensure_index_cold",
+        "symbol_count": count,
+        **_stats(times),
+    }
+
+
+def bench_ensure_index_warm():
+    """Measure ensure_index() warm-load cost (disk cache populated).
+
+    Each iteration invalidates in-memory state first so every call
+    actually loads from disk, not from the in-memory fast path.
+    """
+    from mathematica_mcp import symbol_index
+
+    # Ensure disk cache is populated first
+    symbol_index.ensure_index()
+    count_before = len(symbol_index._system_symbols)
+    if count_before == 0:
+        return {
+            "name": "ensure_index_warm",
+            "status": "failed",
+            "reason": "could not populate index for warm test",
+        }
+
+    # Measure disk-cache loads: invalidate in-memory before each iteration
+    times = []
+    for _ in range(3):
+        symbol_index.invalidate()  # clear in-memory, disk cache remains
+        start = time.perf_counter()
+        symbol_index.ensure_index()
+        times.append((time.perf_counter() - start) * 1000)
+
+    count = len(symbol_index._system_symbols)
+
+    return {
+        "name": "ensure_index_warm",
+        "symbol_count": count,
         **_stats(times),
     }
 
@@ -349,7 +422,9 @@ def bench_telemetry_overhead():
 def run_all():
     benchmarks = [
         ("Cold import", bench_cold_import),
-        ("Symbol index build", bench_symbol_index_build),
+        ("Symbol index build (raw)", bench_symbol_index_build),
+        ("ensure_index cold (disk cache cleared)", bench_ensure_index_cold),
+        ("ensure_index warm (disk cache hit)", bench_ensure_index_warm),
         ("Symbol index search (substep)", bench_symbol_index_search),
         ("Symbol subprocess (old path)", bench_symbol_subprocess),
         ("Lookup end-to-end (before/after)", bench_lookup_end_to_end),
