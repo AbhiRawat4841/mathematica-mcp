@@ -45,7 +45,28 @@ from .telemetry import get_usage_stats, reset_stats
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("mathematica_mcp")
 
-mcp = FastMCP("mathematica-mcp")
+mcp = FastMCP(
+    "mathematica-mcp",
+    instructions=(
+        "You have access to a live Mathematica instance through this MCP server. "
+        "ALWAYS use the provided MCP tools (execute_code, create_notebook, etc.) for "
+        "ALL Mathematica tasks. NEVER use wolframscript CLI, shell commands, or manual "
+        ".nb file creation — the MCP tools talk directly to the running Mathematica "
+        "frontend and kernel.\n\n"
+        "IMPORTANT: A 'notebook' here means a LIVE WINDOW inside the Mathematica "
+        "frontend, not a .nb file on disk. create_notebook() opens a live window. "
+        "execute_code(output_target='notebook') writes and evaluates code in that "
+        "live window. You do NOT need to search for files, create directories, or "
+        "save/export anything unless the user explicitly asks.\n\n"
+        "Workflow:\n"
+        "- User says 'calculate/compute/what is' → execute_code(output_target='cli') — answer inline\n"
+        "- User says 'plot/show/in notebook' → execute_code(output_target='notebook') — in current live notebook\n"
+        "- User says 'new notebook' → create_notebook(title='...') first, then execute_code(output_target='notebook')\n"
+        "- User says 'interactive/manipulate/dynamic' → execute_code(output_target='notebook', mode='frontend')\n\n"
+        "Do NOT search for .nb files, do NOT create directories, do NOT run wolframscript, "
+        "do NOT save or export unless asked. Just call the MCP tools directly."
+    ),
+)
 _CORE_TOOL_REGISTRY: list[tuple[str, Callable[..., Any]]] = []
 
 
@@ -387,8 +408,8 @@ async def get_notebook_info(notebook: str | None = None, session_id: str | None 
 async def create_notebook(title: str = "Untitled", session_id: str | None = None) -> str:
     """Create a new empty notebook. Returns notebook ID.
 
-    NOTE: For executing code in a notebook, prefer execute_code(code, output_target="notebook")
-    which handles notebook creation, cell writing, and evaluation atomically.
+    Use when the user explicitly asks for a NEW notebook. Sets the active
+    notebook so subsequent execute_code(output_target="notebook") calls target it.
     """
     result = await _addon_result("create_notebook", {"title": title, "session_id": session_id})
     return _json_response(result)
@@ -2090,6 +2111,71 @@ _register_optional_tools()
 def mathematica_expert(user_request: str = "") -> str:
     """Expert guidance for using Mathematica tools effectively."""
     return build_mathematica_expert_prompt(user_request, features=FEATURES)
+
+
+@mcp.prompt()
+def calculate(expression: str) -> str:
+    """Compute a result inline in chat. Use for quick math, algebra, or any text answer."""
+    return (
+        f"Calculate the following and return the result inline (use output_target='cli'):\n\n"
+        f"{expression}"
+    )
+
+
+@mcp.prompt()
+def notebook(task: str) -> str:
+    """Execute in the current Mathematica notebook. Use for plots, visualizations, or notebook artifacts."""
+    return (
+        f"Execute the following in the current Mathematica notebook "
+        f"(use output_target='notebook', mode='kernel'):\n\n"
+        f"{task}"
+    )
+
+
+@mcp.prompt()
+def new_notebook(task: str, title: str = "Analysis") -> str:
+    """Create a fresh Mathematica notebook and execute there. Use when you want a clean slate."""
+    return (
+        f"Create a new Mathematica notebook titled '{title}' using create_notebook(), "
+        f"then execute the following in it (use output_target='notebook'):\n\n"
+        f"{task}"
+    )
+
+
+@mcp.prompt()
+def interactive(task: str) -> str:
+    """Execute with frontend mode for dynamic/interactive content (Manipulate, Animate, sliders)."""
+    return (
+        f"Execute the following in the notebook using frontend mode for dynamic interaction "
+        f"(use output_target='notebook', mode='frontend'):\n\n"
+        f"{task}"
+    )
+
+
+@mcp.prompt()
+def quickstart() -> str:
+    """Show available execution modes and how to use them."""
+    return f"""Show the user this quick reference for Mathematica MCP modes:
+
+## Mathematica MCP — Quick Mode Guide
+
+You can control where and how your code runs by using these keywords:
+
+| Say this...                     | What happens                                    |
+|---------------------------------|-------------------------------------------------|
+| **"calculate ..."**             | Result appears inline in chat                   |
+| **"plot ..."** / **"show ..."** | Executes in current Mathematica notebook         |
+| **"in new notebook: ..."**      | Creates a fresh notebook, then executes there    |
+| **"interactive ..."**           | Notebook with sliders/Manipulate (frontend mode) |
+
+### Examples
+- "Calculate the integral of x^3 from 0 to 1"  →  answer in chat
+- "Plot Sin[x] from 0 to 2π"  →  plot appears in notebook
+- "In new notebook: integrate 1/x^5 + x^7 and plot the region"  →  fresh notebook
+- "Interactive: Manipulate a slider for Plot[Sin[n x], {{x, 0, 2π}}]"  →  dynamic UI
+
+If you don't use a keyword, the default is: `{FEATURES.default_output_target}`
+"""
 
 
 def main():

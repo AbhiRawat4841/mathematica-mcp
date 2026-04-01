@@ -6,13 +6,13 @@ A researcher asks their AI agent to integrate a function, differentiate the resu
 
 ## Agent Conversation
 
-**User:** Compute the indefinite integral of x^2 * sin(x), then verify by differentiating.
+**User:** Calculate the indefinite integral of x^2 * sin(x), then verify by differentiating.
 
-**Agent:** I'll compute the integral first.
+**Agent:** The keyword "calculate" means I'll return the result inline. Computing the integral now.
 
 ```
 Tool: execute_code
-Input: code = "Integrate[x^2 Sin[x], x]"
+Input: code = "Integrate[x^2 Sin[x], x]", output_target = "cli"
 
 Result:
 {

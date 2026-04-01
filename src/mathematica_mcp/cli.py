@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import VALID_PROFILES, FeatureFlags
-from .guidance import build_claude_command, build_claude_hint
+from .guidance import build_claude_command, build_claude_hint, build_codex_guidance
 
 # ANSI colors
 GREEN = "\033[92m"
@@ -532,6 +532,28 @@ def install_claude_code_guidance(project_dir: Path, profile: str | None) -> list
     return written
 
 
+def install_codex_guidance(project_dir: Path, profile: str | None) -> list[Path]:
+    """Install AGENTS.md for OpenAI Codex CLI."""
+    features = FeatureFlags.from_env(profile_override=profile)
+    written: list[Path] = []
+
+    agents_md_path = project_dir / "AGENTS.md"
+    start_marker = "<!-- mathematica-mcp:start -->"
+    end_marker = "<!-- mathematica-mcp:end -->"
+    existing = agents_md_path.read_text() if agents_md_path.exists() else ""
+    updated = _upsert_marked_block(
+        existing,
+        build_codex_guidance(features).rstrip(),
+        start_marker=start_marker,
+        end_marker=end_marker,
+    )
+    if not agents_md_path.exists() or updated != existing:
+        agents_md_path.write_text(updated)
+        written.append(agents_md_path)
+
+    return written
+
+
 def cmd_setup(args: argparse.Namespace) -> int:
     """Run the setup command."""
     client = args.client.lower()
@@ -608,6 +630,17 @@ def cmd_setup(args: argparse.Namespace) -> int:
             info(f"Claude Code guidance already up to date in {project_dir}")
     elif client == "claude-code":
         info("No project guidance installed. Re-run with --project-dir to add .claude/commands and CLAUDE.md hints.")
+
+    if client == "codex" and args.project_dir:
+        project_dir = expand_path(args.project_dir)
+        changed_paths = install_codex_guidance(project_dir, args.profile)
+        if changed_paths:
+            for changed_path in changed_paths:
+                success(f"Installed Codex guidance at {changed_path}")
+        else:
+            info(f"Codex guidance already up to date in {project_dir}")
+    elif client == "codex":
+        info("No project guidance installed. Re-run with --project-dir to add AGENTS.md hints.")
 
     # Done!
     print(f"\n{color('Setup complete!', GREEN + BOLD)}\n")
@@ -745,7 +778,7 @@ def main_cli() -> int:
     setup_parser.add_argument(
         "--profile", choices=VALID_PROFILES, default=None, help="Tool profile to configure in the client MCP config"
     )
-    setup_parser.add_argument("--project-dir", default=None, help="Project root for Claude Code guidance installation")
+    setup_parser.add_argument("--project-dir", default=None, help="Project root for agent guidance installation (CLAUDE.md, AGENTS.md)")
     setup_parser.set_defaults(func=cmd_setup)
 
     # doctor command

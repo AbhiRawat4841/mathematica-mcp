@@ -214,7 +214,7 @@ processCommand[request_Association] := Module[
   (* Safety net: truncate oversized string fields before serialization *)
   result = truncateLargeResult[result];
 
-  response = If[KeyExistsQ[result, "error"],
+  response = If[KeyExistsQ[result, "error"] && !KeyExistsQ[result, "success"],
     <|"id" -> id, "status" -> "error", "message" -> result["error"]|>,
     <|"id" -> id, "status" -> "success", "result" -> result|>
   ];
@@ -1065,7 +1065,7 @@ cmdExecuteCodeNotebook[params_] := Module[
 
 executeCodeNotebookKernel[nb_, code_, timeout_, syncMode_, createdNew_, sessionId_, deterministicSeed_, isolateContext_, syncWait_] := Module[
   {result, messages, timing, isGraphics, outputCell, inputCellId, inputCellObj, ctx,
-   parseFailed = False, outputInput, truncatedOutput = False},
+   parseFailed = False, outputInput, truncatedOutput = False, printCapture = {}},
 
   inputCellId = newCellId[];
   SelectionMove[nb, After, Notebook];
@@ -1076,9 +1076,12 @@ executeCodeNotebookKernel[nb_, code_, timeout_, syncMode_, createdNew_, sessionI
 
   (* Parse and evaluate inside AbsoluteTiming so timing, context isolation,
      and timeout all work correctly. Uses HoldComplete to defer evaluation
-     until inside the timed block. With[] injects held values safely. *)
+     until inside the timed block. With[] injects held values safely.
+     Print is redirected into printCapture so output lands in the notebook
+     as Print-style cells instead of the Messages window. *)
   {timing, {result, messages}} = AbsoluteTiming[
-    Block[{$MessageList = {}},
+    Block[{$MessageList = {},
+           Print = (AppendTo[printCapture, StringJoin[ToString /@ {##}]] &)},
       Module[{heldExpr, evalBody},
         heldExpr = Quiet[Check[ToExpression[code, InputForm, HoldComplete], $Failed]];
         If[heldExpr === $Failed,
@@ -1101,6 +1104,13 @@ executeCodeNotebookKernel[nb_, code_, timeout_, syncMode_, createdNew_, sessionI
         ]
       ]
     ]
+  ];
+
+  (* Write captured Print output as Print-style cells in the notebook *)
+  Scan[
+    (SelectionMove[nb, After, Notebook];
+     NotebookWrite[nb, Cell[#, "Print", GeneratedCell -> True], After]) &,
+    printCapture
   ];
 
   isGraphics = MatchQ[result, _Graphics | _Graphics3D | _Image | _Legended | _Graph];

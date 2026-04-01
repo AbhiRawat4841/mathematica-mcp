@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- **Execution mode keywords**: Users can steer routing with natural language keywords ("calculate", "plot", "new notebook", "interactive") — documented in README, CLAUDE.md, AGENTS.md, and server instructions
+- **MCP server instructions**: FastMCP `instructions` field tells all connected agents to use MCP tools directly, never wolframscript CLI or manual .nb file creation; clarifies "notebook" means a live Mathematica window, not a file on disk
+- **MCP prompts**: Five new prompts (`calculate`, `notebook`, `new_notebook`, `interactive`, `quickstart`) so MCP clients can surface structured mode selection to users
+- **Codex project guidance**: `build_codex_guidance()` generates AGENTS.md content; `setup codex --project-dir .` now installs it alongside config, matching Claude Code's CLAUDE.md flow
+- **Print redirect to notebook**: `Print[]` output during kernel evaluation is captured via `Block[{Print = ...}]` and written as Print-style cells in the notebook instead of the Messages window
+
+### Fixed
+
+- **"New notebook" creates new instead of reusing**: Guidance no longer blanket-discourages `create_notebook`; when the user says "new notebook", the LLM calls `create_notebook(title=...)` first, then `execute_code(output_target="notebook")`
+- **Error response for mixed success/error results**: `processCommand` no longer drops the result when the response contains both `"error"` and `"success"` keys
+
+### Changed
+
+- `create_notebook` tool description now says "use when user asks for a NEW notebook" instead of "prefer execute_code instead"
+- `execute_code` tool description clarifies it reuses the active notebook and notes `create_notebook` should be called first for new notebooks
+- Expert prompt, CLAUDE.md hint, and command guide all include MCP-first directive and keyword→mode routing table
+- `--project-dir` setup flag now works for both Claude Code (CLAUDE.md) and Codex (AGENTS.md)
+
 ## [0.7.6] - 2026-04-01
 
 ### Fixed

@@ -82,12 +82,43 @@ Use `get_feature_status()` to inspect the active profile and enabled features at
 
 ## LLM Guidance System
 
-The server includes a built-in guidance layer (`guidance.py`) that provides profile-aware routing hints to LLMs:
+The server includes a multi-layer guidance system that ensures agents use MCP tools directly instead of falling back to shell commands or manual file operations:
 
-- **Dynamic tool docstrings**: Tool descriptions are rewritten at startup to include `[PRIMARY]`, `[ADVANCED]`, or `[LEGACY]` labels, steering LLMs toward the preferred tool for each task.
-- **Anti-pattern documentation**: The `execute_code` docstring warns against the common `create_notebook` → `write_cell` → `evaluate_cell` pattern when `execute_code(..., output_target="notebook")` is atomic and faster.
-- **Expert prompt**: The `mathematica_expert` MCP prompt generates profile-aware routing guidance for a given user request.
-- **Claude Code integration**: `uvx mathematica-mcp-full setup claude-code --project-dir .` installs a `.claude/commands/mathematica.md` command file and a `CLAUDE.md` hint block.
+### Layer 1: Server Instructions (all clients)
+
+The FastMCP `instructions` field is sent to every connected client. It establishes two critical rules:
+1. **MCP-first**: Always use MCP tools, never `wolframscript`, shell commands, or manual `.nb` file creation.
+2. **Live notebook ≠ .nb file**: A "notebook" is a live window in the Mathematica frontend, not a file on disk.
+
+### Layer 2: Execution Mode Keywords
+
+Users can steer routing with natural language keywords. The guidance layer detects these and maps them to the correct tool parameters:
+
+| Keyword | Mode | Tool Call |
+|---------|------|-----------|
+| "calculate", "compute", "what is" | Inline | `execute_code(output_target="cli")` |
+| "plot", "show", "in notebook" | Notebook | `execute_code(output_target="notebook")` |
+| "new notebook" | New notebook | `create_notebook()` then `execute_code(output_target="notebook")` |
+| "interactive", "manipulate" | Interactive | `execute_code(output_target="notebook", mode="frontend")` |
+
+### Layer 3: Dynamic Tool Docstrings
+
+Tool descriptions are rewritten at startup to include `[PRIMARY]`, `[ADVANCED]`, or `[LEGACY]` labels, steering LLMs toward the preferred tool for each task. `create_notebook` is marked as the correct tool when the user explicitly requests a new notebook.
+
+### Layer 4: MCP Prompts
+
+Five MCP prompts (`calculate`, `notebook`, `new_notebook`, `interactive`, `quickstart`) allow clients to surface structured mode selection to users.
+
+### Layer 5: Project Guidance Files
+
+Client-specific project guidance is installed via `--project-dir`:
+- **Claude Code**: `.claude/commands/mathematica.md` + `CLAUDE.md` hint block
+- **Codex**: `AGENTS.md` with MCP-first rules, keyword table, and workflow examples
+
+```bash
+uvx mathematica-mcp-full setup claude-code --project-dir .
+uvx mathematica-mcp-full setup codex --project-dir .
+```
 
 ---
 
@@ -195,51 +226,46 @@ OpenCode does not have automated `uvx setup` support. Add the MCP server definit
 
 ### Make the AI Use It Naturally
 
-To nudge assistants to reach for this MCP without explicit tool calls:
+The server's built-in [LLM Guidance System](#llm-guidance-system) handles most routing automatically. For best results, install project guidance during setup:
 
-- Add an `agents.md` entry with triggers and example prompts.
-- Include a few concrete task examples in your README (below).
-- Mention the keywords users are likely to say: Mathematica, Wolfram Language, WolframScript, Wolfram Engine, Wolfram|Alpha, Wolfram Cloud, notebooks, .nb, notebook programming, symbolic computation, algebra, calculus, integrals, derivatives, equation solving, optimization, linear algebra, matrices, plots/graphics/visualization, data import/export, datasets, time series, image processing, signal processing, geodata, units, entities, machine learning, neural networks, graphs, plus action verbs like integrate, differentiate, expand, simplify, factor, solve, plot, calculate, evaluate, optimize, minimize, maximize, sum, series, limit.
-- Add intent gating: only activate the MCP when the user asks to compute/evaluate/plot/export/solve or references a concrete target (expression, dataset, notebook file). If it is just casual mention, ask a quick confirmation.
+```bash
+# Claude Code — installs CLAUDE.md + .claude/commands/mathematica.md
+uvx mathematica-mcp-full setup claude-code --project-dir .
+
+# Codex — installs AGENTS.md
+uvx mathematica-mcp-full setup codex --project-dir .
+```
+
+**Execution mode keywords** — users can steer where results appear:
+
+| Say this | Result |
+|----------|--------|
+| "Calculate the integral of x^3" | Answer inline in chat |
+| "Plot Sin[x] from 0 to 2pi" | Plot in current Mathematica notebook |
+| "In new notebook: integrate 1/x^5 + x^7" | Fresh notebook created |
+| "Interactive: Manipulate slider for Sin[n x]" | Dynamic UI with sliders |
 
 **Suggested prompts (copy/paste for users):**
 
-- "Open this notebook and summarize the methods section."
-- "Compute this integral and plot the result in Mathematica."
-- "Parse the .nb file and extract only the code."
-- "Use Wolfram Alpha to look up the GDP of Japan and convert to USD." 
-- "Generate a 3D plot and export it as PNG."
+- "Calculate the eigenvalues of {{1,2},{3,4}}"
+- "Plot the sombrero function in a new notebook"
+- "Interactive: Manipulate Plot[Sin[n x], {x,0,2Pi}] with a slider for n"
+- "Use Wolfram Alpha to look up the GDP of Japan and convert to USD."
 - "Check the steps of this derivation for correctness."
 
-**agents.md template (if your AI tool supports skills/agents metadata):**
+**AGENTS.md template** (auto-generated by `setup codex --project-dir .`, or create manually):
 
 ```md
 ## Mathematica MCP
 
-**Purpose**: Use Mathematica for symbolic math, notebooks, plots, and Wolfram knowledge queries.
+**Key concept**: A "notebook" is a live window in Mathematica, NOT a .nb file.
+Use MCP tools directly. Never use wolframscript CLI or shell commands.
 
-**Triggers**:
-- Mathematica, Wolfram Language, WolframScript, Wolfram Engine
-- Wolfram|Alpha, Wolfram Cloud
-- notebooks, .nb, notebook programming, notebook parsing, export to Markdown/LaTeX
-- symbolic computation, algebra, calculus, integrals, derivatives, limits, equation solving, optimization
-- integrate, differentiate, expand, simplify, factor, solve, plot, calculate, evaluate, optimize, minimize, maximize, sum, series, limit
-- linear algebra, matrices, tensors
-- plots, graphics, visualization, animations
-- data import/export, datasets, time series
-- image processing, signal processing, geodata
-- units, entities, knowledgebase
-- machine learning, neural networks, graphs
-- BCH, commutators, Lie algebra
-
-**Intent gating**:
-- Only activate when the user expresses action intent (compute/evaluate/plot/export/solve) or provides a concrete target (expression, dataset, notebook file).
-- If a trigger word appears in casual chat, do not activate the tool; ask for confirmation.
-
-**Example prompts**:
-- "Convert this Mathematica notebook to Markdown and summarize key results."
-- "Evaluate this Wolfram expression and show the output."
-- "Find all cells in the notebook that contain plots."
+**Mode keywords**:
+- "calculate/compute" → execute_code(output_target="cli")
+- "plot/show/in notebook" → execute_code(output_target="notebook")
+- "new notebook" → create_notebook() then execute_code(output_target="notebook")
+- "interactive/manipulate" → execute_code(output_target="notebook", mode="frontend")
 ```
 
 ---
@@ -703,7 +729,7 @@ create_animation(
 |------|-------------|
 | `get_notebooks` | List all open notebooks |
 | `get_notebook_info` | Get details about a notebook |
-| `create_notebook` | Create a new notebook |
+| `create_notebook` | Create a new live notebook window (use when user says "new notebook") |
 | `save_notebook` | Save notebook to disk |
 | `close_notebook` | Close a notebook |
 | `export_notebook` | Export to PDF, HTML, TeX |
@@ -727,7 +753,7 @@ create_animation(
 
 | Tool | Description |
 |------|-------------|
-| `execute_code` | Run Wolfram Language code |
+| `execute_code` | Run Wolfram Language code (primary tool — supports `output_target="cli"` or `"notebook"`) |
 | `evaluate_selection` | Evaluate selected cells |
 
 #### Kernel Tools
@@ -1072,12 +1098,12 @@ mathematica-mcp/
 ├── src/mathematica_mcp/
 │   ├── server.py              # 55 core tools (profile-gated)
 │   ├── config.py              # Profiles, feature flags, tool groups
-│   ├── guidance.py            # LLM routing guidance (profile-aware)
+│   ├── guidance.py            # LLM routing guidance, mode keywords, Codex/Claude hints
 │   ├── notebook_backend.py    # Notebook extraction backend abstraction
 │   ├── notebook_parser.py     # Python-native .nb parser (offline)
 │   ├── connection.py          # Socket connection to addon
 │   ├── session.py             # Kernel fallback (wolframscript)
-│   ├── cli.py                 # Setup commands for 6 clients
+│   ├── cli.py                 # Setup commands for 6 clients + project guidance (CLAUDE.md, AGENTS.md)
 │   ├── cache.py               # In-memory expression caching
 │   ├── disk_cache.py          # Persistent notebook extraction cache
 │   ├── symbol_index.py        # Version-scoped symbol index with disk persistence

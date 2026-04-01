@@ -221,6 +221,39 @@ Beyond these workflows: **symbolic computation**, **2D/3D visualization**, **not
 
 ---
 
+## Execution Modes
+
+Control where and how your results appear by using these keywords in your prompt:
+
+| Keyword                                       | Mode            | What happens                                       |
+|-----------------------------------------------|-----------------|----------------------------------------------------|
+| **"calculate"**, **"compute"**, **"what is"** | Inline          | Result appears as text in chat                     |
+| **"plot"**, **"show"**, **"in notebook"**     | Notebook        | Executes in the current Mathematica notebook       |
+| **"new notebook"**, **"fresh notebook"**      | New notebook    | Creates a fresh notebook, then executes there      |
+| **"interactive"**, **"manipulate"**, **"dynamic"** | Interactive | Notebook with frontend mode (sliders, animations) |
+
+### Examples
+
+```text
+"Calculate the integral of x^3 from 0 to 1"
+  → Result appears inline in chat
+
+"Plot Sin[x] from 0 to 2π"
+  → Plot appears in current Mathematica notebook
+
+"In new notebook: integrate 1/x^5 + x^7 and plot the integration region"
+  → Fresh notebook is created with the work
+
+"Interactive: Manipulate a slider for Plot[Sin[n x], {x, 0, 2π}]"
+  → Dynamic UI with sliders in notebook
+```
+
+If you don't include a keyword, the default mode depends on your [tool profile](#tool-profiles): `notebook` profiles default to notebook output, `math` profile defaults to inline.
+
+> **Tip:** These modes are also available as MCP prompts (`calculate`, `notebook`, `new_notebook`, `interactive`) in clients that support prompt selection. Use the `quickstart` prompt to see this reference at any time.
+
+---
+
 ## Documentation
 
 *   **[Technical Reference](docs/technical-reference.md)** — Architecture, tools, and configuration

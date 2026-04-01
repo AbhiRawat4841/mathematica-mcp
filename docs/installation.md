@@ -294,9 +294,36 @@ Or use the CLI:
 claude mcp add mathematica --scope user -- uv --directory /YOUR/PATH/TO/mathematica-mcp run mathematica-mcp-full
 ```
 
-### Step 5: Restart Your Editor
+### Step 5: Install Project Guidance (Recommended)
 
-Restart your editor to load the MCP server. Look for the MCP indicator (e.g., 🔨 hammer icon in Claude Desktop).
+For Claude Code or Codex, install agent-specific guidance files so the AI knows to use MCP tools directly:
+
+```bash
+# Claude Code — installs CLAUDE.md + .claude/commands/mathematica.md
+uvx mathematica-mcp-full setup claude-code --project-dir .
+
+# Codex — installs AGENTS.md
+uvx mathematica-mcp-full setup codex --project-dir .
+```
+
+This teaches the agent that a "notebook" is a live Mathematica window (not a `.nb` file on disk), and to use MCP tools instead of shell commands like `wolframscript`.
+
+### Step 6: Restart Your Editor
+
+Restart your editor to load the MCP server. Look for the MCP indicator (e.g., hammer icon in Claude Desktop).
+
+### Execution Modes
+
+Once set up, use these keywords in your prompts to control where results appear:
+
+| Say this | What happens |
+|----------|--------------|
+| **"calculate ..."** | Result inline in chat |
+| **"plot ..."** / **"show ..."** | Executes in current Mathematica notebook |
+| **"in new notebook: ..."** | Creates a fresh notebook, then executes there |
+| **"interactive ..."** | Notebook with sliders/Manipulate (frontend mode) |
+
+See the README's [Execution Modes](../README.md#execution-modes) section for full details and examples.
 
 ---
 
@@ -376,7 +403,7 @@ See the [Technical Reference](technical-reference.md#tool-profiles) for details 
 | `--profile {math,notebook,full}` | Set the tool profile in the client config |
 | `--skip-addon` | Skip Mathematica addon installation |
 | `--local` | Use local path instead of `uvx` (for development) |
-| `--project-dir PATH` | (Claude Code only) Install guidance files in the project |
+| `--project-dir PATH` | Install agent guidance files (CLAUDE.md for Claude Code, AGENTS.md for Codex) |
 
 ### Session Isolation
 
