@@ -778,7 +778,9 @@ def main_cli() -> int:
     setup_parser.add_argument(
         "--profile", choices=VALID_PROFILES, default=None, help="Tool profile to configure in the client MCP config"
     )
-    setup_parser.add_argument("--project-dir", default=None, help="Project root for agent guidance installation (CLAUDE.md, AGENTS.md)")
+    setup_parser.add_argument(
+        "--project-dir", default=None, help="Project root for agent guidance installation (CLAUDE.md, AGENTS.md)"
+    )
     setup_parser.set_defaults(func=cmd_setup)
 
     # doctor command

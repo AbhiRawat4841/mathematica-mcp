@@ -2116,10 +2116,7 @@ def mathematica_expert(user_request: str = "") -> str:
 @mcp.prompt()
 def calculate(expression: str) -> str:
     """Compute a result inline in chat. Use for quick math, algebra, or any text answer."""
-    return (
-        f"Calculate the following and return the result inline (use output_target='cli'):\n\n"
-        f"{expression}"
-    )
+    return f"Calculate the following and return the result inline (use output_target='cli'):\n\n{expression}"
 
 
 @mcp.prompt()
