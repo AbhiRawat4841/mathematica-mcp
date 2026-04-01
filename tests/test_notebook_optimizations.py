@@ -261,16 +261,10 @@ class TestKernelModeErrorSemantics:
 
     def test_syntax_error_returns_failure(self, mcp_client):
         """Syntax errors must report success=False and error_type=syntax_error."""
-        result = mcp_client.send_command(
-            "execute_code_notebook", {"code": "1 +", "mode": "kernel"}
-        )
+        result = mcp_client.send_command("execute_code_notebook", {"code": "1 +", "mode": "kernel"})
 
-        assert result.get("success") is False, (
-            f"Syntax error should report success=False, got: {result}"
-        )
-        assert result.get("error") == "syntax_error", (
-            f"Expected error='syntax_error', got: {result.get('error')}"
-        )
+        assert result.get("success") is False, f"Syntax error should report success=False, got: {result}"
+        assert result.get("error") == "syntax_error", f"Expected error='syntax_error', got: {result.get('error')}"
 
     def test_runtime_failure_returns_failure(self, mcp_client):
         """Runtime $Failed must report success=False."""
@@ -283,12 +277,10 @@ class TestKernelModeErrorSemantics:
         # 1/0 produces ComplexInfinity, not $Failed — so use a surer path
         result = mcp_client.send_command(
             "execute_code_notebook",
-            {"code": "Quiet[Check[Import[\"nonexistent_file_xyz_123\"], $Failed]]", "mode": "kernel"},
+            {"code": 'Quiet[Check[Import["nonexistent_file_xyz_123"], $Failed]]', "mode": "kernel"},
         )
 
-        assert result.get("success") is False, (
-            f"$Failed result should report success=False, got: {result}"
-        )
+        assert result.get("success") is False, f"$Failed result should report success=False, got: {result}"
 
     def test_timeout_returns_failure(self, mcp_client):
         """Timeout must report success=False and timed_out=True."""
@@ -309,9 +301,7 @@ class TestKernelModeErrorSemantics:
         )
 
         assert result.get("success") is True
-        assert result.get("timing_ms", 0) > 0, (
-            f"Expected timing_ms > 0 for Pause[0.05], got: {result.get('timing_ms')}"
-        )
+        assert result.get("timing_ms", 0) > 0, f"Expected timing_ms > 0 for Pause[0.05], got: {result.get('timing_ms')}"
 
 
 if __name__ == "__main__":

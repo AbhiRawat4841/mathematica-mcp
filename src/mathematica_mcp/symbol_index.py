@@ -16,6 +16,7 @@ fetched lazily on demand.
 
 from __future__ import annotations
 
+import contextlib
 import enum
 import hashlib
 import json
@@ -171,9 +172,7 @@ def _save_to_disk_cache() -> None:
     # Atomic write: temp file + rename
     tmp_path: str | None = None
     try:
-        fd, tmp_path = tempfile.mkstemp(
-            dir=str(cache_dir), suffix=".tmp", prefix="sym_"
-        )
+        fd, tmp_path = tempfile.mkstemp(dir=str(cache_dir), suffix=".tmp", prefix="sym_")
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(cache_data, f)
         os.replace(tmp_path, str(cache_file))
@@ -181,10 +180,8 @@ def _save_to_disk_cache() -> None:
     except OSError as e:
         logger.warning("Failed to write symbol cache: %s", e)
         if tmp_path is not None:
-            try:
+            with contextlib.suppress(OSError):
                 os.unlink(tmp_path)
-            except OSError:
-                pass
 
 
 def clear_disk_cache() -> int:

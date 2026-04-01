@@ -145,7 +145,9 @@ def run_benchmarks():
     print("\n[Setup] Creating dedicated benchmark notebook session...")
     try:
         conn.send_command("create_notebook", {"title": "Benchmark Session", "session_id": session_id})
-        probe = conn.send_command("execute_code_notebook", {"code": "1 + 1", "mode": "kernel", "session_id": session_id})
+        probe = conn.send_command(
+            "execute_code_notebook", {"code": "1 + 1", "mode": "kernel", "session_id": session_id}
+        )
         if not probe.get("success"):
             print(f"  WARNING: Probe execution failed: {probe}")
         else:
@@ -215,9 +217,7 @@ def run_benchmarks():
 
     # 6. Get cells (enumeration cost)
     print("\n[6] get_cells (notebook cell enumeration)")
-    r = benchmark_operation(
-        conn, "get_cells", "get_cells", {"session_id": session_id}, iterations=10
-    )
+    r = benchmark_operation(conn, "get_cells", "get_cells", {"session_id": session_id}, iterations=10)
     if r:
         results.append(r)
         print(f"  => Mean: {r['mean_ms']:.1f}ms, Median: {r['median_ms']:.1f}ms")
@@ -225,8 +225,11 @@ def run_benchmarks():
     # 7. Screenshot notebook (with ExportPacket optimization)
     print("\n[7] screenshot_notebook (ExportPacket or Rasterize)")
     r = benchmark_operation(
-        conn, "screenshot_notebook", "screenshot_notebook",
-        {"max_height": 800, "session_id": session_id}, iterations=3,
+        conn,
+        "screenshot_notebook",
+        "screenshot_notebook",
+        {"max_height": 800, "session_id": session_id},
+        iterations=3,
     )
     if r:
         results.append(r)
@@ -235,8 +238,11 @@ def run_benchmarks():
     # 8. Get notebook info
     print("\n[8] get_notebook_info")
     r = benchmark_operation(
-        conn, "get_notebook_info", "get_notebook_info",
-        {"session_id": session_id}, iterations=10,
+        conn,
+        "get_notebook_info",
+        "get_notebook_info",
+        {"session_id": session_id},
+        iterations=10,
     )
     if r:
         results.append(r)
@@ -245,7 +251,9 @@ def run_benchmarks():
     # 9. Write cell (without evaluation, no refresh)
     print("\n[9] write_cell (no evaluation, no refresh)")
     r = benchmark_operation(
-        conn, "write_cell", "write_cell",
+        conn,
+        "write_cell",
+        "write_cell",
         {"content": "(* benchmark cell *)", "style": "Text", "session_id": session_id},
         iterations=5,
     )
