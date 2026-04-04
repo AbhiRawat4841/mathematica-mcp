@@ -1269,4 +1269,4 @@ MIT License
 
 ---
 
-*Last updated: April 2026 (v0.8.0 — Execution style parameter, profile-aware guidance, create_notebook profile fix, addon robustness hardening)*
+*Last updated: April 2026 (v0.8.1 — Absolute launcher paths in generated configs, numeric type hints for math alias tools)*

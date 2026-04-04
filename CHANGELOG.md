@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.1] - 2026-04-04
+
+### Fixed
+
+- **Absolute launcher paths in generated configs**: `resolve_launcher()` resolves `uv`/`uvx` to absolute paths so GUI MCP clients (Claude Desktop, Cursor) work without shell PATH inheritance
+- **Math alias numeric type hints**: Widened `lower_bound`, `upper_bound` (integrate) and `point` (limit, series) to accept `int` and `float` in addition to `str`, preventing Pydantic validation errors when LLMs send numeric literals
+- **CLI startup diagnostics**: Added stderr logging and crash reporting to the MCP server entry point for easier debugging
+
+### Changed
+
+- Documentation examples now use `/ABSOLUTE/PATH/TO/uv` placeholder and note that GUI apps may not inherit shell PATH
+- Updated tests for `resolve_launcher` integration
+
 ## [0.8.0] - 2026-04-04
 
 ### Added
