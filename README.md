@@ -263,7 +263,19 @@ Beyond these workflows: **symbolic computation**, **2D/3D visualization**, **not
 
 If you don't include a keyword, the default mode depends on your [tool profile](#tool-profiles): `notebook` profiles default to notebook output, `math` profile defaults to inline.
 
-> **Tip:** These styles are also available as MCP prompts (`calculate`, `notebook`, `new_notebook`, `interactive`) in clients that support prompt selection. Use the `quickstart` prompt to see this reference at any time.
+### Built-in MCP Prompts
+
+Some MCP clients (Claude Desktop, Cursor, etc.) can list **prompts** from the server — pre-built templates that fill in the right parameters for you. This server registers five prompts:
+
+| Prompt | What it does |
+|--------|-------------|
+| `calculate` | Pre-fills `style="compute"` for inline math results |
+| `notebook` | Pre-fills `style="notebook"` for notebook execution |
+| `new_notebook` | Creates a fresh notebook, then executes there |
+| `interactive` | Pre-fills `style="interactive"` for Manipulate/Dynamic |
+| `quickstart` | Shows the full execution styles reference table |
+
+**How to access them:** In Claude Desktop, click the **prompt icon** (chat bubble with `+`) at the bottom of the input box. In Cursor, use the MCP prompt picker. Not all clients support prompt selection — if yours doesn't, just use the keywords above in your message instead.
 
 ---
 
