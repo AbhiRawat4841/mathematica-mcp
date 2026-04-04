@@ -14,7 +14,7 @@ A clear description of what you want to happen.
 
 **Which profile would this belong to?**
 - [ ] math (~25 tools)
-- [ ] notebook (~44 tools)
+- [ ] notebook (~45 tools)
 - [ ] full (~79 tools)
 
 **Additional context**

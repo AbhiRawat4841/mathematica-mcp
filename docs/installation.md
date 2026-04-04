@@ -381,7 +381,7 @@ Control which tools are exposed by selecting a profile:
 | Profile | Tools | Best For |
 |---------|-------|----------|
 | `math` | ~25 | Pure computation, no notebook features |
-| `notebook` | ~44 | Computation + notebook reading |
+| `notebook` | ~45 | Computation + notebook reading + `create_notebook` |
 | `full` (default) | ~79 | All features including legacy tools |
 
 **During setup** (writes profile to client config):

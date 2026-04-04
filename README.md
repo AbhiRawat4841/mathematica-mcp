@@ -108,7 +108,7 @@ uvx mathematica-mcp-full doctor
 
 ### Tool Profiles
 
-Choose how many tools to expose: `math` (~25 tools), `notebook` (~44), or `full` (~79, default).
+Choose how many tools to expose: `math` (~25 tools), `notebook` (~45), or `full` (~79, default).
 Pass `--profile` during setup or set `MATHEMATICA_PROFILE` env var. See the **[Technical Reference](docs/technical-reference.md#tool-profiles)** for details.
 
 ---

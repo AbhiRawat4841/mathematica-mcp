@@ -37,7 +37,7 @@ The server supports three profiles that control which tools are exposed. This le
 | Profile | Tools | Use Case |
 |---------|-------|----------|
 | `math` | ~25 | Pure computation, no notebook tools |
-| `notebook` | ~44 | Computation + notebook reading/management |
+| `notebook` | ~45 | Computation + notebook reading/management + `create_notebook` |
 | `full` (default) | ~79 | Everything including legacy, admin, and all optional tools |
 
 ### Selecting a Profile
@@ -755,7 +755,7 @@ create_animation(
 
 | Tool | Description |
 |------|-------------|
-| `execute_code` | Run Wolfram Language code (primary tool — supports `output_target="cli"` or `"notebook"`) |
+| `execute_code` | Run Wolfram Language code (primary tool — use `style="compute"`, `"notebook"`, or `"interactive"`) |
 | `evaluate_selection` | Evaluate selected cells |
 
 #### Kernel Tools
@@ -895,7 +895,7 @@ The Mathematica MCP includes error analysis for notebook execution that pattern-
 
 ### How It Works
 
-When code is executed in notebook mode (`execute_code` with `output_target="notebook"`):
+When code is executed in notebook mode (`execute_code` with `style="notebook"` or `style="interactive"`):
 
 1. **Error Capture**: The addon captures messages from `$MessageList` after cell evaluation
 2. **Pattern Matching**: Captured errors are matched against a knowledge base of 10+ common error patterns
@@ -903,7 +903,7 @@ When code is executed in notebook mode (`execute_code` with `output_target="note
 4. **Suggestion Generation**: Actionable fixes are suggested based on the error type
 5. **LLM Formatting**: Errors are formatted with analysis, causes, fixes, and examples
 
-**Note**: Error analysis is currently active for notebook execution only. CLI mode (`output_target="cli"`) returns raw errors without analysis.
+**Note**: Error analysis is currently active for notebook execution only. Compute mode (`style="compute"`) returns raw errors without analysis.
 
 ### Supported Error Types
 
@@ -1141,7 +1141,7 @@ mathematica-mcp/
 
 **Status**: Known upstream issue with MCP server notebook operations
 
-**Symptom**: When using `execute_code` with `output_target: "notebook"`, users may encounter:
+**Symptom**: When using `execute_code` with `style="notebook"` or `style="interactive"`, users may encounter:
 - `StringLength::string` errors during cell creation
 - `KeyExistsQ::invrl` errors during notebook state queries
 - Cells appearing empty when queried via API immediately after creation
@@ -1160,7 +1160,7 @@ The issue stems from **asynchronous state synchronization** between Mathematica'
 
 ```
 Execution Flow (Broken):
-1. execute_code(output_target="notebook") called
+1. execute_code(style="notebook") called
 2. MCP server attempts to write cell to notebook
 3. Frontend receives cell creation request
 4. Frontend caches cell content locally
@@ -1170,20 +1170,20 @@ Execution Flow (Broken):
 ```
 
 **Affected Operations**:
-- `execute_code` with `output_target: "notebook"`
+- `execute_code` with `style="notebook"` or `style="interactive"`
 - `write_cell` followed by immediate `evaluate_cell`
 - `get_cells` immediately after cell creation
 - Any rapid sequence of notebook mutations
 
 **Workarounds** (Recommended):
 
-1. **Use CLI Output Mode** (Most Reliable)
+1. **Use Compute Style** (Most Reliable)
    ```python
    # Instead of:
-   execute_code(code="Plot[Sin[x], {x, 0, 2Pi}]", output_target="notebook")
+   execute_code(code="Plot[Sin[x], {x, 0, 2Pi}]", style="notebook")
 
    # Use:
-   execute_code(code="Plot[Sin[x], {x, 0, 2Pi}]", output_target="cli", format="text")
+   execute_code(code="Plot[Sin[x], {x, 0, 2Pi}]", style="compute")
    ```
 
 2. **Create Named Notebooks** (Better State Tracking)
@@ -1201,7 +1201,7 @@ Execution Flow (Broken):
    get_cells(notebook=nb)  # May return stale data
 
    # Do:
-   execute_code(code=code, output_target="cli")  # One atomic operation
+   execute_code(code=code, style="compute")  # One atomic operation
    ```
 
 4. **Verify Cell State Before Proceeding**
@@ -1218,7 +1218,7 @@ Execution Flow (Broken):
    ```
 
 **What Works Reliably**:
-- `execute_code` with `output_target: "cli"` ✅
+- `execute_code` with `style="compute"` ✅
 - `get_mathematica_status` ✅
 - `list_variables`, `get_variable`, `set_variable` ✅
 - All mathematical operations (`integrate`, `solve`, etc.) ✅

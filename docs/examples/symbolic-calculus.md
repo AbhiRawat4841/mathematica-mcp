@@ -12,7 +12,7 @@ A researcher asks their AI agent to integrate a function, differentiate the resu
 
 ```
 Tool: execute_code
-Input: code = "Integrate[x^2 Sin[x], x]", output_target = "cli"
+Input: code = "Integrate[x^2 Sin[x], x]", style = "compute"
 
 Result:
 {
