@@ -10,8 +10,8 @@ def register_math_alias_tools(mcp: FastMCP, execute_code) -> None:
     async def mathematica_integrate(
         expression: str,
         variable: str,
-        lower_bound: str | None = None,
-        upper_bound: str | None = None,
+        lower_bound: str | int | float | None = None,
+        upper_bound: str | int | float | None = None,
     ) -> str:
         """Compute integral using Integrate."""
         if lower_bound is not None and upper_bound is not None:
@@ -75,7 +75,7 @@ def register_math_alias_tools(mcp: FastMCP, execute_code) -> None:
     async def mathematica_limit(
         expression: str,
         variable: str,
-        point: str,
+        point: str | int | float,
         direction: Literal["Left", "Right"] | None = None,
     ) -> str:
         """Compute limit using Limit."""
@@ -90,7 +90,7 @@ def register_math_alias_tools(mcp: FastMCP, execute_code) -> None:
     async def mathematica_series(
         expression: str,
         variable: str,
-        point: str = "0",
+        point: str | int | float = "0",
         order: int = 5,
     ) -> str:
         """Compute Taylor/power series expansion."""

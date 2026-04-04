@@ -133,12 +133,14 @@ Pass `--profile` during setup or set `MATHEMATICA_PROFILE` env var. See the **[T
 
 3.  **Configure your editor** (replace path with your actual path):
 
+    > **Note:** GUI apps like Claude Desktop may not inherit your shell `PATH`. Use the absolute path from `which uv` or let `uvx mathematica-mcp-full setup <client>` write it for you automatically.
+
     **Claude Desktop** (`~/Library/Application Support/Claude/claude_desktop_config.json`):
     ```json
     {
       "mcpServers": {
         "mathematica": {
-          "command": "uv",
+          "command": "/ABSOLUTE/PATH/TO/uv",
           "args": ["--directory", "/path/to/mathematica-mcp", "run", "mathematica-mcp-full"]
         }
       }
@@ -150,7 +152,7 @@ Pass `--profile` during setup or set `MATHEMATICA_PROFILE` env var. See the **[T
     {
       "mcpServers": {
         "mathematica": {
-          "command": "uv",
+          "command": "/ABSOLUTE/PATH/TO/uv",
           "args": ["--directory", "/path/to/mathematica-mcp", "run", "mathematica-mcp-full"]
         }
       }
@@ -165,7 +167,7 @@ Pass `--profile` during setup or set `MATHEMATICA_PROFILE` env var. See the **[T
       "servers": {
         "mathematica": {
           "type": "stdio",
-          "command": "uv",
+          "command": "/ABSOLUTE/PATH/TO/uv",
           "args": ["--directory", "/path/to/mathematica-mcp", "run", "mathematica-mcp-full"]
         }
       }

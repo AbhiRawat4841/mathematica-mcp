@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from mathematica_mcp import cli
@@ -26,15 +27,78 @@ def test_check_mathematica_addon_finds_wolfram_init(monkeypatch, tmp_path: Path)
     assert str(init_path) in msg
 
 
-def test_generate_mcp_config_includes_profile_env():
+def test_generate_mcp_config_includes_profile_env(monkeypatch):
+    monkeypatch.setattr(cli, "resolve_launcher", lambda command: f"/resolved/{command}")
+
     config = cli.generate_mcp_config(use_uvx=True, profile="math")
 
-    assert config["command"] == "uvx"
+    assert config["command"] == "/resolved/uvx"
     assert config["args"] == ["mathematica-mcp-full"]
     assert config["env"] == {"MATHEMATICA_PROFILE": "math"}
 
 
-def test_update_toml_config_rewrites_stale_mathematica_section(tmp_path: Path):
+def test_generate_mcp_config_falls_back_to_bare_command_when_unresolved(monkeypatch):
+    monkeypatch.setattr(cli, "resolve_launcher", lambda command: command)
+
+    config = cli.generate_mcp_config(use_uvx=True, profile=None)
+
+    assert config["command"] == "uvx"
+    assert config["args"] == ["mathematica-mcp-full"]
+
+
+def test_generate_mcp_config_local_uses_resolved_uv(monkeypatch, tmp_path: Path):
+    monkeypatch.setattr(cli, "resolve_launcher", lambda command: f"/resolved/{command}")
+    monkeypatch.setattr(cli, "get_package_dir", lambda: tmp_path)
+
+    config = cli.generate_mcp_config(use_uvx=False, profile=None)
+
+    assert config["command"] == "/resolved/uv"
+    assert config["args"] == ["--directory", str(tmp_path), "run", "mathematica-mcp-full"]
+
+
+def test_generate_toml_config_uses_resolved_launcher(monkeypatch):
+    monkeypatch.setattr(cli, "resolve_launcher", lambda command: f"/resolved/{command}")
+
+    config = cli.generate_toml_config("mathematica", use_uvx=True, profile="notebook")
+
+    assert 'command = "/resolved/uvx"' in config
+    assert 'args = ["mathematica-mcp-full"]' in config
+    assert 'env = { MATHEMATICA_PROFILE = "notebook" }' in config
+
+
+def test_update_json_config_uses_resolved_launcher_and_merges_env(monkeypatch, tmp_path: Path):
+    config_path = tmp_path / "claude_desktop_config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "mathematica": {
+                        "command": "old",
+                        "args": ["stale"],
+                        "env": {"KEEP_ME": "1"},
+                    }
+                }
+            }
+        )
+    )
+    monkeypatch.setattr(cli, "resolve_launcher", lambda command: f"/resolved/{command}")
+
+    ok = cli.update_json_config(
+        config_path,
+        cli.CLIENT_CONFIGS["claude-desktop"],
+        use_uvx=True,
+        profile="math",
+    )
+
+    assert ok is True
+    updated = json.loads(config_path.read_text())
+    server = updated["mcpServers"]["mathematica"]
+    assert server["command"] == "/resolved/uvx"
+    assert server["args"] == ["mathematica-mcp-full"]
+    assert server["env"] == {"KEEP_ME": "1", "MATHEMATICA_PROFILE": "math"}
+
+
+def test_update_toml_config_rewrites_stale_mathematica_section(monkeypatch, tmp_path: Path):
     config_path = tmp_path / "config.toml"
     config_path.write_text(
         "\n".join(
@@ -51,6 +115,8 @@ def test_update_toml_config_rewrites_stale_mathematica_section(tmp_path: Path):
             ]
         )
     )
+    monkeypatch.setattr(cli, "resolve_launcher", lambda command: f"/resolved/{command}")
+    monkeypatch.setattr(cli, "get_package_dir", lambda: tmp_path / "repo")
 
     ok = cli.update_toml_config(config_path, "mathematica", use_uvx=False, profile=None)
 
@@ -59,21 +125,23 @@ def test_update_toml_config_rewrites_stale_mathematica_section(tmp_path: Path):
     assert 'command = "uvx"' not in updated
     assert 'args = ["mathematica-mcp"]' not in updated
     assert "[mcp_servers.mathematica]" in updated
+    assert 'command = "/resolved/uv"' in updated
     assert 'args = ["--directory",' in updated
     assert updated.count("[mcp_servers.mathematica]") == 1
     assert "[features]" in updated
 
 
-def test_update_toml_config_appends_when_section_missing(tmp_path: Path):
+def test_update_toml_config_appends_when_section_missing(monkeypatch, tmp_path: Path):
     config_path = tmp_path / "config.toml"
     config_path.write_text('model = "gpt-5.4"\n')
+    monkeypatch.setattr(cli, "resolve_launcher", lambda command: f"/resolved/{command}")
 
     ok = cli.update_toml_config(config_path, "mathematica", use_uvx=True, profile="notebook")
 
     assert ok is True
     updated = config_path.read_text()
     assert "[mcp_servers.mathematica]" in updated
-    assert 'command = "uvx"' in updated
+    assert 'command = "/resolved/uvx"' in updated
     assert 'args = ["mathematica-mcp-full"]' in updated
     assert 'env = { MATHEMATICA_PROFILE = "notebook" }' in updated
 

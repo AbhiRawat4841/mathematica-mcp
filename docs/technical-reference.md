@@ -58,13 +58,15 @@ export MATHEMATICA_PROFILE=notebook
 {
   "mcpServers": {
     "mathematica": {
-      "command": "uvx",
+      "command": "/ABSOLUTE/PATH/TO/uvx",
       "args": ["mathematica-mcp-full"],
       "env": {"MATHEMATICA_PROFILE": "notebook"}
     }
   }
 }
 ```
+
+The setup command resolves `uv` and `uvx` to absolute paths automatically so GUI clients do not depend on shell `PATH` inheritance.
 
 ### What Each Profile Includes
 
@@ -194,7 +196,7 @@ Config file (macOS): `~/Library/Application Support/Claude/claude_desktop_config
 {
   "mcpServers": {
     "mathematica": {
-      "command": "uv",
+      "command": "/ABSOLUTE/PATH/TO/uv",
       "args": ["--directory", "/path/to/mathematica-mcp", "run", "mathematica-mcp-full"]
     }
   }
@@ -207,7 +209,7 @@ Config file (macOS): `~/Library/Application Support/Claude/claude_desktop_config
 {
   "mcpServers": {
     "mathematica": {
-      "command": "uv",
+      "command": "/ABSOLUTE/PATH/TO/uv",
       "args": ["--directory", "/path/to/mathematica-mcp", "run", "mathematica-mcp-full"]
     }
   }

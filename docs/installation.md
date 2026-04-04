@@ -195,12 +195,14 @@ Add to your config:
 {
   "mcpServers": {
     "mathematica": {
-      "command": "uv",
+      "command": "/ABSOLUTE/PATH/TO/uv",
       "args": ["--directory", "/YOUR/PATH/TO/mathematica-mcp", "run", "mathematica-mcp-full"]
     }
   }
 }
 ```
+
+> **Note:** GUI apps like Claude Desktop may not inherit your shell `PATH`. Use the absolute path from `which uv`, or run `uvx mathematica-mcp-full setup claude-desktop` and let the installer write the resolved path for you.
 
 #### Cursor
 
@@ -210,7 +212,7 @@ Add to your config:
 {
   "mcpServers": {
     "mathematica": {
-      "command": "uv",
+      "command": "/ABSOLUTE/PATH/TO/uv",
       "args": ["--directory", "/YOUR/PATH/TO/mathematica-mcp", "run", "mathematica-mcp-full"]
     }
   }
@@ -230,7 +232,7 @@ Or use the UI: **Settings > Features > MCP > Add New MCP Server**
   "servers": {
     "mathematica": {
       "type": "stdio",
-      "command": "uv",
+      "command": "/ABSOLUTE/PATH/TO/uv",
       "args": ["--directory", "/YOUR/PATH/TO/mathematica-mcp", "run", "mathematica-mcp-full"]
     }
   }
@@ -245,7 +247,7 @@ Or use the UI: **Settings > Features > MCP > Add New MCP Server**
 
 ```toml
 [mcp_servers.mathematica]
-command = "uv"
+command = "/ABSOLUTE/PATH/TO/uv"
 args = ["--directory", "/YOUR/PATH/TO/mathematica-mcp", "run", "mathematica-mcp-full"]
 ```
 
@@ -262,7 +264,7 @@ codex mcp add mathematica -- uv --directory /YOUR/PATH/TO/mathematica-mcp run ma
 {
   "mcpServers": {
     "mathematica": {
-      "command": "uv",
+      "command": "/ABSOLUTE/PATH/TO/uv",
       "args": ["--directory", "/YOUR/PATH/TO/mathematica-mcp", "run", "mathematica-mcp-full"]
     }
   }
@@ -282,7 +284,7 @@ gemini mcp add mathematica -- uv --directory /YOUR/PATH/TO/mathematica-mcp run m
 {
   "mcpServers": {
     "mathematica": {
-      "command": "uv",
+      "command": "/ABSOLUTE/PATH/TO/uv",
       "args": ["--directory", "/YOUR/PATH/TO/mathematica-mcp", "run", "mathematica-mcp-full"]
     }
   }

@@ -157,6 +157,18 @@ def get_package_dir() -> Path:
     return current.parent.parent
 
 
+def resolve_launcher(command: str) -> str:
+    """Resolve *command* to an absolute executable path when possible.
+
+    GUI MCP clients do not always inherit the same PATH as an interactive shell.
+    Writing the absolute launcher path into generated configs makes startup
+    resilient to those PATH differences. Fall back to the bare command so manual
+    edits and unusual installs still work.
+    """
+    resolved = shutil.which(command)
+    return resolved or command
+
+
 def get_addon_dir() -> Path:
     """Get the addon directory."""
     # First check inside the package (when installed via pip/uvx)
@@ -320,11 +332,14 @@ def check_client_config(client: str) -> tuple[bool, str]:
 def generate_mcp_config(use_uvx: bool = True, profile: str | None = None) -> dict[str, Any]:
     """Generate the MCP server configuration."""
     if use_uvx:
-        config = {"command": "uvx", "args": ["mathematica-mcp-full"]}
+        config = {"command": resolve_launcher("uvx"), "args": ["mathematica-mcp-full"]}
     else:
         # Use absolute path for local development
         pkg_dir = get_package_dir()
-        config = {"command": "uv", "args": ["--directory", str(pkg_dir), "run", "mathematica-mcp-full"]}
+        config = {
+            "command": resolve_launcher("uv"),
+            "args": ["--directory", str(pkg_dir), "run", "mathematica-mcp-full"],
+        }
 
     if profile:
         config["env"] = {"MATHEMATICA_PROFILE": profile}
@@ -362,16 +377,18 @@ def install_addon(wolframscript: Path, addon_dir: Path) -> bool:
 def generate_toml_config(server_name: str, use_uvx: bool = True, profile: str | None = None) -> str:
     """Generate TOML config for Codex CLI."""
     if use_uvx:
+        launcher = resolve_launcher("uvx")
         config = f"""
 [mcp_servers.{server_name}]
-command = "uvx"
+command = "{launcher}"
 args = ["mathematica-mcp-full"]
 """
     else:
+        launcher = resolve_launcher("uv")
         pkg_dir = get_package_dir()
         config = f'''
 [mcp_servers.{server_name}]
-command = "uv"
+command = "{launcher}"
 args = ["--directory", "{pkg_dir}", "run", "mathematica-mcp-full"]
 '''
 
@@ -809,9 +826,21 @@ def main_cli() -> int:
         # No subcommand - run the MCP server (default behavior)
         if args.profile:
             os.environ["MATHEMATICA_PROFILE"] = args.profile
-        from .server import main as server_main
+        try:
+            import sys as _sys
 
-        server_main()
+            print("mathematica-mcp: importing server...", file=_sys.stderr)
+            from .server import main as server_main
+
+            print("mathematica-mcp: starting MCP server...", file=_sys.stderr)
+            server_main()
+        except Exception as _e:
+            import sys as _sys
+            import traceback
+
+            print(f"mathematica-mcp: CRASH: {_e}", file=_sys.stderr)
+            traceback.print_exc(file=_sys.stderr)
+            return 1
         return 0
 
     return args.func(args)
