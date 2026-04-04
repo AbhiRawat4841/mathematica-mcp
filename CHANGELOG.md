@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.0] - 2026-04-04
+
+### Added
+
+- **Execution `style` parameter**: New keyword-only `style` parameter on `execute_code` bundles `output_target` + `mode` into three presets: `"compute"` (cli/kernel), `"notebook"` (notebook/kernel), `"interactive"` (notebook/frontend) — reduces LLM argument assembly errors
+- **Pure execution resolver**: `_resolve_execution_params()` handles style→param resolution with explicit>style>profile priority, unknown-style errors, and CLI mode normalization
+- **Unconditional execution metadata**: Every `execute_code` response now includes `executed_output_target` (and `executed_mode` when applicable) across all 6 response paths — including timeout and fallback — so callers always know what actually happened
+- **Profile-aware guidance**: `build_claude_hint()`, `build_claude_command()`, and `build_codex_guidance()` now conditionally omit notebook/interactive flows for the `math` profile, matching the existing behavior of `build_mathematica_expert_prompt()`
+
+### Fixed
+
+- **`create_notebook` profile exposure**: Moved `create_notebook` from `notebook_advanced` to `notebook_primary` group — previously all guidance told LLMs to call it for "new notebook" flows, but it was not registered in the `notebook` profile
+- **Addon robustness**: Added `StringQ` guards in `editableNotebookQ`, `jsonSanitize`, and `maybeCompressResponse` to prevent crashes from unexpected non-string values; improved `dispatchCommand` error capture with `$MessageList`
+- **Oversized response handling**: Connection layer now closes socket and clears buffer on oversized responses instead of leaving stale data
+- **Ruff lint violations**: Replaced `try/except OSError: pass` with `contextlib.suppress(OSError)` (SIM105); fixed formatting across cli, server, and test files
+
+### Changed
+
+- All guidance builders, MCP prompts, server instructions, and documentation now use `style=` parameter instead of raw `output_target`/`mode` combinations
+- Documentation splits "Execution Styles" into two audiences: chat users (keywords) and tool callers (`style=` parameter)
+- `execute_code` docstring leads with style selection guide instead of raw parameter combinations
+- TOML config rewrite logic improved in CLI setup
+
 ## [0.7.7] - 2026-04-01
 
 ### Added

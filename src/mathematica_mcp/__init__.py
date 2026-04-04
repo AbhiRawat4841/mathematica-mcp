@@ -7,4 +7,4 @@ This package provides:
 - MCP tools for notebook manipulation, code execution, and screenshots
 """
 
-__version__ = "0.7.0"
+__version__ = "0.8.0"

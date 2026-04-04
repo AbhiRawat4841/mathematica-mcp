@@ -1267,4 +1267,4 @@ MIT License
 
 ---
 
-*Last updated: April 2026 (v0.7.6 — Performance: symbol index with disk persistence, addon timing correctness fix, large response truncation, benchmark session management)*
+*Last updated: April 2026 (v0.8.0 — Execution style parameter, profile-aware guidance, create_notebook profile fix, addon robustness hardening)*
