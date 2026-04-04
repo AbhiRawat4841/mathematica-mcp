@@ -24,9 +24,11 @@ KERNEL_HEALTH_CHECK_INTERVAL = 5.0
 # Bounded: oldest entries evicted when ``_MAX_RASTER_ENTRIES`` is reached,
 #          and their temp files are deleted from disk.
 # ---------------------------------------------------------------------------
+import threading as _raster_threading  # noqa: E402
 from collections import OrderedDict  # noqa: E402
 
 _raster_cache: OrderedDict[str, str] = OrderedDict()
+_raster_lock = _raster_threading.Lock()
 _MAX_RASTER_ENTRIES = 50
 
 
@@ -37,49 +39,52 @@ def _raster_cache_key(code: str, image_size: int = 500) -> str:
 def _get_cached_raster(code: str, image_size: int = 500) -> str | None:
     """Return a cached raster file path if it exists and is valid."""
     key = _raster_cache_key(code, image_size)
-    path = _raster_cache.get(key)
-    if path and os.path.exists(path) and os.path.getsize(path) > 0:
-        _raster_cache.move_to_end(key)
-        return path
-    _raster_cache.pop(key, None)
+    with _raster_lock:
+        path = _raster_cache.get(key)
+        if path and os.path.exists(path) and os.path.getsize(path) > 0:
+            _raster_cache.move_to_end(key)
+            return path
+        _raster_cache.pop(key, None)
     return None
 
 
 def _put_cached_raster(code: str, path: str, image_size: int = 500) -> None:
     """Store a raster file path in the cache, evicting oldest if at capacity."""
     key = _raster_cache_key(code, image_size)
-    # If already present, delete the old file before replacing.
-    if key in _raster_cache:
-        old_path = _raster_cache[key]
-        if old_path != path:
+    with _raster_lock:
+        # If already present, delete the old file before replacing.
+        if key in _raster_cache:
+            old_path = _raster_cache[key]
+            if old_path != path:
+                try:
+                    if os.path.exists(old_path):
+                        os.remove(old_path)
+                except OSError:
+                    pass
+            _raster_cache.move_to_end(key)
+            _raster_cache[key] = path
+            return
+        # Evict oldest entries if at capacity.
+        while len(_raster_cache) >= _MAX_RASTER_ENTRIES:
+            _, evicted_path = _raster_cache.popitem(last=False)
             try:
-                if os.path.exists(old_path):
-                    os.remove(old_path)
+                if os.path.exists(evicted_path):
+                    os.remove(evicted_path)
             except OSError:
                 pass
-        _raster_cache.move_to_end(key)
         _raster_cache[key] = path
-        return
-    # Evict oldest entries if at capacity.
-    while len(_raster_cache) >= _MAX_RASTER_ENTRIES:
-        _, evicted_path = _raster_cache.popitem(last=False)
-        try:
-            if os.path.exists(evicted_path):
-                os.remove(evicted_path)
-        except OSError:
-            pass
-    _raster_cache[key] = path
 
 
 def clear_raster_cache() -> None:
     """Remove all cached raster files from disk and clear the cache."""
-    for path in list(_raster_cache.values()):
-        try:
-            if os.path.exists(path):
-                os.remove(path)
-        except OSError:
-            pass
-    _raster_cache.clear()
+    with _raster_lock:
+        for path in list(_raster_cache.values()):
+            try:
+                if os.path.exists(path):
+                    os.remove(path)
+            except OSError:
+                pass
+        _raster_cache.clear()
 
 
 def _session_context(session_id: str | None) -> str | None:

@@ -13,6 +13,7 @@ import argparse
 import json
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -411,19 +412,23 @@ def update_toml_config(
     existing_content = ""
     if config_path.exists():
         existing_content = config_path.read_text()
-        # Check if server already configured
-        if f"[mcp_servers.{server_name}]" in existing_content:
-            warn(f"mathematica server already configured in {config_path}")
-            info("To reconfigure, remove the [mcp_servers.mathematica] section first")
-            return True
 
     # Generate new TOML section
     new_section = generate_toml_config(server_name, use_uvx, profile)
+    section_pattern = re.compile(
+        rf"(?ms)^\[mcp_servers\.{re.escape(server_name)}\]\n.*?(?=^\[|\Z)"
+    )
 
-    # Append to existing config
+    if section_pattern.search(existing_content):
+        updated_content = section_pattern.sub(new_section.rstrip() + "\n\n", existing_content, count=1)
+    else:
+        updated_content = existing_content
+        if updated_content and not updated_content.endswith("\n"):
+            updated_content += "\n"
+        updated_content += new_section
+
     try:
-        with open(config_path, "a") as f:
-            f.write(new_section)
+        config_path.write_text(updated_content)
         success(f"Updated {config_path}")
         return True
     except Exception as e:

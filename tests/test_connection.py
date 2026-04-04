@@ -463,3 +463,49 @@ class TestPerCommandTimeout:
 
         # Custom timeout was set before the error; socket is closed so no restore
         assert 999.0 in mock_sock.timeout_history
+
+
+class TestOversizedResponseHandling:
+    """Verify oversized response closes socket and clears buffer (Issue #8)."""
+
+    def test_oversized_response_closes_socket_and_clears_buffer(self):
+        """ValueError from _receive_framed_json must close socket and clear buffer."""
+        huge_chunk = b"x" * (connection.MAX_RESPONSE_BYTES + 1)
+        mock_sock = _MockRecvSocket([huge_chunk])
+
+        conn = MathematicaConnection()
+        conn._socket = mock_sock
+        conn._recv_buffer.extend(b"prior data")
+
+        with pytest.raises(ValueError, match="Response too large"):
+            conn.send_command("test_cmd")
+
+        # Socket must be closed and nulled
+        assert conn._socket is None
+        assert mock_sock.closed
+        # Buffer must be cleared
+        assert len(conn._recv_buffer) == 0
+        # last_error must be set
+        assert "Response too large" in conn.last_error
+
+    def test_oversized_request_does_not_close_socket(self):
+        """ValueError from request-too-large (pre-I/O) must NOT close the socket."""
+        response_json = (
+            json.dumps({"status": "ok", "result": {"ok": True}}).encode() + b"\n"
+        )
+        mock_sock = _MockRecvSocket([response_json])
+
+        conn = MathematicaConnection()
+        conn._socket = mock_sock
+
+        # Build a request that exceeds MAX_REQUEST_BYTES
+        huge_params = {"data": "x" * (connection.MAX_REQUEST_BYTES + 1)}
+
+        with pytest.raises(ValueError, match="Request too large"):
+            conn.send_command("test_cmd", huge_params)
+
+        # Socket must still be open — no I/O occurred
+        assert conn._socket is mock_sock
+        assert not mock_sock.closed
+        # last_error should NOT be set (socket is healthy)
+        assert conn.last_error == ""

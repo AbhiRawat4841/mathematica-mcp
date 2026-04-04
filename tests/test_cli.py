@@ -34,6 +34,50 @@ def test_generate_mcp_config_includes_profile_env():
     assert config["env"] == {"MATHEMATICA_PROFILE": "math"}
 
 
+def test_update_toml_config_rewrites_stale_mathematica_section(tmp_path: Path):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        "\n".join(
+            [
+                'model = "gpt-5.4"',
+                "",
+                "[mcp_servers.mathematica]",
+                'command = "uvx"',
+                'args = ["mathematica-mcp"]',
+                "",
+                "[features]",
+                "multi_agent = true",
+                "",
+            ]
+        )
+    )
+
+    ok = cli.update_toml_config(config_path, "mathematica", use_uvx=False, profile=None)
+
+    assert ok is True
+    updated = config_path.read_text()
+    assert 'command = "uvx"' not in updated
+    assert 'args = ["mathematica-mcp"]' not in updated
+    assert '[mcp_servers.mathematica]' in updated
+    assert 'args = ["--directory",' in updated
+    assert updated.count("[mcp_servers.mathematica]") == 1
+    assert "[features]" in updated
+
+
+def test_update_toml_config_appends_when_section_missing(tmp_path: Path):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text('model = "gpt-5.4"\n')
+
+    ok = cli.update_toml_config(config_path, "mathematica", use_uvx=True, profile="notebook")
+
+    assert ok is True
+    updated = config_path.read_text()
+    assert '[mcp_servers.mathematica]' in updated
+    assert 'command = "uvx"' in updated
+    assert 'args = ["mathematica-mcp-full"]' in updated
+    assert 'env = { MATHEMATICA_PROFILE = "notebook" }' in updated
+
+
 def test_install_claude_code_guidance_writes_command_and_marked_block(tmp_path: Path):
     written = cli.install_claude_code_guidance(tmp_path, profile="notebook")
 

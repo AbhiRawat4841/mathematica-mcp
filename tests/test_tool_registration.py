@@ -132,6 +132,7 @@ NOTEBOOK_TOOLS = {
     "compare_plots",
     "convert_units",
     "create_animation",
+    "create_notebook",
     "entity_lookup",
     "execute_code",
     "export_data",
@@ -212,7 +213,7 @@ def test_notebook_profile_registers_curated_subset():
     notebook_tools = set(_tool_names({"MATHEMATICA_PROFILE": "notebook"}))
 
     assert notebook_tools == NOTEBOOK_TOOLS
-    assert "create_notebook" not in notebook_tools
+    assert "create_notebook" in notebook_tools
     assert "evaluate_cell" not in notebook_tools
     assert "convert_notebook" not in notebook_tools
     assert "read_notebook" in notebook_tools

@@ -661,7 +661,7 @@ class TestAttachImageIfValid:
         from mathematica_mcp.server import _attach_image_if_valid
 
         img = tmp_path / "test.png"
-        img.write_bytes(b"\x89PNG\r\n" + b"\x00" * 100)
+        img.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
 
         result = {"is_graphics": True, "image_path": str(img)}
         _attach_image_if_valid(result)

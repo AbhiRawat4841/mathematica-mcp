@@ -312,18 +312,18 @@ This teaches the agent that a "notebook" is a live Mathematica window (not a `.n
 
 Restart your editor to load the MCP server. Look for the MCP indicator (e.g., hammer icon in Claude Desktop).
 
-### Execution Modes
+### Execution Styles
 
 Once set up, use these keywords in your prompts to control where results appear:
 
 | Say this | What happens |
 |----------|--------------|
-| **"calculate ..."** | Result inline in chat |
-| **"plot ..."** / **"show ..."** | Executes in current Mathematica notebook |
+| **"calculate ..."** | Result inline in chat (`style="compute"`) |
+| **"plot ..."** / **"show ..."** | Executes in current Mathematica notebook (`style="notebook"`) |
 | **"in new notebook: ..."** | Creates a fresh notebook, then executes there |
-| **"interactive ..."** | Notebook with sliders/Manipulate (frontend mode) |
+| **"interactive ..."** | Notebook with sliders/Manipulate (`style="interactive"`) |
 
-See the README's [Execution Modes](../README.md#execution-modes) section for full details and examples.
+See the README's [Execution Styles](../README.md#execution-styles) section for full details and examples.
 
 ---
 

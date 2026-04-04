@@ -299,3 +299,50 @@ class TestCacheCorrectnessLifecycle:
 
         assert cache_mod._query_cache.stats()["size"] == 0
         assert cache_mod.get_cached_expression("myexpr") is None
+
+
+class TestNonCacheableDetection:
+    """Verify non-cacheable expression detection covers edge cases."""
+
+    def test_direct_random_not_cached(self):
+        from mathematica_mcp.cache import _query_cache
+
+        _query_cache.put("RandomReal[]", {"output": "0.5"}, output_format="text")
+        assert _query_cache.get("RandomReal[]", output_format="text") is None
+
+    def test_nested_random_not_cached(self):
+        from mathematica_mcp.cache import _query_cache
+
+        code = "Module[{x = RandomReal[]}, x^2]"
+        _query_cache.put(code, {"output": "0.25"}, output_format="text")
+        assert _query_cache.get(code, output_format="text") is None
+
+    def test_now_not_cached(self):
+        from mathematica_mcp.cache import _query_cache
+
+        _query_cache.put("Now", {"output": "DateObject[...]"}, output_format="text")
+        assert _query_cache.get("Now", output_format="text") is None
+
+    def test_dynamic_not_cached(self):
+        from mathematica_mcp.cache import _query_cache
+
+        code = "Dynamic[Clock[]]"
+        _query_cache.put(code, {"output": "Dynamic[...]"}, output_format="text")
+        assert _query_cache.get(code, output_format="text") is None
+
+    def test_pure_expression_is_cached(self):
+        from mathematica_mcp.cache import _query_cache
+
+        _query_cache.put("1 + 1", {"output": "2"}, output_format="text")
+        result = _query_cache.get("1 + 1", output_format="text")
+        assert result is not None
+        assert result["output"] == "2"
+
+    def test_whitespace_normalization_in_cache(self):
+        from mathematica_mcp.cache import _query_cache
+
+        _query_cache.put("Sin[x]  +  Cos[x]", {"output": "result"}, output_format="text")
+        # Same expression with different whitespace should hit cache
+        result = _query_cache.get("Sin[x] + Cos[x]", output_format="text")
+        assert result is not None
+        assert result["output"] == "result"

@@ -90,16 +90,18 @@ The FastMCP `instructions` field is sent to every connected client. It establish
 1. **MCP-first**: Always use MCP tools, never `wolframscript`, shell commands, or manual `.nb` file creation.
 2. **Live notebook ≠ .nb file**: A "notebook" is a live window in the Mathematica frontend, not a file on disk.
 
-### Layer 2: Execution Mode Keywords
+### Layer 2: Execution Style Keywords
 
-Users can steer routing with natural language keywords. The guidance layer detects these and maps them to the correct tool parameters:
+Users can steer routing with natural language keywords, or tool callers can use the `style` parameter directly. The `style` parameter is a high-level preset that bundles `output_target` + `mode`; individual parameters still work and override style.
 
-| Keyword | Mode | Tool Call |
-|---------|------|-----------|
-| "calculate", "compute", "what is" | Inline | `execute_code(output_target="cli")` |
-| "plot", "show", "in notebook" | Notebook | `execute_code(output_target="notebook")` |
-| "new notebook" | New notebook | `create_notebook()` then `execute_code(output_target="notebook")` |
-| "interactive", "manipulate" | Interactive | `execute_code(output_target="notebook", mode="frontend")` |
+| Keyword | Style | Tool Call |
+|---------|-------|-----------|
+| "calculate", "compute", "what is" | `"compute"` | `execute_code(style="compute")` |
+| "plot", "show", "in notebook" | `"notebook"` | `execute_code(style="notebook")` |
+| "new notebook" | N/A | `create_notebook()` then `execute_code(style="notebook")` |
+| "interactive", "manipulate" | `"interactive"` | `execute_code(style="interactive")` |
+
+> **Note:** There is no `style="new_notebook"`. Creating a fresh notebook is a two-step workflow: `create_notebook(title="...")` then `execute_code(style="notebook")`.
 
 ### Layer 3: Dynamic Tool Docstrings
 
@@ -107,7 +109,7 @@ Tool descriptions are rewritten at startup to include `[PRIMARY]`, `[ADVANCED]`,
 
 ### Layer 4: MCP Prompts
 
-Five MCP prompts (`calculate`, `notebook`, `new_notebook`, `interactive`, `quickstart`) allow clients to surface structured mode selection to users.
+Five MCP prompts (`calculate`, `notebook`, `new_notebook`, `interactive`, `quickstart`) allow clients to surface structured style selection to users.
 
 ### Layer 5: Project Guidance Files
 
@@ -236,7 +238,7 @@ uvx mathematica-mcp-full setup claude-code --project-dir .
 uvx mathematica-mcp-full setup codex --project-dir .
 ```
 
-**Execution mode keywords** — users can steer where results appear:
+**Execution style keywords** — users can steer where results appear:
 
 | Say this | Result |
 |----------|--------|
@@ -261,11 +263,11 @@ uvx mathematica-mcp-full setup codex --project-dir .
 **Key concept**: A "notebook" is a live window in Mathematica, NOT a .nb file.
 Use MCP tools directly. Never use wolframscript CLI or shell commands.
 
-**Mode keywords**:
-- "calculate/compute" → execute_code(output_target="cli")
-- "plot/show/in notebook" → execute_code(output_target="notebook")
-- "new notebook" → create_notebook() then execute_code(output_target="notebook")
-- "interactive/manipulate" → execute_code(output_target="notebook", mode="frontend")
+**Style keywords**:
+- "calculate/compute" → execute_code(style="compute")
+- "plot/show/in notebook" → execute_code(style="notebook")
+- "new notebook" → create_notebook() then execute_code(style="notebook")
+- "interactive/manipulate" → execute_code(style="interactive")
 ```
 
 ---

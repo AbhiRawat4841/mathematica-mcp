@@ -221,16 +221,29 @@ Beyond these workflows: **symbolic computation**, **2D/3D visualization**, **not
 
 ---
 
-## Execution Modes
+## Execution Styles
 
-Control where and how your results appear by using these keywords in your prompt:
+### For chat users — use keywords in your prompt
 
-| Keyword                                       | Mode            | What happens                                       |
-|-----------------------------------------------|-----------------|----------------------------------------------------|
-| **"calculate"**, **"compute"**, **"what is"** | Inline          | Result appears as text in chat                     |
-| **"plot"**, **"show"**, **"in notebook"**     | Notebook        | Executes in the current Mathematica notebook       |
-| **"new notebook"**, **"fresh notebook"**      | New notebook    | Creates a fresh notebook, then executes there      |
-| **"interactive"**, **"manipulate"**, **"dynamic"** | Interactive | Notebook with frontend mode (sliders, animations) |
+| Say this...                                        | What happens                                       |
+|----------------------------------------------------|----------------------------------------------------|
+| **"calculate ..."**, **"compute ..."**, **"what is ..."** | Result appears as text in chat              |
+| **"plot ..."**, **"show ..."**, **"in notebook ..."**     | Executes in the current Mathematica notebook |
+| **"in new notebook: ..."**                         | Creates a fresh notebook, then executes there      |
+| **"interactive ..."**, **"manipulate ..."**, **"dynamic ..."** | Live front-end evaluation (sliders, animations) |
+
+### For tool callers — use the `style` parameter
+
+| `style=`        | `output_target` | `mode`     | Best for                           |
+|-----------------|-----------------|------------|------------------------------------|
+| `"compute"`     | cli             | kernel     | Math, algebra, parsing results     |
+| `"notebook"`    | notebook        | kernel     | Plots, visual artifacts            |
+| `"interactive"` | notebook        | frontend   | Manipulate, Dynamic, animations    |
+
+`style` is a high-level shortcut for `output_target` + `mode`. Individual params still work and override style.
+
+> **Note:** There is no `style="new_notebook"`. Creating a fresh notebook is a two-step workflow:
+> `create_notebook(title="...")` then `execute_code(style="notebook")`.
 
 ### Examples
 
@@ -250,7 +263,7 @@ Control where and how your results appear by using these keywords in your prompt
 
 If you don't include a keyword, the default mode depends on your [tool profile](#tool-profiles): `notebook` profiles default to notebook output, `math` profile defaults to inline.
 
-> **Tip:** These modes are also available as MCP prompts (`calculate`, `notebook`, `new_notebook`, `interactive`) in clients that support prompt selection. Use the `quickstart` prompt to see this reference at any time.
+> **Tip:** These styles are also available as MCP prompts (`calculate`, `notebook`, `new_notebook`, `interactive`) in clients that support prompt selection. Use the `quickstart` prompt to see this reference at any time.
 
 ---
 

@@ -58,16 +58,49 @@ mcp = FastMCP(
         "execute_code(output_target='notebook') writes and evaluates code in that "
         "live window. You do NOT need to search for files, create directories, or "
         "save/export anything unless the user explicitly asks.\n\n"
-        "Workflow:\n"
-        "- User says 'calculate/compute/what is' → execute_code(output_target='cli') — answer inline\n"
-        "- User says 'plot/show/in notebook' → execute_code(output_target='notebook') — in current live notebook\n"
-        "- User says 'new notebook' → create_notebook(title='...') first, then execute_code(output_target='notebook')\n"
-        "- User says 'interactive/manipulate/dynamic' → execute_code(output_target='notebook', mode='frontend')\n\n"
+        "Workflow (use the style= parameter for easy mode selection):\n"
+        "- User says 'calculate/compute/what is' → execute_code(style='compute')\n"
+        "- User says 'plot/show/in notebook' → execute_code(style='notebook')\n"
+        "- User says 'new notebook' → create_notebook(title='...') first, then execute_code(style='notebook')\n"
+        "- User says 'interactive/manipulate/dynamic' → execute_code(style='interactive')\n\n"
         "Do NOT search for .nb files, do NOT create directories, do NOT run wolframscript, "
         "do NOT save or export unless asked. Just call the MCP tools directly."
     ),
 )
 _CORE_TOOL_REGISTRY: list[tuple[str, Callable[..., Any]]] = []
+
+# --- Execution style presets ---
+# style bundles only output_target + mode. sync/max_wait/timeout are orthogonal.
+_STYLE_DEFAULTS: dict[str, dict[str, str]] = {
+    "compute": {"output_target": "cli", "mode": "kernel"},
+    "notebook": {"output_target": "notebook", "mode": "kernel"},
+    "interactive": {"output_target": "notebook", "mode": "frontend"},
+}
+
+
+def _resolve_execution_params(
+    style: str | None,
+    output_target: str | None,
+    mode: str | None,
+    default_output_target: str,
+) -> tuple[str, str]:
+    """Resolve effective output_target and mode.
+
+    Priority: explicit param > style defaults > profile defaults.
+    Raises ValueError for unknown styles.
+    """
+    if style is not None and style not in _STYLE_DEFAULTS:
+        raise ValueError(f"Unknown style '{style}'. Valid styles: compute, notebook, interactive")
+    style_defaults = _STYLE_DEFAULTS.get(style, {}) if style else {}
+
+    eff_output_target = output_target or style_defaults.get("output_target", default_output_target)
+    eff_mode = mode or style_defaults.get("mode", "kernel")
+
+    # Normalize: CLI path ignores mode entirely, so canonicalize to kernel
+    if eff_output_target == "cli":
+        eff_mode = "kernel"
+
+    return eff_output_target, eff_mode
 
 
 def _tool(group: str):
@@ -112,6 +145,14 @@ async def _image_from_result(result: dict) -> Image:
     image_path = result["path"]
 
     def _read_and_remove() -> bytes:
+        if not _is_valid_png(image_path):
+            # Clean up invalid file and raise so caller gets a clear error.
+            if os.path.exists(image_path):
+                try:
+                    os.remove(image_path)
+                except OSError:
+                    pass
+            raise ValueError(f"Invalid or corrupt PNG at {image_path}")
         with open(image_path, "rb") as f:
             image_bytes = f.read()
         os.remove(image_path)
@@ -121,21 +162,42 @@ async def _image_from_result(result: dict) -> Image:
     return Image(data=image_bytes, format="png")
 
 
+_PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+
+
+def _is_valid_png(path: str) -> bool:
+    """Check that *path* exists, is non-empty, and starts with PNG magic bytes."""
+    try:
+        if not os.path.exists(path) or os.path.getsize(path) < 8:
+            return False
+        with open(path, "rb") as f:
+            return f.read(8) == _PNG_MAGIC
+    except OSError:
+        return False
+
+
 def _attach_image_if_valid(result: dict) -> None:
-    """Attach rendered_image to result if image_path exists and is non-empty.
+    """Attach rendered_image to result if image_path exists and is a valid PNG.
 
     Validates the file on disk before trusting the path.  Strips is_graphics
-    and image_path from the result if the file is missing or empty so the
-    caller does not hand out a broken path.
+    and image_path from the result if the file is missing, empty, or not a
+    valid PNG so the caller does not hand out a broken path.
     """
     if not result.get("is_graphics") or not result.get("image_path"):
         return
     image_path = result["image_path"]
-    if os.path.exists(image_path) and os.path.getsize(image_path) > 0:
+    if _is_valid_png(image_path):
         result["rendered_image"] = image_path
         result["tip"] = "Use Read tool to view image."
     else:
-        # Rasterization claimed success but no valid file — clean up
+        # Rasterization claimed success but no valid file — delete the
+        # bad file from disk (if it exists) and strip metadata so
+        # clients don't receive a broken path.
+        if os.path.exists(image_path):
+            try:
+                os.remove(image_path)
+            except OSError:
+                pass
         result.pop("image_path", None)
         result.pop("is_graphics", None)
         result.pop("rendered_image", None)
@@ -404,7 +466,7 @@ async def get_notebook_info(notebook: str | None = None, session_id: str | None 
     return _json_response(result)
 
 
-@_tool("notebook_advanced")
+@_tool("notebook_primary")
 async def create_notebook(title: str = "Untitled", session_id: str | None = None) -> str:
     """Create a new empty notebook. Returns notebook ID.
 
@@ -553,7 +615,7 @@ async def execute_code(
     code: str,
     format: Literal["text", "latex", "mathematica"] = "text",
     output_target: Literal["cli", "notebook"] | None = None,
-    mode: Literal["kernel", "frontend"] = "kernel",
+    mode: Literal["kernel", "frontend"] | None = None,
     render_graphics: bool = True,
     deterministic_seed: int | None = None,
     session_id: str | None = None,
@@ -562,10 +624,16 @@ async def execute_code(
     max_wait: int = 30,
     sync: Literal["none", "refresh", "strict"] = "none",
     sync_wait: float = 2,
+    *,
+    style: Literal["compute", "notebook", "interactive"] | None = None,
 ) -> str:
     """Execute Wolfram Language code."""
-    if output_target is None:
-        output_target = FEATURES.default_output_target
+    try:
+        output_target, mode = _resolve_execution_params(
+            style, output_target, mode, FEATURES.default_output_target
+        )
+    except ValueError as e:
+        return _json_response({"success": False, "error": str(e)})
 
     if output_target == "notebook":
         try:
@@ -609,6 +677,10 @@ async def execute_code(
                 }
                 if result.get("output_preview"):
                     response["output_preview"] = result.get("output_preview")
+                response["executed_output_target"] = "notebook"
+                response["executed_mode"] = mode
+                if style is not None:
+                    response["requested_style"] = style
                 return _json_response(response)
 
             if result.get("success"):
@@ -687,6 +759,10 @@ async def execute_code(
                         if result.get("output_preview"):
                             response["output_preview"] = result.get("output_preview")
 
+                response["executed_output_target"] = "notebook"
+                response["executed_mode"] = mode
+                if style is not None:
+                    response["requested_style"] = style
                 return _json_response(response)
             else:
                 raise RuntimeError(result.get("error", "Atomic notebook execution failed"))
@@ -710,6 +786,9 @@ async def execute_code(
                 result = await _addon_result("execute_code", params, timeout=socket_timeout)
                 if isinstance(result, dict):
                     result["note"] = "Executed via CLI (notebook error)."
+                    result["executed_output_target"] = "cli"
+                    if style is not None:
+                        result["requested_style"] = style
                     _attach_image_if_valid(result)
                     return _json_response(result)
                 return f"{result}\n(Note: Executed via CLI due to notebook error)"
@@ -726,6 +805,9 @@ async def execute_code(
                 )
                 result["execution_mode"] = "kernel_fallback"
                 result["note"] = "Executed via CLI (notebook error). Run StartMCPServer[] in Mathematica."
+                result["executed_output_target"] = "cli"
+                if style is not None:
+                    result["requested_style"] = style
                 _attach_image_if_valid(result)
                 return _json_response(result)
 
@@ -754,6 +836,9 @@ async def execute_code(
             timeout=timeout,
         )
         result["execution_mode"] = "kernel_fallback"
+    result["executed_output_target"] = "cli"
+    if style is not None:
+        result["requested_style"] = style
     _attach_image_if_valid(result)
     return _json_response(result)
 
@@ -2116,7 +2201,7 @@ def mathematica_expert(user_request: str = "") -> str:
 @mcp.prompt()
 def calculate(expression: str) -> str:
     """Compute a result inline in chat. Use for quick math, algebra, or any text answer."""
-    return f"Calculate the following and return the result inline (use output_target='cli'):\n\n{expression}"
+    return f"Calculate the following and return the result inline (use style='compute'):\n\n{expression}"
 
 
 @mcp.prompt()
@@ -2124,7 +2209,7 @@ def notebook(task: str) -> str:
     """Execute in the current Mathematica notebook. Use for plots, visualizations, or notebook artifacts."""
     return (
         f"Execute the following in the current Mathematica notebook "
-        f"(use output_target='notebook', mode='kernel'):\n\n"
+        f"(use style='notebook'):\n\n"
         f"{task}"
     )
 
@@ -2134,7 +2219,7 @@ def new_notebook(task: str, title: str = "Analysis") -> str:
     """Create a fresh Mathematica notebook and execute there. Use when you want a clean slate."""
     return (
         f"Create a new Mathematica notebook titled '{title}' using create_notebook(), "
-        f"then execute the following in it (use output_target='notebook'):\n\n"
+        f"then execute the following in it (use style='notebook'):\n\n"
         f"{task}"
     )
 
@@ -2144,19 +2229,19 @@ def interactive(task: str) -> str:
     """Execute with frontend mode for dynamic/interactive content (Manipulate, Animate, sliders)."""
     return (
         f"Execute the following in the notebook using frontend mode for dynamic interaction "
-        f"(use output_target='notebook', mode='frontend'):\n\n"
+        f"(use style='interactive'):\n\n"
         f"{task}"
     )
 
 
 @mcp.prompt()
 def quickstart() -> str:
-    """Show available execution modes and how to use them."""
-    return f"""Show the user this quick reference for Mathematica MCP modes:
+    """Show available execution styles and how to use them."""
+    return f"""Show the user this quick reference for Mathematica MCP styles:
 
-## Mathematica MCP — Quick Mode Guide
+## Mathematica MCP — Execution Styles
 
-You can control where and how your code runs by using these keywords:
+### For chat users — use keywords in your prompt
 
 | Say this...                     | What happens                                    |
 |---------------------------------|-------------------------------------------------|
@@ -2164,6 +2249,17 @@ You can control where and how your code runs by using these keywords:
 | **"plot ..."** / **"show ..."** | Executes in current Mathematica notebook         |
 | **"in new notebook: ..."**      | Creates a fresh notebook, then executes there    |
 | **"interactive ..."**           | Notebook with sliders/Manipulate (frontend mode) |
+
+### For tool callers — use the `style` parameter
+
+| `style=`          | What happens                                    |
+|-------------------|-------------------------------------------------|
+| `"compute"`       | Fast kernel evaluation, result in chat          |
+| `"notebook"`      | Evaluate in kernel, show in notebook cell       |
+| `"interactive"`   | Front-end evaluation (Manipulate/Dynamic)       |
+
+> There is no `style="new_notebook"`. Create a fresh notebook with
+> `create_notebook(title="...")` then `execute_code(style="notebook")`.
 
 ### Examples
 - "Calculate the integral of x^3 from 0 to 1"  →  answer in chat

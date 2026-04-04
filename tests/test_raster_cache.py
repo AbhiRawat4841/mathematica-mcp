@@ -305,3 +305,119 @@ class TestRasterCacheBounded:
         for p in paths:
             if os.path.exists(p):
                 os.remove(p)
+
+
+class TestRasterCacheThreadSafety:
+    """Verify raster cache operations are thread-safe."""
+
+    def test_concurrent_puts_do_not_corrupt(self):
+        import threading
+
+        from mathematica_mcp.session import (
+            _put_cached_raster,
+            _raster_cache,
+        )
+
+        paths = []
+        errors = []
+
+        def writer(thread_id):
+            try:
+                for i in range(20):
+                    fd, path = tempfile.mkstemp(suffix=".png")
+                    os.write(fd, f"T{thread_id}_{i}".encode())
+                    os.close(fd)
+                    paths.append(path)
+                    _put_cached_raster(f"t{thread_id}_code_{i}", path)
+            except Exception as e:
+                errors.append(e)
+
+        threads = [threading.Thread(target=writer, args=(t,)) for t in range(4)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert not errors, f"Thread errors: {errors}"
+        # Cache must respect _MAX_RASTER_ENTRIES even under contention
+        from mathematica_mcp.session import _MAX_RASTER_ENTRIES
+
+        assert len(_raster_cache) <= _MAX_RASTER_ENTRIES
+
+        for p in paths:
+            if os.path.exists(p):
+                os.remove(p)
+
+    def test_concurrent_get_and_put(self):
+        import threading
+
+        from mathematica_mcp.session import _get_cached_raster, _put_cached_raster
+
+        fd, path = tempfile.mkstemp(suffix=".png")
+        os.write(fd, b"PNG content")
+        os.close(fd)
+
+        _put_cached_raster("shared_code", path)
+        errors = []
+
+        def reader():
+            try:
+                for _ in range(50):
+                    _get_cached_raster("shared_code")
+            except Exception as e:
+                errors.append(e)
+
+        def writer():
+            try:
+                for i in range(50):
+                    fd2, p2 = tempfile.mkstemp(suffix=".png")
+                    os.write(fd2, f"W{i}".encode())
+                    os.close(fd2)
+                    _put_cached_raster(f"other_{i}", p2)
+            except Exception as e:
+                errors.append(e)
+
+        threads = [threading.Thread(target=reader) for _ in range(3)]
+        threads.append(threading.Thread(target=writer))
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert not errors, f"Thread errors: {errors}"
+        if os.path.exists(path):
+            os.remove(path)
+
+
+class TestRasterCacheKeyExactMatch:
+    """Raster cache keys use exact code strings (no normalization).
+
+    Unlike the query cache, the raster cache operates on wrapped_code
+    (post-context/determinism wrapping) which is machine-generated and
+    already canonical.  Normalizing whitespace would alias semantically
+    different Wolfram expressions containing string-literal whitespace
+    (e.g. Graphics[Text["a  b"]] vs Graphics[Text["a b"]]).
+    """
+
+    def test_different_whitespace_different_key(self):
+        from mathematica_mcp.session import _raster_cache_key
+
+        k1 = _raster_cache_key("Plot[Sin[x], {x, 0, Pi}]")
+        k2 = _raster_cache_key("Plot[Sin[x],  {x,  0,  Pi}]")
+        assert k1 != k2
+
+    def test_exact_match_roundtrip(self):
+        from mathematica_mcp.session import _get_cached_raster, _put_cached_raster
+
+        fd, path = tempfile.mkstemp(suffix=".png")
+        os.write(fd, b"PNG fake")
+        os.close(fd)
+
+        code = "Plot[Sin[x], {x, 0, Pi}]"
+        _put_cached_raster(code, path)
+        # Exact same string hits
+        assert _get_cached_raster(code) == path
+        # Different whitespace misses
+        assert _get_cached_raster("Plot[Sin[x],  {x,  0,  Pi}]") is None
+
+        os.remove(path)

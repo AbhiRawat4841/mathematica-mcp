@@ -117,6 +117,9 @@ class MathematicaConnection:
 
                 request_bytes = (json.dumps(request) + "\n").encode("utf-8")
                 if len(request_bytes) > MAX_REQUEST_BYTES:
+                    # Pre-I/O validation — socket is still healthy, don't
+                    # close it.  Raise directly so the caller can retry
+                    # with a smaller payload.
                     raise ValueError("Request too large")
 
                 assert self._socket is not None
@@ -127,6 +130,8 @@ class MathematicaConnection:
 
                 self._socket.sendall(request_bytes)
 
+                # --- I/O boundary: errors below mean the connection is
+                # in an unknown state and must be torn down. ---
                 response_bytes = self._receive_framed_json()
                 response = json.loads(response_bytes.decode("utf-8"))
 
@@ -149,8 +154,20 @@ class MathematicaConnection:
                 self._close_socket_on_error()
                 raise ConnectionError(f"Connection to Mathematica lost: {e}") from e
             except json.JSONDecodeError as e:
+                # Corrupted response — connection is poisoned.
+                self._last_error = f"Invalid JSON response: {e}"
                 self._close_socket_on_error()
                 raise ValueError(f"Invalid JSON response from Mathematica: {e}") from e
+            except ValueError as e:
+                # "Response too large" from _receive_framed_json or
+                # "Request too large" from the pre-I/O check above.
+                # Only close the socket if we already started I/O
+                # (i.e. socket has been used for send/recv).
+                if "Response too large" in str(e):
+                    self._last_error = str(e)
+                    self._close_socket_on_error()
+                # "Request too large" leaves the socket untouched.
+                raise
             finally:
                 # Restore default socket timeout if we changed it
                 if timeout is not None and self._socket is not None:

@@ -241,10 +241,13 @@ editableNotebookQ[nb_] := Module[{title, editable, windowFrame, styleSheet, fn, 
   If[nb === MessagesNotebook[], Return[False]];
   
   title = Quiet[CurrentValue[nb, WindowTitle] /. $Failed -> ""];
+  If[!StringQ[title], title = ""];
   editable = Quiet[CurrentValue[nb, Editable] /. $Failed -> True];
   saveable = Quiet[CurrentValue[nb, Saveable] /. $Failed -> True];
   windowFrame = Quiet[CurrentValue[nb, WindowFrame] /. $Failed -> "Normal"];
+  If[!StringQ[windowFrame], windowFrame = "Normal"];
   styleSheet = Quiet[ToString[CurrentValue[nb, StyleDefinitions]] /. $Failed -> ""];
+  If[!StringQ[styleSheet], styleSheet = ""];
   
   (* Messages window and special windows are not saveable *)
   If[saveable === False, Return[False]];
@@ -312,8 +315,9 @@ jsonSanitize[value_] := Module[{v = value, sanitizedStr},
       StringTake[sanitizedStr, UpTo[500]],
     MatchQ[v, _RGBColor | _GrayLevel | _Hue | _CMYKColor],
       ToString[v, InputForm],
-    True, 
+    True,
       sanitizedStr = Quiet[Check[ToString[v, InputForm], ToString[Head[v]]]];
+      If[!StringQ[sanitizedStr], sanitizedStr = ToString[Head[v]]];
       (* Limit very long strings *)
       If[StringLength[sanitizedStr] > 1000,
         StringTake[sanitizedStr, 1000] <> "...",
@@ -449,67 +453,82 @@ cellToAssoc[cell_CellObject, includeContent_: True] := Module[{content, style, c
   |>
 ];
 
-dispatchCommand[command_, params_] := Quiet @ Check[
-  Switch[command,
-    "ping", cmdPing[params],
-    "get_status", cmdGetStatus[params],
+dispatchCommand[command_, params_] := Module[{result, capturedMsgs},
+  Block[{$MessageList = {}},
+    result = Quiet @ Check[
+      Switch[command,
+        "ping", cmdPing[params],
+        "get_status", cmdGetStatus[params],
 
-    "get_notebooks", cmdGetNotebooks[params],
-    "get_notebook_info", cmdGetNotebookInfo[params],
-    "create_notebook", cmdCreateNotebook[params],
-    "save_notebook", cmdSaveNotebook[params],
-    "close_notebook", cmdCloseNotebook[params],
+        "get_notebooks", cmdGetNotebooks[params],
+        "get_notebook_info", cmdGetNotebookInfo[params],
+        "create_notebook", cmdCreateNotebook[params],
+        "save_notebook", cmdSaveNotebook[params],
+        "close_notebook", cmdCloseNotebook[params],
 
-    "get_cells", cmdGetCells[params],
-    "get_cell_content", cmdGetCellContent[params],
-    "write_cell", cmdWriteCell[params],
-    "delete_cell", cmdDeleteCell[params],
-    "evaluate_cell", cmdEvaluateCell[params],
+        "get_cells", cmdGetCells[params],
+        "get_cell_content", cmdGetCellContent[params],
+        "write_cell", cmdWriteCell[params],
+        "delete_cell", cmdDeleteCell[params],
+        "evaluate_cell", cmdEvaluateCell[params],
 
-    "execute_code", cmdExecuteCode[params],
-    "execute_code_notebook", cmdExecuteCodeNotebook[params],
-    "execute_selection", cmdExecuteSelection[params],
-    "batch_commands", cmdBatchCommands[params],
+        "execute_code", cmdExecuteCode[params],
+        "execute_code_notebook", cmdExecuteCodeNotebook[params],
+        "execute_selection", cmdExecuteSelection[params],
+        "batch_commands", cmdBatchCommands[params],
 
-    "screenshot_notebook", cmdScreenshotNotebook[params],
-    "screenshot_cell", cmdScreenshotCell[params],
-    "rasterize_expression", cmdRasterizeExpression[params],
+        "screenshot_notebook", cmdScreenshotNotebook[params],
+        "screenshot_cell", cmdScreenshotCell[params],
+        "rasterize_expression", cmdRasterizeExpression[params],
 
-    "select_cell", cmdSelectCell[params],
-    "scroll_to_cell", cmdScrollToCell[params],
+        "select_cell", cmdSelectCell[params],
+        "scroll_to_cell", cmdScrollToCell[params],
 
-    "export_notebook", cmdExportNotebook[params],
+        "export_notebook", cmdExportNotebook[params],
 
-    (* TIER 1: Variable Introspection *)
-    "list_variables", cmdListVariables[params],
-    "get_variable", cmdGetVariable[params],
-    "set_variable", cmdSetVariable[params],
-    "clear_variables", cmdClearVariables[params],
-    "get_expression_info", cmdGetExpressionInfo[params],
+        (* TIER 1: Variable Introspection *)
+        "list_variables", cmdListVariables[params],
+        "get_variable", cmdGetVariable[params],
+        "set_variable", cmdSetVariable[params],
+        "clear_variables", cmdClearVariables[params],
+        "get_expression_info", cmdGetExpressionInfo[params],
 
-    (* TIER 1: Error Recovery *)
-    "get_messages", cmdGetMessages[params],
+        (* TIER 1: Error Recovery *)
+        "get_messages", cmdGetMessages[params],
 
-    (* TIER 2: File Handling *)
-    "open_notebook_file", cmdOpenNotebookFile[params],
-    "run_script", cmdRunScript[params],
+        (* TIER 2: File Handling *)
+        "open_notebook_file", cmdOpenNotebookFile[params],
+        "run_script", cmdRunScript[params],
 
-    (* TIER 4: Debugging *)
-    "trace_evaluation", cmdTraceEvaluation[params],
-    "time_expression", cmdTimeExpression[params],
-    "check_syntax", cmdCheckSyntax[params],
+        (* TIER 4: Debugging *)
+        "trace_evaluation", cmdTraceEvaluation[params],
+        "time_expression", cmdTimeExpression[params],
+        "check_syntax", cmdCheckSyntax[params],
 
-    (* TIER 5: Data I/O *)
-    "import_data", cmdImportData[params],
-    "export_data", cmdExportData[params],
-    "list_import_formats", cmdListImportFormats[params],
+        (* TIER 5: Data I/O *)
+        "import_data", cmdImportData[params],
+        "export_data", cmdExportData[params],
+        "list_import_formats", cmdListImportFormats[params],
 
-    (* TIER 6: Visualization *)
-    "export_graphics", cmdExportGraphics[params],
+        (* TIER 6: Visualization *)
+        "export_graphics", cmdExportGraphics[params],
 
-    _, <|"error" -> ("Unknown command: " <> command)|>
-  ],
-  <|"error" -> "Command execution failed"|>
+        _, <|"error" -> ("Unknown command: " <> command)|>
+      ],
+      (* Check caught a message — capture what went wrong *)
+      capturedMsgs = $MessageList;
+      $Failed
+    ];
+  ];
+  If[result === $Failed,
+    <|"error" -> ("Command execution failed: " <>
+      If[ListQ[capturedMsgs] && Length[capturedMsgs] > 0,
+        StringRiffle[ToString[#, OutputForm] & /@ Take[capturedMsgs, UpTo[3]], "; "],
+        "unknown error (no messages captured)"
+      ]
+    )|>,
+    result
+  ]
 ];
 
 maybeCompressResponse[response_, params_] := Module[
@@ -520,10 +539,12 @@ maybeCompressResponse[response_, params_] := Module[
 
   result = response["result"];
   resultJson = Quiet[Check[ExportString[result, "RawJSON", "Compact" -> True], ""]];
+  If[!StringQ[resultJson], resultJson = ""];
   If[StringLength[resultJson] < minBytes, Return[response]];
 
   compressed = Quiet[Check[Compress[result], ""]];
-  compressedJson = If[StringQ[compressed], StringLength[compressed], Infinity];
+  If[!StringQ[compressed], compressed = ""];
+  compressedJson = If[StringQ[compressed] && StringLength[compressed] > 0, StringLength[compressed], Infinity];
   If[compressedJson >= StringLength[resultJson], Return[response]];
 
   Association[
