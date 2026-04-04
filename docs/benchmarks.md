@@ -6,35 +6,35 @@ Benchmark data from two separate measurement runs. All numbers are median unless
 
 ## Offline Operations (No Wolfram Runtime Required)
 
-**Source:** `benchmarks/results/phase_current.json`
-**Date:** 2026-03-23 | **Python:** 3.11.5
+**Source:** `benchmarks/results/phase_v080.json`
+**Date:** 2026-04-04 | **Python:** 3.11.5
 
 | Operation | Median | Mean | Iterations | Notes |
 |-----------|--------|------|------------|-------|
-| `cold_import` | 695ms | 781ms | 3 | `import mathematica_mcp.server` |
-| `symbol_index_build` (raw) | 13,659ms | 13,659ms | 1 | One-time wolframscript build, ~7,800 System symbols |
-| `ensure_index` (cold) | ~13,700ms | ~13,700ms | 1 | Full cold start: disk cache miss + wolframscript build + disk cache write |
-| `ensure_index` (warm) | <100ms | <100ms | 3 | Disk cache hit (in-memory invalidated each iteration) |
-| `symbol_index_search` | 1.2ms | 1.4ms | 2,000 | Per-query name-match substep |
-| `symbol_subprocess_old` | 14,012ms | 16,131ms | 4 | Old path: full `Names[]` scan per call |
-| `lookup_end_to_end` (cold) | 23,394ms | 23,394ms | 2 | Subprocess fallback |
-| `lookup_end_to_end` (hot) | 1.2ms | 1.2ms | 20 | Cached index search |
+| `cold_import` | 515ms | 462ms | 3 | `import mathematica_mcp.server` |
+| `symbol_index_build` (raw) | 12,270ms | 12,270ms | 1 | One-time wolframscript build, ~7,800 System symbols |
+| `ensure_index` (cold) | ~11,897ms | ~11,897ms | 1 | Full cold start: disk cache miss + wolframscript build + disk cache write |
+| `ensure_index` (warm) | 0.9ms | 1.0ms | 3 | Disk cache hit (in-memory invalidated each iteration) |
+| `symbol_index_search` | 0.6ms | 0.7ms | 2,000 | Per-query name-match substep |
+| `symbol_subprocess_old` | 12,045ms | 12,178ms | 4 | Old path: full `Names[]` scan per call |
+| `lookup_end_to_end` (cold) | 13,860ms | 13,860ms | 2 | Subprocess fallback |
+| `lookup_end_to_end` (hot) | 0.7ms | 0.7ms | 20 | Cached index search |
 | `raster_cache` (miss) | 0.001ms | 0.001ms | 10,000 | Cache lookup only |
-| `raster_cache` (hit) | 0.008ms | 0.009ms | 10,000 | Cache lookup + path return |
-| `notebook_python_parse` (cold) | 9.8ms | 9.8ms | 1 | Integration.nb, 2 cells |
-| `notebook_python_parse` (warm) | 1.5ms | 1.5ms | 3 | Subsequent parses |
-| `cache_epoch` (hit) | 0.003ms | 0.003ms | 50,000 | Epoch validation check |
-| `cache_epoch` (miss) | 0.002ms | 0.003ms | 50,000 | Epoch mismatch |
-| `telemetry_overhead` (disabled) | 0.41ms | 0.59ms | 5,000 | Boolean check only |
-| `telemetry_overhead` (enabled) | 0.31ms | 0.54ms | 5,000 | With timing capture |
+| `raster_cache` (hit) | 0.005ms | 0.005ms | 10,000 | Cache lookup + path return |
+| `notebook_python_parse` (cold) | 5.2ms | 5.2ms | 1 | Integration.nb, 2 cells |
+| `notebook_python_parse` (warm) | 0.6ms | 0.6ms | 3 | Subsequent parses |
+| `cache_epoch` (hit) | 0.001ms | 0.002ms | 50,000 | Epoch validation check |
+| `cache_epoch` (miss) | 0.001ms | 0.001ms | 50,000 | Epoch mismatch |
+| `telemetry_overhead` (disabled) | 0.13ms | 0.14ms | 5,000 | Boolean check only |
+| `telemetry_overhead` (enabled) | 0.13ms | 0.14ms | 5,000 | With timing capture |
 
 ### Symbol Index Speedup
 
 | Path | Median | Speedup |
 |------|--------|---------|
-| Old (subprocess per call) | 14,012ms | baseline |
-| New (disk-cached index, warm) | <100ms | ~140x (cold start eliminated) |
-| New (in-memory index, hot) | 1.2ms | ~11,700x |
+| Old (subprocess per call) | 12,045ms | baseline |
+| New (disk-cached index, warm) | 0.9ms | ~13,400x (cold start eliminated) |
+| New (in-memory index, hot) | 0.7ms | ~17,200x |
 
 The symbol index is now persisted to disk at `~/.cache/mathematica-mcp/symbols/`. On subsequent process starts, the index loads from disk in <100ms instead of rebuilding via wolframscript (~14s). The cache key is derived from the resolved wolframscript binary identity (path + mtime + size), so it auto-invalidates when the Wolfram Language installation changes.
 
@@ -89,9 +89,9 @@ Responses that previously hard-failed with "Response too large" at 20MB are now 
 
 | Profile | Tool Count | Use Case |
 |---------|-----------|----------|
-| `math` | ~25 | Pure computation, no file/notebook ops |
-| `notebook` | ~44 | Math + notebook reading |
-| `full` | ~79 | Complete feature set |
+| `math` | 25 | Pure computation, no file/notebook ops |
+| `notebook` | 45 | Math + notebook reading + `create_notebook` |
+| `full` | 79 | Complete feature set |
 
 Fewer tools = smaller schema payload during MCP negotiation.
 

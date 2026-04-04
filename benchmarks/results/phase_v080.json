@@ -1,0 +1,180 @@
+{
+  "timestamp": "2026-04-04T18:36:45",
+  "python": "3.11.5",
+  "results": [
+    {
+      "name": "cold_import",
+      "iterations": 3,
+      "mean_ms": 461.576,
+      "median_ms": 514.731,
+      "min_ms": 346.005,
+      "max_ms": 523.992,
+      "stdev_ms": 100.194
+    },
+    {
+      "name": "symbol_index_build",
+      "symbol_count": 7800,
+      "kernel_version": "14.3",
+      "iterations": 1,
+      "mean_ms": 12269.894,
+      "median_ms": 12269.894,
+      "min_ms": 12269.894,
+      "max_ms": 12269.894,
+      "stdev_ms": 0
+    },
+    {
+      "name": "ensure_index_cold",
+      "symbol_count": 7800,
+      "iterations": 1,
+      "mean_ms": 11897.48,
+      "median_ms": 11897.48,
+      "min_ms": 11897.48,
+      "max_ms": 11897.48,
+      "stdev_ms": 0
+    },
+    {
+      "name": "ensure_index_warm",
+      "symbol_count": 7800,
+      "iterations": 3,
+      "mean_ms": 1.01,
+      "median_ms": 0.948,
+      "min_ms": 0.945,
+      "max_ms": 1.137,
+      "stdev_ms": 0.11
+    },
+    {
+      "name": "symbol_index_search_substep",
+      "note": "name-match substep only; full tool call adds Global search + usage hydration on first call",
+      "per_query_mean_ms": {
+        "Plot": 0.6413,
+        "Sin": 1.5114,
+        "Integrate": 0.6353,
+        "Table": 0.6407,
+        "NDSolve": 0.6058,
+        "Graphics": 0.5894,
+        "List": 0.6749,
+        "Map": 0.6389,
+        "Sort": 0.6642,
+        "Select": 0.6352
+      },
+      "iterations": 2000,
+      "mean_ms": 0.724,
+      "median_ms": 0.635,
+      "min_ms": 0.579,
+      "max_ms": 38.902,
+      "stdev_ms": 1.098
+    },
+    {
+      "name": "symbol_subprocess_old",
+      "note": "old path: full Names scan subprocess per call",
+      "per_query_mean_ms": {
+        "Plot": 12378.9,
+        "Sin": 11976.3
+      },
+      "iterations": 4,
+      "mean_ms": 12177.617,
+      "median_ms": 12044.935,
+      "min_ms": 11960.005,
+      "max_ms": 12660.594,
+      "stdev_ms": 327.26
+    },
+    {
+      "name": "lookup_end_to_end",
+      "note": "end-to-end _lookup_symbols_in_kernel; cold=subprocess fallback, hot=index search",
+      "before_cold": {
+        "iterations": 2,
+        "mean_ms": 13859.758,
+        "median_ms": 13859.758,
+        "min_ms": 12414.891,
+        "max_ms": 15304.625,
+        "stdev_ms": 2043.351
+      },
+      "after_hot": {
+        "iterations": 20,
+        "mean_ms": 0.698,
+        "median_ms": 0.681,
+        "min_ms": 0.658,
+        "max_ms": 0.849,
+        "stdev_ms": 0.049
+      }
+    },
+    {
+      "name": "raster_cache_layer",
+      "note": "cache lookup microbenchmark only; real savings are avoided subprocess rasterization calls",
+      "miss": {
+        "iterations": 10000,
+        "mean_ms": 0.001,
+        "median_ms": 0.001,
+        "min_ms": 0.001,
+        "max_ms": 0.042,
+        "stdev_ms": 0.001
+      },
+      "hit": {
+        "iterations": 10000,
+        "mean_ms": 0.005,
+        "median_ms": 0.005,
+        "min_ms": 0.004,
+        "max_ms": 0.052,
+        "stdev_ms": 0.001
+      }
+    },
+    {
+      "name": "notebook_python_parse",
+      "cell_count": 2,
+      "cold": {
+        "iterations": 1,
+        "mean_ms": 5.234,
+        "median_ms": 5.234,
+        "min_ms": 5.234,
+        "max_ms": 5.234,
+        "stdev_ms": 0
+      },
+      "warm": {
+        "iterations": 3,
+        "mean_ms": 0.576,
+        "median_ms": 0.557,
+        "min_ms": 0.538,
+        "max_ms": 0.633,
+        "stdev_ms": 0.05
+      }
+    },
+    {
+      "name": "cache_epoch",
+      "hit": {
+        "iterations": 50000,
+        "mean_ms": 0.002,
+        "median_ms": 0.001,
+        "min_ms": 0.001,
+        "max_ms": 0.074,
+        "stdev_ms": 0.001
+      },
+      "miss": {
+        "iterations": 50000,
+        "mean_ms": 0.001,
+        "median_ms": 0.001,
+        "min_ms": 0.001,
+        "max_ms": 0.036,
+        "stdev_ms": 0.0
+      }
+    },
+    {
+      "name": "telemetry_overhead",
+      "disabled": {
+        "iterations": 5000,
+        "mean_ms": 0.138,
+        "median_ms": 0.13,
+        "min_ms": 0.115,
+        "max_ms": 1.178,
+        "stdev_ms": 0.033
+      },
+      "enabled": {
+        "iterations": 5000,
+        "mean_ms": 0.139,
+        "median_ms": 0.131,
+        "min_ms": 0.114,
+        "max_ms": 0.773,
+        "stdev_ms": 0.025
+      }
+    }
+  ]
+}
