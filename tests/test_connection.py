@@ -490,9 +490,7 @@ class TestOversizedResponseHandling:
 
     def test_oversized_request_does_not_close_socket(self):
         """ValueError from request-too-large (pre-I/O) must NOT close the socket."""
-        response_json = (
-            json.dumps({"status": "ok", "result": {"ok": True}}).encode() + b"\n"
-        )
+        response_json = json.dumps({"status": "ok", "result": {"ok": True}}).encode() + b"\n"
         mock_sock = _MockRecvSocket([response_json])
 
         conn = MathematicaConnection()

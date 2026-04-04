@@ -58,7 +58,7 @@ def test_update_toml_config_rewrites_stale_mathematica_section(tmp_path: Path):
     updated = config_path.read_text()
     assert 'command = "uvx"' not in updated
     assert 'args = ["mathematica-mcp"]' not in updated
-    assert '[mcp_servers.mathematica]' in updated
+    assert "[mcp_servers.mathematica]" in updated
     assert 'args = ["--directory",' in updated
     assert updated.count("[mcp_servers.mathematica]") == 1
     assert "[features]" in updated
@@ -72,7 +72,7 @@ def test_update_toml_config_appends_when_section_missing(tmp_path: Path):
 
     assert ok is True
     updated = config_path.read_text()
-    assert '[mcp_servers.mathematica]' in updated
+    assert "[mcp_servers.mathematica]" in updated
     assert 'command = "uvx"' in updated
     assert 'args = ["mathematica-mcp-full"]' in updated
     assert 'env = { MATHEMATICA_PROFILE = "notebook" }' in updated

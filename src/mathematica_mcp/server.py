@@ -626,9 +626,7 @@ async def execute_code(
 ) -> str:
     """Execute Wolfram Language code."""
     try:
-        output_target, mode = _resolve_execution_params(
-            style, output_target, mode, FEATURES.default_output_target
-        )
+        output_target, mode = _resolve_execution_params(style, output_target, mode, FEATURES.default_output_target)
     except ValueError as e:
         return _json_response({"success": False, "error": str(e)})
 
@@ -2204,11 +2202,7 @@ def calculate(expression: str) -> str:
 @mcp.prompt()
 def notebook(task: str) -> str:
     """Execute in the current Mathematica notebook. Use for plots, visualizations, or notebook artifacts."""
-    return (
-        f"Execute the following in the current Mathematica notebook "
-        f"(use style='notebook'):\n\n"
-        f"{task}"
-    )
+    return f"Execute the following in the current Mathematica notebook (use style='notebook'):\n\n{task}"
 
 
 @mcp.prompt()

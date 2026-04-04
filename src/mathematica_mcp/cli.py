@@ -415,9 +415,7 @@ def update_toml_config(
 
     # Generate new TOML section
     new_section = generate_toml_config(server_name, use_uvx, profile)
-    section_pattern = re.compile(
-        rf"(?ms)^\[mcp_servers\.{re.escape(server_name)}\]\n.*?(?=^\[|\Z)"
-    )
+    section_pattern = re.compile(rf"(?ms)^\[mcp_servers\.{re.escape(server_name)}\]\n.*?(?=^\[|\Z)")
 
     if section_pattern.search(existing_content):
         updated_content = section_pattern.sub(new_section.rstrip() + "\n\n", existing_content, count=1)
