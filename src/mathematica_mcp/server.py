@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import difflib
 import json
 import logging
@@ -148,10 +149,8 @@ async def _image_from_result(result: dict) -> Image:
         if not _is_valid_png(image_path):
             # Clean up invalid file and raise so caller gets a clear error.
             if os.path.exists(image_path):
-                try:
+                with contextlib.suppress(OSError):
                     os.remove(image_path)
-                except OSError:
-                    pass
             raise ValueError(f"Invalid or corrupt PNG at {image_path}")
         with open(image_path, "rb") as f:
             image_bytes = f.read()
@@ -194,10 +193,8 @@ def _attach_image_if_valid(result: dict) -> None:
         # bad file from disk (if it exists) and strip metadata so
         # clients don't receive a broken path.
         if os.path.exists(image_path):
-            try:
+            with contextlib.suppress(OSError):
                 os.remove(image_path)
-            except OSError:
-                pass
         result.pop("image_path", None)
         result.pop("is_graphics", None)
         result.pop("rendered_image", None)
