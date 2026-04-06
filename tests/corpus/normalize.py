@@ -84,11 +84,7 @@ def _normalize_parsed(parsed: Any, raw: str | None = None) -> NormalizedResult:
             ok=parsed.get("success", True),
             parsed=parsed,
             raw=effective_raw,
-            output_text=(
-                parsed.get("output_inputform")
-                or parsed.get("output")
-                or parsed.get("result")
-            ),
+            output_text=(parsed.get("output_inputform") or parsed.get("output") or parsed.get("result")),
             warnings=_normalize_warnings(parsed),
             error_text=parsed.get("error"),
             parse_error=is_parse_error,

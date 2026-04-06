@@ -14,9 +14,7 @@ from corpus.verifiers import verify, verify_workflow_context
 
 class TestFieldEquals:
     def test_match(self):
-        result = NormalizedResult(
-            ok=True, parsed={"status": "ok", "count": 5}
-        )
+        result = NormalizedResult(ok=True, parsed={"status": "ok", "count": 5})
         oracle = Oracle(type="field_equals", path="parsed.count", value=5)
         passed, _ = verify(oracle, result)
         assert passed
@@ -28,37 +26,27 @@ class TestFieldEquals:
         assert not passed
 
     def test_nested_path(self):
-        result = NormalizedResult(
-            ok=True, parsed={"data": {"id": "abc123"}}
-        )
-        oracle = Oracle(
-            type="field_equals", path="parsed.data.id", value="abc123"
-        )
+        result = NormalizedResult(ok=True, parsed={"data": {"id": "abc123"}})
+        oracle = Oracle(type="field_equals", path="parsed.data.id", value="abc123")
         passed, _ = verify(oracle, result)
         assert passed
 
     def test_missing_path(self):
         result = NormalizedResult(ok=True, parsed={"x": 1})
-        oracle = Oracle(
-            type="field_equals", path="parsed.nonexistent", value=1
-        )
+        oracle = Oracle(type="field_equals", path="parsed.nonexistent", value=1)
         passed, _ = verify(oracle, result)
         assert not passed
 
     def test_bool_value(self):
         result = NormalizedResult(ok=True, parsed={"created": True})
-        oracle = Oracle(
-            type="field_equals", path="parsed.created", value=True
-        )
+        oracle = Oracle(type="field_equals", path="parsed.created", value=True)
         passed, _ = verify(oracle, result)
         assert passed
 
 
 class TestFieldContains:
     def test_substring_present(self):
-        result = NormalizedResult(
-            ok=True, parsed={"description": "This is a test function"}
-        )
+        result = NormalizedResult(ok=True, parsed={"description": "This is a test function"})
         oracle = Oracle(
             type="field_contains",
             path="parsed.description",
@@ -68,12 +56,8 @@ class TestFieldContains:
         assert passed
 
     def test_substring_missing(self):
-        result = NormalizedResult(
-            ok=True, parsed={"description": "hello"}
-        )
-        oracle = Oracle(
-            type="field_contains", path="parsed.description", value="xyz"
-        )
+        result = NormalizedResult(ok=True, parsed={"description": "hello"})
+        oracle = Oracle(type="field_contains", path="parsed.description", value="xyz")
         passed, _ = verify(oracle, result)
         assert not passed
 
@@ -101,33 +85,25 @@ class TestExactText:
 class TestNumericTol:
     def test_within_tolerance(self):
         result = NormalizedResult(ok=True, output_text="0.746824")
-        oracle = Oracle(
-            type="numeric_tol", value=0.746824133, tolerance=1e-4
-        )
+        oracle = Oracle(type="numeric_tol", value=0.746824133, tolerance=1e-4)
         passed, _ = verify(oracle, result)
         assert passed
 
     def test_outside_tolerance(self):
         result = NormalizedResult(ok=True, output_text="0.5")
-        oracle = Oracle(
-            type="numeric_tol", value=0.746824133, tolerance=1e-4
-        )
+        oracle = Oracle(type="numeric_tol", value=0.746824133, tolerance=1e-4)
         passed, _ = verify(oracle, result)
         assert not passed
 
     def test_scientific_notation(self):
         result = NormalizedResult(ok=True, output_text="1.602e-19")
-        oracle = Oracle(
-            type="numeric_tol", value=1.602e-19, tolerance=1e-22
-        )
+        oracle = Oracle(type="numeric_tol", value=1.602e-19, tolerance=1e-22)
         passed, _ = verify(oracle, result)
         assert passed
 
     def test_mathematica_scientific(self):
         result = NormalizedResult(ok=True, output_text="1.602*^-19")
-        oracle = Oracle(
-            type="numeric_tol", value=1.602e-19, tolerance=1e-22
-        )
+        oracle = Oracle(type="numeric_tol", value=1.602e-19, tolerance=1e-22)
         passed, _ = verify(oracle, result)
         assert passed
 
@@ -172,9 +148,7 @@ class TestStructuralFields:
         assert not passed
 
     def test_custom_check_equals(self):
-        result = NormalizedResult(
-            ok=True, parsed={"cell_count": 5}
-        )
+        result = NormalizedResult(ok=True, parsed={"cell_count": 5})
         oracle = Oracle(
             type="structural_fields",
             checks=["parsed.cell_count == 5"],
@@ -196,9 +170,7 @@ class TestArtifactExists:
     def test_with_file_artifact(self, tmp_path):
         f = tmp_path / "test.png"
         f.write_bytes(b"\x89PNG" + b"\x00" * 10)
-        result = NormalizedResult(
-            ok=True, artifacts=[Artifact(kind="file", path=str(f))]
-        )
+        result = NormalizedResult(ok=True, artifacts=[Artifact(kind="file", path=str(f))])
         oracle = Oracle(type="artifact_exists")
         passed, _ = verify(oracle, result)
         assert passed
@@ -219,9 +191,7 @@ class TestArtifactExists:
         assert not passed
 
     def test_empty_image_data(self):
-        result = NormalizedResult(
-            ok=True, artifacts=[Artifact(kind="image", data=b"")]
-        )
+        result = NormalizedResult(ok=True, artifacts=[Artifact(kind="image", data=b"")])
         oracle = Oracle(type="artifact_exists")
         passed, _ = verify(oracle, result)
         assert not passed
@@ -252,20 +222,14 @@ class TestWarningTag:
 
 class TestRawContains:
     def test_all_present(self):
-        result = NormalizedResult(
-            ok=True, raw='{"output": "x -> 2, x -> 3"}'
-        )
-        oracle = Oracle(
-            type="raw_contains", contains=["x -> 2", "x -> 3"]
-        )
+        result = NormalizedResult(ok=True, raw='{"output": "x -> 2, x -> 3"}')
+        oracle = Oracle(type="raw_contains", contains=["x -> 2", "x -> 3"])
         passed, _ = verify(oracle, result)
         assert passed
 
     def test_partial_missing(self):
         result = NormalizedResult(ok=True, raw='{"output": "x -> 2"}')
-        oracle = Oracle(
-            type="raw_contains", contains=["x -> 2", "x -> 3"]
-        )
+        oracle = Oracle(type="raw_contains", contains=["x -> 2", "x -> 3"])
         passed, _ = verify(oracle, result)
         assert not passed
 
@@ -284,9 +248,7 @@ class TestWorkflowAssert:
         assert passed
 
     def test_failed_result(self):
-        result = NormalizedResult(
-            ok=False, error_text="step 3 failed"
-        )
+        result = NormalizedResult(ok=False, error_text="step 3 failed")
         oracle = Oracle(type="workflow_assert")
         passed, _ = verify(oracle, result)
         assert not passed
@@ -296,9 +258,7 @@ class TestWorkflowAssert:
 class TestSymbolicEquiv:
     def test_trig_identity(self):
         result = NormalizedResult(ok=True, output_text="1")
-        oracle = Oracle(
-            type="symbolic_equiv", value="Sin[x]^2 + Cos[x]^2"
-        )
+        oracle = Oracle(type="symbolic_equiv", value="Sin[x]^2 + Cos[x]^2")
         passed, _ = verify(oracle, result)
         assert passed
 

@@ -153,9 +153,7 @@ def _format_failure(item: dict, result: NormalizedResult, explanation: str) -> s
 
 @dataclass
 class WorkflowContext:
-    step_results: list[tuple[str, NormalizedResult, bool]] = field(
-        default_factory=list
-    )
+    step_results: list[tuple[str, NormalizedResult, bool]] = field(default_factory=list)
     state: dict = field(default_factory=dict)
     cleanup_errors: list[str] = field(default_factory=list)
     final_result: NormalizedResult | None = None
@@ -206,9 +204,7 @@ def test_corpus_case(case: dict, corpus_capabilities: dict, tmp_path: Path) -> N
     "wf",
     [pytest.param(w, id=w["id"], marks=_marks_for(w)) for w in WORKFLOWS],
 )
-def test_corpus_workflow(
-    wf: dict, corpus_capabilities: dict, tmp_path: Path
-) -> None:
+def test_corpus_workflow(wf: dict, corpus_capabilities: dict, tmp_path: Path) -> None:
     _skip_if_missing(wf, corpus_capabilities)
 
     state: dict[str, Any] = {}
@@ -230,9 +226,7 @@ def test_corpus_workflow(
             poll = step.get("poll")
             poll_satisfied = poll is None  # no poll = always satisfied
             for attempt in range(step.get("max_attempts", 1)):
-                raw = adapter(
-                    step["tool"], params, timeout=step.get("timeout_s", 30)
-                )
+                raw = adapter(step["tool"], params, timeout=step.get("timeout_s", 30))
                 result = normalize(raw, tool_name=step["tool"])
 
                 if poll and _check_poll_condition(result, poll):
@@ -259,10 +253,7 @@ def test_corpus_workflow(
                 passed, msg = verify(oracle, result)
                 step_results.append((step["tool"], result, passed))
                 if not passed:
-                    pytest.fail(
-                        f"Workflow {wf['id']} failed at step "
-                        f"{step['tool']}: {msg}"
-                    )
+                    pytest.fail(f"Workflow {wf['id']} failed at step {step['tool']}: {msg}")
             else:
                 step_results.append((step["tool"], result, True))
 
@@ -281,9 +272,7 @@ def test_corpus_workflow(
     assert result is not None, f"Workflow {wf['id']} produced no result"
     final_oracle = Oracle(**wf["final_oracle"])
 
-    passed, explanation = verify_workflow_context(
-        final_oracle, step_results, state, cleanup_errors, result
-    )
+    passed, explanation = verify_workflow_context(final_oracle, step_results, state, cleanup_errors, result)
     if not passed:
         detail = (
             f"  Steps: {len(step_results)} executed\n"

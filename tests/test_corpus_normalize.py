@@ -14,9 +14,7 @@ from corpus.normalize import Artifact, NormalizedResult, normalize
 
 class TestNormalizeJSONString:
     def test_success_response(self):
-        raw = json.dumps(
-            {"success": True, "output_inputform": "42", "warnings": []}
-        )
+        raw = json.dumps({"success": True, "output_inputform": "42", "warnings": []})
         r = normalize(raw)
         assert r.ok is True
         assert r.output_text == "42"
@@ -24,17 +22,13 @@ class TestNormalizeJSONString:
         assert r.parse_error is False
 
     def test_failed_response(self):
-        raw = json.dumps(
-            {"success": False, "error": "Syntax error", "warnings": []}
-        )
+        raw = json.dumps({"success": False, "error": "Syntax error", "warnings": []})
         r = normalize(raw)
         assert r.ok is False
         assert r.error_text == "Syntax error"
 
     def test_parse_error_with_raw(self):
-        raw = json.dumps(
-            {"success": True, "parse_error": True, "raw": "some raw content"}
-        )
+        raw = json.dumps({"success": True, "parse_error": True, "raw": "some raw content"})
         r = normalize(raw)
         assert r.parse_error is True
         assert r.parsed is not None
@@ -45,9 +39,7 @@ class TestNormalizeJSONString:
         """raw_contains should inspect the inner Wolfram raw output,
         not the JSON envelope."""
         inner_raw = "kernel_version -> 14.0, memory -> 12345"
-        raw = json.dumps(
-            {"success": True, "parse_error": True, "raw": inner_raw}
-        )
+        raw = json.dumps({"success": True, "parse_error": True, "raw": inner_raw})
         r = normalize(raw)
         assert r.raw == inner_raw
         assert "kernel_version" in r.raw
@@ -159,9 +151,7 @@ class TestWarningNormalization:
             {
                 "success": True,
                 "warnings": ["Power::infy: inf"],
-                "messages": [
-                    {"type": "error", "tag": "Set::setraw", "text": "assign"}
-                ],
+                "messages": [{"type": "error", "tag": "Set::setraw", "text": "assign"}],
             }
         )
         r = normalize(raw)
@@ -193,17 +183,13 @@ class TestArtifactExtraction:
         assert r.artifacts[0].path == "/tmp/plot.png"
 
     def test_rendered_image_extracted(self):
-        raw = json.dumps(
-            {"success": True, "rendered_image": "/tmp/rendered.png"}
-        )
+        raw = json.dumps({"success": True, "rendered_image": "/tmp/rendered.png"})
         r = normalize(raw)
         assert len(r.artifacts) == 1
 
     def test_path_field_extracted(self):
         """Notebook/export tools return artifacts under 'path'."""
-        raw = json.dumps(
-            {"success": True, "path": "/tmp/saved_notebook.nb"}
-        )
+        raw = json.dumps({"success": True, "path": "/tmp/saved_notebook.nb"})
         r = normalize(raw)
         assert len(r.artifacts) == 1
         assert r.artifacts[0].path == "/tmp/saved_notebook.nb"
@@ -214,9 +200,7 @@ class TestArtifactExtraction:
         assert len(r.artifacts) == 0
 
     def test_file_path_extracted(self):
-        raw = json.dumps(
-            {"success": True, "file_path": "/tmp/export.csv"}
-        )
+        raw = json.dumps({"success": True, "file_path": "/tmp/export.csv"})
         r = normalize(raw)
         assert len(r.artifacts) == 1
         assert r.artifacts[0].path == "/tmp/export.csv"

@@ -104,9 +104,7 @@ def _verify_numeric_tol(oracle: Oracle, result: NormalizedResult) -> tuple[bool,
         try:
             from mathematica_mcp.session import execute_in_kernel
 
-            mag = execute_in_kernel(
-                f"QuantityMagnitude[{actual_text}]", timeout=5
-            )
+            mag = execute_in_kernel(f"QuantityMagnitude[{actual_text}]", timeout=5)
             actual_text = mag.get("output_inputform", actual_text)
         except Exception:
             pass
@@ -129,9 +127,7 @@ def _verify_boolean(oracle: Oracle, result: NormalizedResult) -> tuple[bool, str
     return passed, f"boolean: actual={actual!r}, expected={expected!r}"
 
 
-def _verify_structural_fields(
-    oracle: Oracle, result: NormalizedResult
-) -> tuple[bool, str]:
+def _verify_structural_fields(oracle: Oracle, result: NormalizedResult) -> tuple[bool, str]:
     if not oracle.checks:
         # Default: just check ok=True and output_text is non-empty
         passed = result.ok and bool(result.output_text)
@@ -158,9 +154,7 @@ def _verify_structural_fields(
     return True, "all structural checks passed"
 
 
-def _verify_artifact_exists(
-    oracle: Oracle, result: NormalizedResult
-) -> tuple[bool, str]:
+def _verify_artifact_exists(oracle: Oracle, result: NormalizedResult) -> tuple[bool, str]:
     if not result.artifacts:
         return False, "No artifacts in result"
     for art in result.artifacts:
@@ -185,9 +179,7 @@ def _verify_warning_tag(oracle: Oracle, result: NormalizedResult) -> tuple[bool,
     return False, f"{needle!r} not found in warnings: {result.warnings}"
 
 
-def _verify_raw_contains(
-    oracle: Oracle, result: NormalizedResult
-) -> tuple[bool, str]:
+def _verify_raw_contains(oracle: Oracle, result: NormalizedResult) -> tuple[bool, str]:
     raw = result.raw or ""
     if not oracle.contains:
         return False, "No 'contains' list in oracle"
@@ -197,9 +189,7 @@ def _verify_raw_contains(
     return True, f"All {len(oracle.contains)} substrings found"
 
 
-def _verify_workflow_assert(
-    oracle: Oracle, result: NormalizedResult
-) -> tuple[bool, str]:
+def _verify_workflow_assert(oracle: Oracle, result: NormalizedResult) -> tuple[bool, str]:
     # This is the fallback for NormalizedResult-only calls.
     # The full workflow_assert path goes through verify_workflow_context().
     if result.ok:
