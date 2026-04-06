@@ -8,9 +8,17 @@
     "min_profile": "math",
     "backend": "server_tool",
     "tool": "execute_code",
-    "params": {"code": "2 + 3"},
-    "oracle": {"type": "exact_text", "value": "5"},
-    "required_capabilities": ["wolfram_runtime"]
+    "params": {
+      "code": "2 + 3",
+      "output_target": "cli"
+    },
+    "oracle": {
+      "type": "exact_text",
+      "value": "5"
+    },
+    "required_capabilities": [
+      "wolfram_runtime"
+    ]
   },
   {
     "id": "SMOKE-ARITH-02",
@@ -21,9 +29,17 @@
     "min_profile": "math",
     "backend": "server_tool",
     "tool": "execute_code",
-    "params": {"code": "2^100"},
-    "oracle": {"type": "exact_text", "value": "1267650600228229401496703205376"},
-    "required_capabilities": ["wolfram_runtime"]
+    "params": {
+      "code": "2^100",
+      "output_target": "cli"
+    },
+    "oracle": {
+      "type": "exact_text",
+      "value": "1267650600228229401496703205376"
+    },
+    "required_capabilities": [
+      "wolfram_runtime"
+    ]
   },
   {
     "id": "SMOKE-ARITH-03",
@@ -34,9 +50,17 @@
     "min_profile": "math",
     "backend": "server_tool",
     "tool": "execute_code",
-    "params": {"code": "1/3 + 1/7"},
-    "oracle": {"type": "exact_text", "value": "10/21"},
-    "required_capabilities": ["wolfram_runtime"]
+    "params": {
+      "code": "1/3 + 1/7",
+      "output_target": "cli"
+    },
+    "oracle": {
+      "type": "exact_text",
+      "value": "10/21"
+    },
+    "required_capabilities": [
+      "wolfram_runtime"
+    ]
   },
   {
     "id": "SMOKE-ARITH-04",
@@ -47,9 +71,17 @@
     "min_profile": "math",
     "backend": "server_tool",
     "tool": "execute_code",
-    "params": {"code": "Sqrt[-1]"},
-    "oracle": {"type": "exact_text", "value": "I"},
-    "required_capabilities": ["wolfram_runtime"]
+    "params": {
+      "code": "Sqrt[-1]",
+      "output_target": "cli"
+    },
+    "oracle": {
+      "type": "exact_text",
+      "value": "I"
+    },
+    "required_capabilities": [
+      "wolfram_runtime"
+    ]
   },
   {
     "id": "SMOKE-ALG-01",
@@ -60,9 +92,17 @@
     "min_profile": "math",
     "backend": "server_tool",
     "tool": "execute_code",
-    "params": {"code": "Expand[(x + 1)^3]"},
-    "oracle": {"type": "symbolic_equiv", "value": "1 + 3*x + 3*x^2 + x^3"},
-    "required_capabilities": ["wolfram_runtime"]
+    "params": {
+      "code": "Expand[(x + 1)^3]",
+      "output_target": "cli"
+    },
+    "oracle": {
+      "type": "symbolic_equiv",
+      "value": "1 + 3*x + 3*x^2 + x^3"
+    },
+    "required_capabilities": [
+      "wolfram_runtime"
+    ]
   },
   {
     "id": "SMOKE-ALG-02",
@@ -73,9 +113,20 @@
     "min_profile": "math",
     "backend": "server_tool",
     "tool": "execute_code",
-    "params": {"code": "Factor[x^2 - 5*x + 6]"},
-    "oracle": {"type": "raw_contains", "contains": ["x - 2", "x - 3"]},
-    "required_capabilities": ["wolfram_runtime"]
+    "params": {
+      "code": "Factor[x^2 - 5*x + 6]",
+      "output_target": "cli"
+    },
+    "oracle": {
+      "type": "raw_contains",
+      "contains": [
+        "-3 + x",
+        "-2 + x"
+      ]
+    },
+    "required_capabilities": [
+      "wolfram_runtime"
+    ]
   },
   {
     "id": "SMOKE-ALG-03",
@@ -86,9 +137,17 @@
     "min_profile": "math",
     "backend": "server_tool",
     "tool": "execute_code",
-    "params": {"code": "FullSimplify[Sin[x]^2 + Cos[x]^2]"},
-    "oracle": {"type": "exact_text", "value": "1"},
-    "required_capabilities": ["wolfram_runtime"]
+    "params": {
+      "code": "FullSimplify[Sin[x]^2 + Cos[x]^2]",
+      "output_target": "cli"
+    },
+    "oracle": {
+      "type": "exact_text",
+      "value": "1"
+    },
+    "required_capabilities": [
+      "wolfram_runtime"
+    ]
   },
   {
     "id": "SMOKE-CALC-01",
@@ -99,9 +158,17 @@
     "min_profile": "math",
     "backend": "server_tool",
     "tool": "execute_code",
-    "params": {"code": "D[x^3 + 2*x, x]"},
-    "oracle": {"type": "symbolic_equiv", "value": "2 + 3*x^2"},
-    "required_capabilities": ["wolfram_runtime"]
+    "params": {
+      "code": "D[x^3 + 2*x, x]",
+      "output_target": "cli"
+    },
+    "oracle": {
+      "type": "symbolic_equiv",
+      "value": "2 + 3*x^2"
+    },
+    "required_capabilities": [
+      "wolfram_runtime"
+    ]
   },
   {
     "id": "SMOKE-CALC-02",
@@ -112,9 +179,17 @@
     "min_profile": "math",
     "backend": "server_tool",
     "tool": "execute_code",
-    "params": {"code": "Integrate[x^2, {x, 0, 1}]"},
-    "oracle": {"type": "exact_text", "value": "1/3"},
-    "required_capabilities": ["wolfram_runtime"]
+    "params": {
+      "code": "Integrate[x^2, {x, 0, 1}]",
+      "output_target": "cli"
+    },
+    "oracle": {
+      "type": "exact_text",
+      "value": "1/3"
+    },
+    "required_capabilities": [
+      "wolfram_runtime"
+    ]
   },
   {
     "id": "SMOKE-CALC-03",
@@ -125,9 +200,17 @@
     "min_profile": "math",
     "backend": "server_tool",
     "tool": "execute_code",
-    "params": {"code": "Limit[Sin[x]/x, x -> 0]"},
-    "oracle": {"type": "exact_text", "value": "1"},
-    "required_capabilities": ["wolfram_runtime"]
+    "params": {
+      "code": "Limit[Sin[x]/x, x -> 0]",
+      "output_target": "cli"
+    },
+    "oracle": {
+      "type": "exact_text",
+      "value": "1"
+    },
+    "required_capabilities": [
+      "wolfram_runtime"
+    ]
   },
   {
     "id": "SMOKE-SOLVE-01",
@@ -138,9 +221,20 @@
     "min_profile": "math",
     "backend": "server_tool",
     "tool": "execute_code",
-    "params": {"code": "Solve[x^2 - 5*x + 6 == 0, x]"},
-    "oracle": {"type": "raw_contains", "contains": ["x -> 2", "x -> 3"]},
-    "required_capabilities": ["wolfram_runtime"]
+    "params": {
+      "code": "Solve[x^2 - 5*x + 6 == 0, x]",
+      "output_target": "cli"
+    },
+    "oracle": {
+      "type": "raw_contains",
+      "contains": [
+        "x -> 2",
+        "x -> 3"
+      ]
+    },
+    "required_capabilities": [
+      "wolfram_runtime"
+    ]
   },
   {
     "id": "SMOKE-LA-01",
@@ -151,9 +245,17 @@
     "min_profile": "math",
     "backend": "server_tool",
     "tool": "execute_code",
-    "params": {"code": "Det[{{1, 2}, {3, 4}}]"},
-    "oracle": {"type": "exact_text", "value": "-2"},
-    "required_capabilities": ["wolfram_runtime"]
+    "params": {
+      "code": "Det[{{1, 2}, {3, 4}}]",
+      "output_target": "cli"
+    },
+    "oracle": {
+      "type": "exact_text",
+      "value": "-2"
+    },
+    "required_capabilities": [
+      "wolfram_runtime"
+    ]
   },
   {
     "id": "SMOKE-LA-02",
@@ -164,9 +266,17 @@
     "min_profile": "math",
     "backend": "server_tool",
     "tool": "execute_code",
-    "params": {"code": "Sort[Eigenvalues[{{2, 1}, {1, 2}}]]"},
-    "oracle": {"type": "exact_text", "value": "{1, 3}"},
-    "required_capabilities": ["wolfram_runtime"]
+    "params": {
+      "code": "Sort[Eigenvalues[{{2, 1}, {1, 2}}]]",
+      "output_target": "cli"
+    },
+    "oracle": {
+      "type": "exact_text",
+      "value": "{1, 3}"
+    },
+    "required_capabilities": [
+      "wolfram_runtime"
+    ]
   },
   {
     "id": "SMOKE-STAT-01",
@@ -177,9 +287,17 @@
     "min_profile": "math",
     "backend": "server_tool",
     "tool": "execute_code",
-    "params": {"code": "Mean[{1, 2, 3, 4, 5}]"},
-    "oracle": {"type": "exact_text", "value": "3"},
-    "required_capabilities": ["wolfram_runtime"]
+    "params": {
+      "code": "Mean[{1, 2, 3, 4, 5}]",
+      "output_target": "cli"
+    },
+    "oracle": {
+      "type": "exact_text",
+      "value": "3"
+    },
+    "required_capabilities": [
+      "wolfram_runtime"
+    ]
   },
   {
     "id": "SMOKE-LIST-01",
@@ -190,9 +308,17 @@
     "min_profile": "math",
     "backend": "server_tool",
     "tool": "execute_code",
-    "params": {"code": "Table[i^2, {i, 1, 5}]"},
-    "oracle": {"type": "exact_text", "value": "{1, 4, 9, 16, 25}"},
-    "required_capabilities": ["wolfram_runtime"]
+    "params": {
+      "code": "Table[i^2, {i, 1, 5}]",
+      "output_target": "cli"
+    },
+    "oracle": {
+      "type": "exact_text",
+      "value": "{1, 4, 9, 16, 25}"
+    },
+    "required_capabilities": [
+      "wolfram_runtime"
+    ]
   },
   {
     "id": "SMOKE-LIST-02",
@@ -203,9 +329,17 @@
     "min_profile": "math",
     "backend": "server_tool",
     "tool": "execute_code",
-    "params": {"code": "Map[# + 1 &, {1, 2, 3}]"},
-    "oracle": {"type": "exact_text", "value": "{2, 3, 4}"},
-    "required_capabilities": ["wolfram_runtime"]
+    "params": {
+      "code": "Map[# + 1 &, {1, 2, 3}]",
+      "output_target": "cli"
+    },
+    "oracle": {
+      "type": "exact_text",
+      "value": "{2, 3, 4}"
+    },
+    "required_capabilities": [
+      "wolfram_runtime"
+    ]
   },
   {
     "id": "SMOKE-STR-01",
@@ -216,9 +350,17 @@
     "min_profile": "math",
     "backend": "server_tool",
     "tool": "execute_code",
-    "params": {"code": "StringJoin[\"Hello\", \" \", \"World\"]"},
-    "oracle": {"type": "exact_text", "value": "Hello World"},
-    "required_capabilities": ["wolfram_runtime"]
+    "params": {
+      "code": "StringJoin[\"Hello\", \" \", \"World\"]",
+      "output_target": "cli"
+    },
+    "oracle": {
+      "type": "exact_text",
+      "value": "\"Hello World\""
+    },
+    "required_capabilities": [
+      "wolfram_runtime"
+    ]
   },
   {
     "id": "SMOKE-BOOL-01",
@@ -229,9 +371,17 @@
     "min_profile": "math",
     "backend": "server_tool",
     "tool": "execute_code",
-    "params": {"code": "PrimeQ[104729]"},
-    "oracle": {"type": "boolean", "value": "True"},
-    "required_capabilities": ["wolfram_runtime"]
+    "params": {
+      "code": "PrimeQ[104729]",
+      "output_target": "cli"
+    },
+    "oracle": {
+      "type": "boolean",
+      "value": "True"
+    },
+    "required_capabilities": [
+      "wolfram_runtime"
+    ]
   },
   {
     "id": "SMOKE-NUM-01",
@@ -242,9 +392,18 @@
     "min_profile": "math",
     "backend": "server_tool",
     "tool": "execute_code",
-    "params": {"code": "NIntegrate[Exp[-x^2], {x, 0, 1}]"},
-    "oracle": {"type": "numeric_tol", "value": 0.746824133, "tolerance": 1e-5},
-    "required_capabilities": ["wolfram_runtime"]
+    "params": {
+      "code": "NIntegrate[Exp[-x^2], {x, 0, 1}]",
+      "output_target": "cli"
+    },
+    "oracle": {
+      "type": "numeric_tol",
+      "value": 0.746824133,
+      "tolerance": 1e-05
+    },
+    "required_capabilities": [
+      "wolfram_runtime"
+    ]
   },
   {
     "id": "SMOKE-NUM-02",
@@ -255,9 +414,18 @@
     "min_profile": "math",
     "backend": "server_tool",
     "tool": "execute_code",
-    "params": {"code": "x /. FindRoot[Cos[x] == x, {x, 0.5}]"},
-    "oracle": {"type": "numeric_tol", "value": 0.739085133, "tolerance": 1e-5},
-    "required_capabilities": ["wolfram_runtime"]
+    "params": {
+      "code": "x /. FindRoot[Cos[x] == x, {x, 0.5}]",
+      "output_target": "cli"
+    },
+    "oracle": {
+      "type": "numeric_tol",
+      "value": 0.739085133,
+      "tolerance": 1e-05
+    },
+    "required_capabilities": [
+      "wolfram_runtime"
+    ]
   },
   {
     "id": "SMOKE-SYS-01",
@@ -268,9 +436,17 @@
     "min_profile": "math",
     "backend": "server_tool",
     "tool": "check_syntax",
-    "params": {"code": "Plot[Sin[x], {x, 0, 2 Pi}]"},
-    "oracle": {"type": "field_equals", "path": "parsed.valid", "value": true},
-    "required_capabilities": ["wolfram_runtime"]
+    "params": {
+      "code": "Plot[Sin[x], {x, 0, 2 Pi}]"
+    },
+    "oracle": {
+      "type": "field_equals",
+      "path": "parsed.valid",
+      "value": true
+    },
+    "required_capabilities": [
+      "wolfram_runtime"
+    ]
   },
   {
     "id": "SMOKE-SYS-02",
@@ -281,9 +457,17 @@
     "min_profile": "math",
     "backend": "server_tool",
     "tool": "check_syntax",
-    "params": {"code": "Plot[Sin[x], {x, 0, 2 Pi"},
-    "oracle": {"type": "field_equals", "path": "parsed.valid", "value": false},
-    "required_capabilities": ["wolfram_runtime"]
+    "params": {
+      "code": "Plot[Sin[x], {x, 0, 2 Pi"
+    },
+    "oracle": {
+      "type": "field_equals",
+      "path": "parsed.valid",
+      "value": false
+    },
+    "required_capabilities": [
+      "wolfram_runtime"
+    ]
   },
   {
     "id": "SMOKE-SYS-03",
@@ -295,7 +479,11 @@
     "backend": "server_tool",
     "tool": "get_feature_status",
     "params": {},
-    "oracle": {"type": "field_equals", "path": "parsed.success", "value": true},
+    "oracle": {
+      "type": "field_equals",
+      "path": "parsed.success",
+      "value": true
+    },
     "required_capabilities": []
   },
   {
@@ -308,8 +496,15 @@
     "backend": "server_tool",
     "tool": "get_kernel_state",
     "params": {},
-    "oracle": {"type": "structural_fields", "checks": ["ok == True"]},
-    "required_capabilities": ["wolfram_runtime"]
+    "oracle": {
+      "type": "structural_fields",
+      "checks": [
+        "ok == True"
+      ]
+    },
+    "required_capabilities": [
+      "wolfram_runtime"
+    ]
   },
   {
     "id": "SMOKE-PAT-01",
@@ -320,9 +515,17 @@
     "min_profile": "math",
     "backend": "server_tool",
     "tool": "execute_code",
-    "params": {"code": "Cases[{1, \"a\", 2, \"b\", 3}, _Integer]"},
-    "oracle": {"type": "exact_text", "value": "{1, 2, 3}"},
-    "required_capabilities": ["wolfram_runtime"]
+    "params": {
+      "code": "Cases[{1, \"a\", 2, \"b\", 3}, _Integer]",
+      "output_target": "cli"
+    },
+    "oracle": {
+      "type": "exact_text",
+      "value": "{1, 2, 3}"
+    },
+    "required_capabilities": [
+      "wolfram_runtime"
+    ]
   },
   {
     "id": "SMOKE-ALIAS-01",
@@ -333,9 +536,17 @@
     "min_profile": "full",
     "backend": "alias_codegen",
     "tool": "mathematica_integrate",
-    "params": {"expression": "x^2", "variable": "x"},
-    "oracle": {"type": "symbolic_equiv", "value": "x^3/3"},
-    "required_capabilities": ["wolfram_runtime"]
+    "params": {
+      "expression": "x^2",
+      "variable": "x"
+    },
+    "oracle": {
+      "type": "symbolic_equiv",
+      "value": "x^3/3"
+    },
+    "required_capabilities": [
+      "wolfram_runtime"
+    ]
   },
   {
     "id": "SMOKE-ALIAS-02",
@@ -346,9 +557,20 @@
     "min_profile": "full",
     "backend": "alias_codegen",
     "tool": "mathematica_solve",
-    "params": {"equation": "x^2 == 4", "variable": "x"},
-    "oracle": {"type": "raw_contains", "contains": ["x -> -2", "x -> 2"]},
-    "required_capabilities": ["wolfram_runtime"]
+    "params": {
+      "equation": "x^2 == 4",
+      "variable": "x"
+    },
+    "oracle": {
+      "type": "raw_contains",
+      "contains": [
+        "x -> -2",
+        "x -> 2"
+      ]
+    },
+    "required_capabilities": [
+      "wolfram_runtime"
+    ]
   },
   {
     "id": "SMOKE-DE-01",
@@ -359,9 +581,21 @@
     "min_profile": "math",
     "backend": "server_tool",
     "tool": "execute_code",
-    "params": {"code": "DSolve[{y'[x] == -2*y[x], y[0] == 3}, y[x], x]"},
-    "oracle": {"type": "raw_contains", "contains": ["3", "E", "-2"]},
-    "required_capabilities": ["wolfram_runtime"]
+    "params": {
+      "code": "DSolve[{y'[x] == -2*y[x], y[0] == 3}, y[x], x]",
+      "output_target": "cli"
+    },
+    "oracle": {
+      "type": "raw_contains",
+      "contains": [
+        "3",
+        "E",
+        "2*x"
+      ]
+    },
+    "required_capabilities": [
+      "wolfram_runtime"
+    ]
   },
   {
     "id": "SMOKE-PLOT-01",
@@ -372,9 +606,17 @@
     "min_profile": "math",
     "backend": "server_tool",
     "tool": "execute_code",
-    "params": {"code": "Head[Plot[Sin[x], {x, 0, 2 Pi}]]"},
-    "oracle": {"type": "exact_text", "value": "Graphics"},
-    "required_capabilities": ["wolfram_runtime"]
+    "params": {
+      "code": "Head[Plot[Sin[x], {x, 0, 2 Pi}]]",
+      "output_target": "cli"
+    },
+    "oracle": {
+      "type": "exact_text",
+      "value": "Graphics"
+    },
+    "required_capabilities": [
+      "wolfram_runtime"
+    ]
   },
   {
     "id": "SMOKE-NB-OFFLINE-01",
@@ -385,8 +627,14 @@
     "min_profile": "full",
     "backend": "offline_notebook_file",
     "tool": "read_notebook_content",
-    "params": {"path": "Integration.nb"},
-    "oracle": {"type": "field_equals", "path": "parsed.success", "value": true},
+    "params": {
+      "path": "Integration.nb"
+    },
+    "oracle": {
+      "type": "field_equals",
+      "path": "parsed.success",
+      "value": true
+    },
     "required_capabilities": []
   },
   {
@@ -397,29 +645,56 @@
     "section": "Session",
     "min_profile": "math",
     "backend": "server_tool",
-    "required_capabilities": ["wolfram_runtime"],
+    "required_capabilities": [
+      "wolfram_runtime"
+    ],
     "steps": [
       {
         "tool": "set_variable",
-        "params": {"name": "corpus_test_var", "value": "42"},
-        "oracle": {"type": "structural_fields", "checks": ["ok == True"]}
+        "params": {
+          "name": "corpusTestVar",
+          "value": "42"
+        },
+        "oracle": {
+          "type": "field_equals",
+          "path": "parsed.success",
+          "value": true
+        }
       },
       {
         "tool": "get_variable",
-        "params": {"name": "corpus_test_var"},
-        "oracle": {"type": "raw_contains", "contains": ["42"]}
+        "params": {
+          "name": "corpusTestVar"
+        },
+        "oracle": {
+          "type": "raw_contains",
+          "contains": [
+            "42"
+          ]
+        }
       },
       {
         "tool": "list_variables",
         "params": {},
-        "oracle": {"type": "raw_contains", "contains": ["corpus_test_var"]}
+        "oracle": {
+          "type": "raw_contains",
+          "contains": [
+            "corpusTestVar"
+          ]
+        }
       }
     ],
-    "final_oracle": {"type": "workflow_assert"},
+    "final_oracle": {
+      "type": "workflow_assert"
+    },
     "cleanup": [
       {
         "tool": "clear_variables",
-        "params": {"names": ["corpus_test_var"]}
+        "params": {
+          "names": [
+            "corpusTestVar"
+          ]
+        }
       }
     ]
   }

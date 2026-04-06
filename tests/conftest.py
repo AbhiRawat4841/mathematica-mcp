@@ -32,7 +32,7 @@ def wolfram_runtime_available() -> bool:
     except Exception:
         return False
 
-    result = _execute_via_wolframscript("1+1", timeout=5)
+    result = _execute_via_wolframscript("1+1", timeout=30)
     return bool(result.get("success")) and result.get("output_inputform") == "2"
 
 
