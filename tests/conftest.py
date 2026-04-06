@@ -14,8 +14,9 @@ os.environ.setdefault("MATHEMATICA_ROUTING_MEMORY", "off")
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = REPO_ROOT / "src"
+TESTS_ROOT = REPO_ROOT / "tests"
 
-for path in (str(REPO_ROOT), str(SRC_ROOT)):
+for path in (str(REPO_ROOT), str(SRC_ROOT), str(TESTS_ROOT)):
     if path not in sys.path:
         sys.path.insert(0, path)
 
@@ -46,3 +47,18 @@ def pytest_configure(config: pytest.Config) -> None:
         "markers",
         "wolfram_runtime: requires a working wolframscript/Wolfram runtime",
     )
+    # Corpus markers
+    config.addinivalue_line("markers", "corpus: corpus-driven test case")
+    config.addinivalue_line("markers", "tier_smoke: smoke-tier corpus test")
+    config.addinivalue_line("markers", "tier_core: core-tier corpus test")
+    config.addinivalue_line("markers", "tier_extended: extended-tier corpus test")
+    config.addinivalue_line("markers", "tier_probe: probe-tier corpus test (non-blocking)")
+    config.addinivalue_line("markers", "profile_math: requires math profile")
+    config.addinivalue_line("markers", "profile_notebook: requires notebook profile")
+    config.addinivalue_line("markers", "profile_full: requires full profile")
+    config.addinivalue_line("markers", "needs_wolfram_runtime: requires wolfram runtime")
+    config.addinivalue_line("markers", "needs_live_addon: requires live addon connection")
+    config.addinivalue_line("markers", "needs_frontend: requires Mathematica frontend")
+    config.addinivalue_line("markers", "needs_network: requires network connectivity")
+    config.addinivalue_line("markers", "needs_resource: requires Wolfram resource system")
+    config.addinivalue_line("markers", "needs_subkernels: requires parallel subkernels")

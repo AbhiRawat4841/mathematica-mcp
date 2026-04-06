@@ -16,6 +16,12 @@ uv run pytest tests/ -v
 
 # With coverage
 uv run pytest tests/ --cov=src/mathematica_mcp --cov-report=term-missing
+
+# Corpus meta-tests only (no Mathematica needed — validates test infrastructure)
+uv run pytest tests/test_corpus_normalize.py tests/test_corpus_verifiers.py tests/test_corpus_infra.py -v
+
+# Corpus smoke tier (needs wolframscript)
+uv run pytest tests/test_corpus_runner.py -m "tier_smoke" -v
 ```
 
 ## Linting
@@ -40,6 +46,7 @@ See [docs/technical-reference.md](docs/technical-reference.md) for the full arch
 3. **Gate via profile** — ensure the tool group is included in the appropriate profiles in `src/mathematica_mcp/config.py` (`PROFILE_TOOL_GROUPS`)
 4. **Add tests** — prefer offline tests where possible (mock kernel interactions)
 5. **Update registration tests** — add the tool name to the expected sets in `tests/test_tool_registration.py`
+6. **Add corpus coverage** — add test cases to `tests/corpus/mathematica_mcp_corpus.json` with the appropriate tier, backend, oracle, and required capabilities (see `tests/README.md` for details)
 
 ## Pull Request Process
 

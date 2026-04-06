@@ -2,148 +2,142 @@
 
 This directory contains comprehensive tests for the Mathematica MCP server.
 
-## Test Files
+## Test Architecture
 
-### `test_session.py`
-Tests for the core Mathematica session module:
-- JSON parsing and Association output handling
-- Calculus operations (integration, differentiation, limits, series)
-- Algebra (solving equations, factoring, expanding, simplifying)
-- Linear algebra (matrices, determinants, eigenvalues)
-- Special functions (Gamma, Fibonacci, Prime, Zeta)
-- Differential equations
-- Numerical computation
-- Statistics
-- Edge cases and the JSON parsing fix
+Tests are organized into three layers:
 
-### `test_error_detection.py` ⭐ NEW
-Comprehensive tests for error detection, analysis, and fixing:
-- **Error Analyzer Module** (6 tests) - Core analysis functionality
-- **Message Analysis** (5 tests) - Multi-error handling and recommendations
-- **LLM Formatting** (4 tests) - Error formatting for AI consumption
-- **Inline Execution** (6 tests) - Error detection in code execution
-- **Notebook Detection** (3 tests) - Notebook-based errors (skipped without connection)
-- **Pattern Coverage** (3 tests) - Error pattern database validation
-- **Real-World Scenarios** (4 tests) - Practical error cases
-- **Recovery Workflow** (2 tests) - End-to-end error handling
+### 1. Unit & Integration Tests (hand-written)
 
-**Total: 33 test cases covering 10+ error types**
+Core tests that validate individual modules and live Mathematica interactions.
 
-### `test_readme_commands.py`
-Tests for README examples and command validation
+| File | Purpose | Requires Runtime |
+|------|---------|-----------------|
+| `test_session.py` | Calculus, algebra, linear algebra, special functions, JSON parsing | Yes |
+| `test_error_detection.py` | Error analyzer, message analysis, LLM formatting (33 tests) | No |
+| `test_notebook_backend.py` | Notebook abstraction layer, cell models, serialization | No |
+| `test_notebook_tools_offline.py` | Offline notebook parsing and conversion | No |
+| `test_notebook_optimizations.py` | Kernel-mode fast path (378x perf improvement) | Yes (addon) |
+| `test_tool_registration.py` | Profile-based tool sets (math/notebook/full) | No |
+| `test_connection.py` | Socket connection management, backoff/retry | No |
+| `test_cache_epoch.py` | Cache invalidation via kernel epoch | No |
+| `test_execution_style.py` | Execution style parameter resolution | No |
+| `test_async_blocking.py` | Async/await with asyncio.to_thread | No |
+| `test_derivation_verification.py` | Mathematical derivation verification | Yes |
+| `test_guidance.py` | Profile-aware docstrings and Claude guidance | No |
+| `test_lazy_tool_imports.py` | Lazy importing of optional tool modules | No |
+| `test_raster_cache.py` | Raster graphics caching | No |
+| `test_routing_memory.py` | Routing memory for transport tracking | No |
+| `test_session_backend.py` | Session backend implementation | No |
+| `test_symbol_index.py` | Symbol lookup and indexing | No |
+| `test_telemetry_wiring.py` | Telemetry integration | No |
+| `test_cli.py` | CLI and addon installation | No |
+| `test_readme_commands.py` | README example validation | No |
 
-### `test_derivation_verification.py`
-Tests for mathematical derivation verification
+### 2. Corpus Test Runner (data-driven)
 
-### `test_notebook_optimizations.py` ⭐ NEW
-Performance tests for kernel-mode fast path optimization:
-- **Kernel mode execution** - Direct kernel evaluation (378x faster than frontend mode)
-- **Atomic notebook operations** - Combined notebook lookup, cell creation, and evaluation
-- **Session isolation** - Tests for `session_id` and `isolate_context` parameters
-- **Deterministic execution** - Seeded random number generation for reproducibility
+A parametrized test harness that runs Wolfram Language expressions against the actual MCP server tools and verifies results using structured oracles.
 
-**Requires**: Active Mathematica connection with `StartMCPServer[]`
+| File | Purpose | Requires Runtime |
+|------|---------|-----------------|
+| `test_corpus_runner.py` | Two parametrized entry points: `test_corpus_case` + `test_corpus_workflow` | Yes (for live cases) |
+| `corpus/mathematica_mcp_corpus.json` | Executable manifest — the source of truth for all corpus tests | N/A (data) |
+| `corpus/models.py` | Pydantic schema: `CorpusCase`, `CorpusWorkflow`, `Oracle`, `PollCondition` | N/A |
+| `corpus/normalize.py` | Normalizes all MCP tool responses (JSON, dict, Image, parse_error) into one shape | N/A |
+| `corpus/verifiers.py` | 11 verification strategies (exact, symbolic, numeric, structural, artifact, etc.) | Partial (symbolic needs kernel) |
+| `corpus/adapters.py` | 4 execution adapters: server_tool, offline_notebook_file, live_frontend, alias_codegen | N/A |
+| `corpus/capabilities.py` | Session-scoped capability probes (runtime, addon, frontend, network) | N/A |
+
+**Key design decisions:**
+- MCP server tools are the primary execution path — `execute_in_kernel()` is only the oracle engine for symbolic/numeric equivalence
+- Stateful tests (variable lifecycle, notebook lifecycle) are self-contained workflows, not cross-test dependencies
+- Corpus manifest is JSON — the markdown corpus files are documentation only, never read at runtime
+
+### 3. Corpus Meta-Tests (test the test infrastructure)
+
+These verify the corpus harness itself is correct — no Mathematica needed.
+
+| File | Purpose | Tests |
+|------|---------|-------|
+| `test_corpus_normalize.py` | Normalizer against all response shapes (JSON, dict, Image, warnings, artifacts) | ~24 |
+| `test_corpus_verifiers.py` | All 11 verifiers with synthetic NormalizedResult objects | ~39 |
+| `test_corpus_infra.py` | Models validation, adapter dispatch, polling, cleanup templating | ~19 |
 
 ## Running Tests
 
-### Run all tests:
 ```bash
-python -m pytest tests/ -v
+# All tests (wolframscript-dependent tests auto-skip if runtime is absent)
+uv run pytest tests/ -v
+
+# With coverage
+uv run pytest tests/ --cov=src/mathematica_mcp --cov-report=term-missing
+
+# Corpus meta-tests only (no Mathematica needed)
+uv run pytest tests/test_corpus_normalize.py tests/test_corpus_verifiers.py tests/test_corpus_infra.py -v
+
+# Corpus smoke tier (needs wolframscript)
+uv run pytest tests/test_corpus_runner.py -m "tier_smoke" -v
+
+# Corpus by section
+uv run pytest tests/test_corpus_runner.py -k "ARITH or ALG" -v
+
+# Corpus workflows only
+uv run pytest tests/test_corpus_runner.py::test_corpus_workflow -v
 ```
 
-### Run specific test file:
-```bash
-python -m pytest tests/test_error_detection.py -v
-```
+## Corpus Tiers
 
-### Run specific test class:
-```bash
-python -m pytest tests/test_error_detection.py::TestErrorAnalyzer -v
-```
+| Tier | Purpose | CI |
+|------|---------|-----|
+| `smoke` | ~35 fast offline cases + 1 workflow | Required (meta-tests in CI, live tests in manual/nightly) |
+| `core` | ~120 stable offline math/algebra/calculus | Nightly schedule |
+| `extended` | ~80 broader coverage (DE, ML, image, graph) | Manual dispatch |
+| `probe` | ~30 fragile/regression paths (entity, notebook advanced) | Manual dispatch, non-blocking |
 
-### Run with coverage:
-```bash
-python -m pytest tests/test_error_detection.py --cov=src/mathematica_mcp/error_analyzer -v
-```
+## Corpus Verification Strategies
 
-### Run with detailed output:
-```bash
-python -m pytest tests/test_error_detection.py -vv --tb=long
-```
+| Strategy | Description |
+|----------|-------------|
+| `exact_text` | Output text matches expected value exactly (whitespace-normalized) |
+| `symbolic_equiv` | Mathematically equivalent via `Simplify[a - b] === 0` (kernel as oracle) |
+| `numeric_tol` | Within tolerance: `abs(actual - expected) < tolerance` |
+| `boolean` | Output is exactly `True` or `False` |
+| `field_equals` | Dot-path field in parsed response equals expected value |
+| `field_contains` | Dot-path field contains expected substring |
+| `structural_fields` | Multiple field checks (e.g., `parsed.success == True`) |
+| `artifact_exists` | File/image artifact is present and non-empty |
+| `warning_tag` | Expected warning tag found in normalized warnings |
+| `raw_contains` | Expected substrings found in raw response |
+| `workflow_assert` | All workflow steps passed, no cleanup errors |
 
-## Test Results
+## CI/CD Integration
 
-Latest test run (as of 2026-01-20):
+Two CI workflows:
 
-```
-test_error_detection.py:
-  ✅ 30 passed
-  ⏭️ 3 skipped (require notebook connection)
-  ⏱️ ~5.7 seconds runtime
-```
+- **`ci.yml`** (required, runs on every PR):
+  - Lint (`ruff check` + `ruff format`)
+  - Corpus smoke meta-tests (no Mathematica needed)
+  - Full unit test suite
+  - Package verification
 
-## Error Types Covered
-
-The error detection system handles:
-
-1. **UnitConvert::compat** - Incompatible unit operations
-2. **Part::partw** - List index out of range
-3. **Part::partd** - Structure depth issues
-4. **Syntax::sntxi** - Syntax errors
-5. **Syntax::tsntxi** - Extra input syntax errors
-6. **Divide::infy** - Division by zero
-7. **Power::infy** - Invalid power operations
-8. **Set::write** - Protected symbol modification
-9. **Recursion::reclim** - Recursion limit exceeded
-10. **General::stop** - Output suppression warnings
-
-## Documentation
-
-- `TEST_SUMMARY.md` - Detailed test coverage and results
-- `demo_error_detection.py` - Demonstration scripts for error detection features
+- **`corpus.yml`** (non-blocking, manual dispatch or nightly):
+  - Smoke/core/extended/probe tiers
+  - Requires wolframscript in the runner environment
+  - All steps use `continue-on-error: true`
 
 ## Requirements
 
-- Python 3.11+
-- pytest 9.0+
-- Wolfram Language / Mathematica (for actual execution tests)
-- wolframscript (must be in PATH)
-
-## Quick Examples
-
-### Test a specific error type:
-```python
-from src.mathematica_mcp.error_analyzer import analyze_error
-
-result = analyze_error("UnitConvert::compat", "Incompatible units")
-print(result['suggested_fix'])
-# Output: Use QuantityMagnitude[] to extract numeric values...
-```
-
-### Format errors for LLM:
-```python
-from src.mathematica_mcp.error_analyzer import format_error_for_llm
-
-messages = [{'tag': 'Part::partw', 'text': 'Part out of range', 'type': 'error'}]
-code = '{1, 2, 3}[[5]]'
-
-formatted = format_error_for_llm(messages, code)
-print(formatted)
-# Outputs structured error report with analysis and fixes
-```
+- Python 3.10+
+- pytest 7.0+
+- pydantic 2.0+ (for corpus models)
+- Wolfram Language / Mathematica (for runtime-dependent tests)
+- wolframscript in PATH (for session/corpus live tests)
 
 ## Contributing
 
 When adding new tests:
-1. Follow the existing test structure and naming conventions
-2. Group related tests in classes (e.g., `TestErrorAnalyzer`)
-3. Use descriptive test names (e.g., `test_analyze_unitconvert_error`)
-4. Include docstrings explaining what each test validates
-5. Update TEST_SUMMARY.md with new coverage
 
-## CI/CD Integration
-
-These tests are designed to run in CI/CD pipelines. For best results:
-- Ensure wolframscript is available in the CI environment
-- Tests that require notebook connections are automatically skipped
-- Use `pytest --tb=short` for concise CI output
+1. **Unit/integration tests**: Follow existing patterns in the relevant `test_*.py` file
+2. **Corpus test cases**: Add entries to `corpus/mathematica_mcp_corpus.json` with the correct tier, backend, oracle, and required capabilities
+3. **Corpus workflows**: Use self-contained workflow items with per-step assertions and cleanup
+4. **Tool registration**: Update expected tool sets in `test_tool_registration.py`
+5. **Always run meta-tests** after modifying corpus infrastructure: `uv run pytest tests/test_corpus_normalize.py tests/test_corpus_verifiers.py tests/test_corpus_infra.py -v`

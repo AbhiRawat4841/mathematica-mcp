@@ -1,0 +1,80 @@
+name: Corpus Tests
+
+# Non-blocking: runs corpus tests against a live Wolfram runtime.
+# Triggered manually or on a schedule — never gates PRs.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tier:
+        description: "Corpus tier to run"
+        required: true
+        default: "smoke"
+        type: choice
+        options:
+          - smoke
+          - core
+          - extended
+          - probe
+          - all
+  schedule:
+    # Nightly at 03:00 UTC — core tier only
+    - cron: "0 3 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  corpus:
+    runs-on: macos-latest
+    # Only run if the environment has wolframscript
+    # Self-hosted runners or environments with Wolfram Engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v4
+      - run: uv sync --frozen --extra dev
+
+      - name: Check Wolfram runtime
+        id: wolfram-check
+        run: |
+          if command -v wolframscript &> /dev/null; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::wolframscript not found — skipping corpus tests"
+          fi
+
+      - name: Run corpus smoke
+        if: steps.wolfram-check.outputs.available == 'true' && (github.event.inputs.tier == 'smoke' || github.event.inputs.tier == 'all' || github.event_name == 'schedule')
+        run: >
+          uv run pytest tests/test_corpus_runner.py
+          -m "tier_smoke"
+          -v --tb=short
+        continue-on-error: true
+
+      - name: Run corpus core
+        if: steps.wolfram-check.outputs.available == 'true' && (github.event.inputs.tier == 'core' || github.event.inputs.tier == 'all' || github.event_name == 'schedule')
+        run: >
+          uv run pytest tests/test_corpus_runner.py
+          -m "tier_core"
+          -v --tb=short
+        continue-on-error: true
+
+      - name: Run corpus extended
+        if: steps.wolfram-check.outputs.available == 'true' && (github.event.inputs.tier == 'extended' || github.event.inputs.tier == 'all')
+        run: >
+          uv run pytest tests/test_corpus_runner.py
+          -m "tier_extended"
+          -v --tb=short
+        continue-on-error: true
+
+      - name: Run corpus probe (non-blocking)
+        if: steps.wolfram-check.outputs.available == 'true' && (github.event.inputs.tier == 'probe' || github.event.inputs.tier == 'all')
+        run: >
+          uv run pytest tests/test_corpus_runner.py
+          -m "tier_probe"
+          -v --tb=short
+        continue-on-error: true

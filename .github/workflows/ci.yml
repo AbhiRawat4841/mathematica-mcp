@@ -38,7 +38,15 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - uses: astral-sh/setup-uv@v4
       - run: uv sync --frozen --extra dev
-      - run: >
+      - name: Corpus smoke (meta-tests, no Mathematica needed)
+        run: >
+          uv run pytest -m "not wolfram_runtime"
+          tests/test_corpus_normalize.py
+          tests/test_corpus_verifiers.py
+          tests/test_corpus_infra.py
+          -v --tb=short
+      - name: Unit and integration tests
+        run: >
           uv run pytest tests/ -v --tb=short
           --cov=src/mathematica_mcp
           --cov-report=term-missing
