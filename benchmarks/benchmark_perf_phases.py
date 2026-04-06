@@ -416,6 +416,98 @@ def bench_telemetry_overhead():
     }
 
 
+def bench_routing_memory_overhead():
+    """Measure routing memory record() cost: off vs observe."""
+    from pathlib import Path
+
+    import mathematica_mcp.routing_memory as rm
+
+    rm._reset_for_tests()
+
+    # Off mode: record is a no-op (routing_mem is None)
+    off_times = _timed(
+        lambda: None,  # simulates _maybe_record_routing when _routing_mem is None
+        iterations=10000,
+    )
+
+    # Observe mode: record increments counters
+    tmp = Path(tempfile.mkdtemp()) / "bench_routing.json"
+    mem = rm.RoutingMemory("observe", storage_path=tmp)
+    observe_times = _timed(
+        lambda: mem.record("full", "compute", "addon_cli", "ok", 120, []),
+        iterations=10000,
+    )
+
+    # Flush cost
+    for _ in range(200):
+        mem.record("full", "compute", "addon_cli", "ok", 120, [])
+    flush_times = _timed(lambda: mem.flush(), iterations=100)
+
+    rm._reset_for_tests()
+    # Cleanup
+    if tmp.exists():
+        tmp.unlink()
+
+    return {
+        "name": "routing_memory_overhead",
+        "off_noop": _stats(off_times),
+        "observe_record": _stats(observe_times),
+        "flush": _stats(flush_times),
+    }
+
+
+def bench_cold_import_routing():
+    """Measure cold import time with routing memory off vs observe."""
+    times = {}
+    for mode in ("off", "observe"):
+        script = (
+            "import time; s=time.perf_counter(); "
+            "import mathematica_mcp.server; "
+            "print(f'{(time.perf_counter()-s)*1000:.3f}')"
+        )
+        mode_times = []
+        for _ in range(3):
+            r = subprocess.run(
+                [sys.executable, "-c", script],
+                capture_output=True,
+                text=True,
+                env={**os.environ, "PYTHONPATH": SRC_ROOT, "MATHEMATICA_ROUTING_MEMORY": mode},
+                cwd=REPO_ROOT,
+            )
+            if r.returncode == 0:
+                mode_times.append(float(r.stdout.strip()))
+        times[mode] = _stats(mode_times)
+    return {"name": "cold_import_routing", **times}
+
+
+def bench_execute_code_normalization():
+    """Measure _finalize_execute_response() overhead on a mock response."""
+    import time as _time
+
+    from mathematica_mcp.server import _finalize_execute_response
+
+    mock_response = {
+        "success": True,
+        "output": "42",
+        "warnings": [],
+        "timing_ms": 120,
+        "executed_output_target": "cli",
+    }
+
+    def run_once():
+        r = dict(mock_response)  # copy to avoid mutation accumulation
+        _finalize_execute_response(
+            r,
+            route_variant="compute",
+            execution_path="addon_cli",
+            fell_back=False,
+            start_time=_time.monotonic(),
+        )
+
+    times = _timed(run_once, iterations=5000)
+    return {"name": "execute_code_normalization", **_stats(times)}
+
+
 # ---- Runner ----
 
 
@@ -432,6 +524,9 @@ def run_all():
         ("Notebook Python parse", bench_notebook_python_parse),
         ("Cache epoch overhead", bench_cache_epoch),
         ("Telemetry overhead", bench_telemetry_overhead),
+        ("Routing memory overhead", bench_routing_memory_overhead),
+        ("Cold import (off vs observe)", bench_cold_import_routing),
+        ("execute_code normalization", bench_execute_code_normalization),
     ]
 
     results = []

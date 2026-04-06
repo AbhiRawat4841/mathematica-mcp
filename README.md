@@ -111,6 +111,10 @@ uvx mathematica-mcp-full doctor
 Choose how many tools to expose: `math` (~25 tools), `notebook` (~45), or `full` (~79, default).
 Pass `--profile` during setup or set `MATHEMATICA_PROFILE` env var. See the **[Technical Reference](docs/technical-reference.md#tool-profiles)** for details.
 
+### Routing Memory (opt-in)
+
+Enable `MATHEMATICA_ROUTING_MEMORY=observe` to let the MCP learn aggregate routing statistics — which execution styles succeed, latency patterns, and recurring error families. No code or expressions are stored. Over time this data can inform smarter routing hints. See the **[Technical Reference](docs/technical-reference.md#routing-memory)** for details.
+
 ---
 
 ## Manual Installation

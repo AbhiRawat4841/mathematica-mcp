@@ -398,6 +398,16 @@ export MATHEMATICA_PROFILE=notebook
 
 See the [Technical Reference](technical-reference.md#tool-profiles) for details on what each profile includes.
 
+### Routing Memory
+
+Opt-in aggregate routing statistics for `execute_code`. No code or expressions are stored — only transport success rates, latency histograms, and error family frequencies.
+
+```bash
+export MATHEMATICA_ROUTING_MEMORY=observe   # or "advise", default: "off"
+```
+
+See the [Technical Reference](technical-reference.md#routing-memory) for details.
+
 ### Setup Flags
 
 | Flag | Description |

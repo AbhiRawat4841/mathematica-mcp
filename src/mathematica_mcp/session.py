@@ -622,11 +622,16 @@ def execute_in_kernel(
         render_flag = "True" if render_graphics else "False"
 
         eval_code = f"""
-Module[{{res = {wrapped_code}, imgPath = "{wl_raster_path}", didRaster = False}},
+Module[{{res, msgs, imgPath = "{wl_raster_path}", didRaster = False}},
+  Block[{{$MessageList = {{}}}},
+    res = {wrapped_code};
+    msgs = $MessageList;
+  ];
   <|
     "inputform" -> ToString[res, InputForm],
     "fullform" -> If[{include_fullform}, ToString[res, FullForm], ""],
     "tex" -> If[{include_tex}, ToString[TeXForm[res]], ""],
+    "messages" -> ToString[msgs],
     "is_graphics" -> If[{render_flag} && (res =!= $Failed) &&
         (MatchQ[Head[res], Graphics|Graphics3D|Legended|Image] || MatchQ[res, _Show]),
       Quiet[Export[imgPath, Rasterize[res, ImageResolution -> 144, ImageSize -> 500], "PNG"]];
@@ -650,13 +655,16 @@ Module[{{res = {wrapped_code}, imgPath = "{wl_raster_path}", didRaster = False}}
             output_fullform = ""
             output_tex = ""
 
+        messages_raw = str(combined_result.get("messages", "")) if isinstance(combined_result, dict) else ""
+        warnings_list = [messages_raw] if messages_raw and messages_raw != "{}" else []
+
         response: dict[str, Any] = {
             "success": True,
             "output": output_inputform,
             "output_tex": output_tex,
             "output_inputform": output_inputform,
             "output_fullform": output_fullform,
-            "warnings": [],
+            "warnings": warnings_list,
             "timing_ms": timing_ms,
             "execution_method": "wolframclient",
         }

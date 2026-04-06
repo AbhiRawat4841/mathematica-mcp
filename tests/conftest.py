@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 import functools
+import os
 import shutil
 import sys
 from pathlib import Path
 
 import pytest
+
+# Default routing memory to off during tests to prevent touching real ~/.cache.
+# Override with MATHEMATICA_ROUTING_MEMORY=observe to run the full suite in observe mode.
+os.environ.setdefault("MATHEMATICA_ROUTING_MEMORY", "off")
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = REPO_ROOT / "src"

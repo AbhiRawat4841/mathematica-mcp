@@ -87,6 +87,9 @@ FEATURE_ENV_KEYS = {
 }
 
 
+_VALID_ROUTING_MEMORY_MODES = frozenset({"off", "observe", "advise"})
+
+
 def _parse_bool(value: str) -> bool:
     return value.strip().lower() in {"true", "1", "yes", "on"}
 
@@ -112,6 +115,12 @@ def _resolve_feature(name: str, profile: str) -> bool:
     return PROFILE_FEATURE_DEFAULTS[profile][name]
 
 
+def _resolve_routing_memory() -> str:
+    """Resolve routing memory mode from env. Defaults to 'off' in all profiles."""
+    explicit = os.getenv("MATHEMATICA_ROUTING_MEMORY", "").strip().lower()
+    return explicit if explicit in _VALID_ROUTING_MEMORY_MODES else "off"
+
+
 @dataclass(frozen=True)
 class FeatureFlags:
     profile: str
@@ -124,6 +133,7 @@ class FeatureFlags:
     expression_cache: bool
     telemetry: bool
     cache_tools: bool
+    routing_memory: str  # "off" | "observe" | "advise"
     default_output_target: str
 
     @classmethod
@@ -144,6 +154,7 @@ class FeatureFlags:
             expression_cache=expression_cache,
             telemetry=telemetry,
             cache_tools=expression_cache and profile == "full",
+            routing_memory=_resolve_routing_memory(),
             default_output_target="cli" if profile == "math" else "notebook",
         )
 
@@ -165,6 +176,7 @@ class FeatureFlags:
             "math_aliases": self.math_aliases,
             "expression_cache": self.expression_cache,
             "cache_tools": self.cache_tools,
+            "routing_memory": self.routing_memory,
             "telemetry": self.telemetry,
         }
 

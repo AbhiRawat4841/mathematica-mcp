@@ -1007,6 +1007,9 @@ Control features via environment variables. Defaults shown are for the `full` pr
 | `MATHEMATICA_ENABLE_MATH_ALIASES` | `true` | Named math operations |
 | `MATHEMATICA_ENABLE_CACHE` | `true` | Expression caching |
 | `MATHEMATICA_ENABLE_TELEMETRY` | `false` | Usage telemetry |
+| `MATHEMATICA_ROUTING_MEMORY` | `off` | Routing memory mode: `off`, `observe`, or `advise` |
+
+> **Routing memory** collects aggregate routing statistics for `execute_code` (transport success rates, latency histograms, error families) to improve observability. It stores no raw code or expressions — only cohort counters. When enabled in `observe` mode, stats are persisted to `~/.cache/mathematica-mcp/routing_memory.json`. The `advise` mode (Phase 2, optional) can inject learned routing hints into the expert prompt. See [Routing Memory](#routing-memory) for details.
 
 ---
 
@@ -1019,6 +1022,50 @@ Control features via environment variables. Defaults shown are for the `full` pr
 | `MATHEMATICA_PROFILE` | `full` | Tool profile: `math`, `notebook`, or `full` |
 | `MATHEMATICA_MCP_TOKEN` | *(none)* | Authentication token for secure connections |
 | `MATHEMATICA_MCP_CACHE_DIR` | `~/.cache/mathematica-mcp/notebooks` | Disk cache directory for notebook extraction |
+| `MATHEMATICA_ROUTING_MEMORY` | `off` | Routing memory: `off`, `observe`, or `advise` |
+
+---
+
+## Routing Memory
+
+Routing memory is an opt-in observability layer that learns aggregate routing statistics from `execute_code` calls. It tracks which execution styles, paths, and modes succeed or fail — without storing any Mathematica code or expressions.
+
+### Modes
+
+| Mode | Behavior |
+|------|----------|
+| `off` (default) | No recording, no file I/O, zero overhead |
+| `observe` | Records aggregate counters, persists to disk periodically |
+| `advise` | Observe + generates routing hints in the expert prompt (Phase 2, optional) |
+
+Enable with: `MATHEMATICA_ROUTING_MEMORY=observe`
+
+### What it tracks
+
+Per-cohort counters grouped by `(profile, route_variant)`:
+- **Transport outcomes:** ok, degraded fallback, timeout, infrastructure error
+- **Semantic errors:** error family frequencies (Syntax, Part, Set, etc.)
+- **Latency histogram:** 7 buckets from <50ms to >5s
+- **Execution path breakdown:** addon_notebook, addon_cli, kernel_fallback
+
+### Privacy
+
+- No raw Mathematica code or notebook content is stored
+- Only aggregate counters and known system error families are persisted
+- User-defined error tags are mapped to `"other"`
+- Storage: `~/.cache/mathematica-mcp/routing_memory.json` (~2-5 KB)
+
+### Tools (full profile only)
+
+When routing memory is enabled and the `full` profile is active, two admin tools are available:
+- `get_routing_memory_stats()` — mode, cohort counts, top error families, file size
+- `clear_routing_memory()` — reset all stats and delete the persisted file
+
+### Data lifecycle
+
+- **Exponential decay:** counters are aged with a 7-day half-life so old patterns fade
+- **Persistence:** atomic JSON writes every 60s (or 200 records), plus on shutdown
+- **Fail-open:** any storage failure disables persistence silently; tools continue working
 
 ---
 
