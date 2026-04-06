@@ -223,7 +223,7 @@ Agent calls: read_notebook("SinPlot.nb", output_format="json")
 => {"success": true, "cell_count": 2, "code_cells": 1, "cells": [{"style": "Input", "content": "Plot[Sin[x], {x, 0, 2 Pi}]"}, ...]}
 ```
 
-Beyond these workflows: **symbolic computation**, **2D/3D visualization**, **notebook operations**, **Wolfram Alpha queries**, **data import/export** (250+ formats), and **debugging tools**. See the [Technical Reference](docs/technical-reference.md) for the full tool list.
+Beyond these workflows: **symbolic computation**, **2D/3D visualization**, **notebook operations**, **Wolfram Alpha queries**, **data import/export** (hundreds of Wolfram-supported formats), and **debugging tools**. See the [Technical Reference](docs/technical-reference.md) for the full tool list.
 
 ---
 
