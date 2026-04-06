@@ -6,7 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- **Routing memory** (`MATHEMATICA_ROUTING_MEMORY`): opt-in observability layer that collects aggregate routing statistics from `execute_code` — transport success rates, latency histograms, and error family frequencies. Modes: `off` (default), `observe`, `advise`. No raw code or expressions stored. See [Technical Reference](docs/technical-reference.md#routing-memory).
+- **Routing memory** (`MATHEMATICA_ROUTING_MEMORY`): opt-in observability layer that collects aggregate routing statistics from `execute_code` — transport success rates, latency histograms, and error family frequencies. Modes: `off` (default), `observe`. No raw code or expressions stored. (`advise` mode reserved for future routing hints.) See [Technical Reference](docs/technical-reference.md#routing-memory).
 - **Response metadata normalization**: every `execute_code` response now includes `route_variant`, `execution_path`, `transport_status`, `overall_timing_ms`, and `error_families` across all branches
 - **Wolframclient message capture**: the `wolframclient` execution path now captures `$MessageList` with `Block` isolation, matching the existing `wolframscript` path for symmetric error reporting
 - **Routing memory admin tools**: `get_routing_memory_stats()` and `clear_routing_memory()` (full profile only, when routing memory is enabled)

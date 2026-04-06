@@ -316,16 +316,7 @@ Restart your editor to load the MCP server. Look for the MCP indicator (e.g., ha
 
 ### Execution Styles
 
-Once set up, use these keywords in your prompts to control where results appear:
-
-| Say this | What happens |
-|----------|--------------|
-| **"calculate ..."** | Result inline in chat (`style="compute"`) |
-| **"plot ..."** / **"show ..."** | Executes in current Mathematica notebook (`style="notebook"`) |
-| **"in new notebook: ..."** | Creates a fresh notebook, then executes there |
-| **"interactive ..."** | Notebook with sliders/Manipulate (`style="interactive"`) |
-
-See the README's [Execution Styles](../README.md#execution-styles) section for full details and examples.
+Once set up, use keywords like "calculate", "plot", "new notebook", or "interactive" in your prompts to control where results appear. See the README's [Execution Styles](../README.md#execution-styles) section for the full keyword table and examples.
 
 ---
 
@@ -403,7 +394,7 @@ See the [Technical Reference](technical-reference.md#tool-profiles) for details 
 Opt-in aggregate routing statistics for `execute_code`. No code or expressions are stored — only transport success rates, latency histograms, and error family frequencies.
 
 ```bash
-export MATHEMATICA_ROUTING_MEMORY=observe   # or "advise", default: "off"
+export MATHEMATICA_ROUTING_MEMORY=observe   # "advise" is planned for future routing hints; use "observe" today
 ```
 
 See the [Technical Reference](technical-reference.md#routing-memory) for details.

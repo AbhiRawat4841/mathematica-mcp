@@ -21,7 +21,7 @@
 ```
 
 **Two components:**
-1. **Python MCP Server** - Exposes 80+ tools to LLMs via MCP protocol (varies by profile)
+1. **Python MCP Server** - Exposes ~79 tools to LLMs via MCP protocol (varies by profile and feature flags)
 2. **Mathematica Addon** - Runs inside Mathematica with persistent session state
 
 **Performance:** Notebook execution uses an atomic command that combines notebook lookup, cell creation, and evaluation into a single round-trip (vs. 4 separate calls), resulting in 3-4x faster plot rendering.
@@ -111,7 +111,7 @@ Tool descriptions are rewritten at startup to include `[PRIMARY]`, `[ADVANCED]`,
 
 ### Layer 4: MCP Prompts
 
-Five MCP prompts (`calculate`, `notebook`, `new_notebook`, `interactive`, `quickstart`) allow clients to surface structured style selection to users.
+Six MCP prompts (`mathematica_expert`, `calculate`, `notebook`, `new_notebook`, `interactive`, `quickstart`) can be surfaced by clients that support MCP prompts.
 
 ### Layer 5: Project Guidance Files
 
@@ -1007,9 +1007,9 @@ Control features via environment variables. Defaults shown are for the `full` pr
 | `MATHEMATICA_ENABLE_MATH_ALIASES` | `true` | Named math operations |
 | `MATHEMATICA_ENABLE_CACHE` | `true` | Expression caching |
 | `MATHEMATICA_ENABLE_TELEMETRY` | `false` | Usage telemetry |
-| `MATHEMATICA_ROUTING_MEMORY` | `off` | Routing memory mode: `off`, `observe`, or `advise` |
+| `MATHEMATICA_ROUTING_MEMORY` | `off` | Routing memory: `off` or `observe` (`advise` reserved for future use) |
 
-> **Routing memory** collects aggregate routing statistics for `execute_code` (transport success rates, latency histograms, error families) to improve observability. It stores no raw code or expressions — only cohort counters. When enabled in `observe` mode, stats are persisted to `~/.cache/mathematica-mcp/routing_memory.json`. The `advise` mode (Phase 2, optional) can inject learned routing hints into the expert prompt. See [Routing Memory](#routing-memory) for details.
+> **Routing memory** collects aggregate routing statistics for `execute_code` (transport success rates, latency histograms, error families) to improve observability. It stores no raw code or expressions — only cohort counters. When enabled in `observe` mode, stats are persisted to `~/.cache/mathematica-mcp/routing_memory.json`. A future `advise` mode may inject learned routing hints into the expert prompt. See [Routing Memory](#routing-memory) for details.
 
 ---
 
@@ -1022,13 +1022,13 @@ Control features via environment variables. Defaults shown are for the `full` pr
 | `MATHEMATICA_PROFILE` | `full` | Tool profile: `math`, `notebook`, or `full` |
 | `MATHEMATICA_MCP_TOKEN` | *(none)* | Authentication token for secure connections |
 | `MATHEMATICA_MCP_CACHE_DIR` | `~/.cache/mathematica-mcp/notebooks` | Disk cache directory for notebook extraction |
-| `MATHEMATICA_ROUTING_MEMORY` | `off` | Routing memory: `off`, `observe`, or `advise` |
+| `MATHEMATICA_ROUTING_MEMORY` | `off` | Routing memory: `off` or `observe` (`advise` reserved for future use) |
 
 ---
 
 ## Routing Memory
 
-Routing memory is an opt-in observability layer that learns aggregate routing statistics from `execute_code` calls. It tracks which execution styles, paths, and modes succeed or fail — without storing any Mathematica code or expressions.
+Routing memory is an opt-in observability layer that learns aggregate routing statistics from `execute_code` calls. It tracks which execution styles, paths, and modes succeed or fail — without storing any Mathematica code or expressions. `observe` mode is implemented; `advise` mode is planned as optional future work.
 
 ### Modes
 
@@ -1036,7 +1036,7 @@ Routing memory is an opt-in observability layer that learns aggregate routing st
 |------|----------|
 | `off` (default) | No recording, no file I/O, zero overhead |
 | `observe` | Records aggregate counters, persists to disk periodically |
-| `advise` | Observe + generates routing hints in the expert prompt (Phase 2, optional) |
+| `advise` | Observe + planned routing hints in the expert prompt (not yet implemented) |
 
 Enable with: `MATHEMATICA_ROUTING_MEMORY=observe`
 

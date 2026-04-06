@@ -24,7 +24,7 @@
 
 ## What is this?
 
-An **MCP Server** that gives AI agents a direct interface to your local **Wolfram Engine**. 79 tools across configurable profiles for symbolic reasoning, visualization, and notebook control.
+An **MCP Server** that gives AI agents a direct interface to your local **Wolfram Engine**. ~79 tools across configurable profiles (varies by feature flags) for symbolic reasoning, visualization, and notebook control.
 
 ### Watch it in action
 
@@ -113,14 +113,16 @@ Pass `--profile` during setup or set `MATHEMATICA_PROFILE` env var. See the **[T
 
 ### Routing Memory (opt-in)
 
-Enable `MATHEMATICA_ROUTING_MEMORY=observe` to let the MCP learn aggregate routing statistics — which execution styles succeed, latency patterns, and recurring error families. No code or expressions are stored. Over time this data can inform smarter routing hints. See the **[Technical Reference](docs/technical-reference.md#routing-memory)** for details.
+Enable `MATHEMATICA_ROUTING_MEMORY=observe` to let the MCP learn aggregate routing statistics — which execution styles succeed, latency patterns, and recurring error families. No code or expressions are stored. A future `advise` mode is planned to surface learned routing hints. See the **[Technical Reference](docs/technical-reference.md#routing-memory)** for details.
 
 ---
 
 ## Manual Installation
 
+For full details, troubleshooting, and advanced configuration, see the **[Installation Guide](docs/installation.md)**.
+
 <details>
-<summary>Click to expand manual setup instructions</summary>
+<summary>Click to expand quick manual setup</summary>
 
 1.  **Clone & Install**:
     ```bash
@@ -135,48 +137,7 @@ Enable `MATHEMATICA_ROUTING_MEMORY=observe` to let the MCP learn aggregate routi
     ```
     *Restart Mathematica after this step.*
 
-3.  **Configure your editor** (replace path with your actual path):
-
-    > **Note:** GUI apps like Claude Desktop may not inherit your shell `PATH`. Use the absolute path from `which uv` or let `uvx mathematica-mcp-full setup <client>` write it for you automatically.
-
-    **Claude Desktop** (`~/Library/Application Support/Claude/claude_desktop_config.json`):
-    ```json
-    {
-      "mcpServers": {
-        "mathematica": {
-          "command": "/ABSOLUTE/PATH/TO/uv",
-          "args": ["--directory", "/path/to/mathematica-mcp", "run", "mathematica-mcp-full"]
-        }
-      }
-    }
-    ```
-
-    **Cursor** (`~/.cursor/mcp.json`):
-    ```json
-    {
-      "mcpServers": {
-        "mathematica": {
-          "command": "/ABSOLUTE/PATH/TO/uv",
-          "args": ["--directory", "/path/to/mathematica-mcp", "run", "mathematica-mcp-full"]
-        }
-      }
-    }
-    ```
-
-    **VS Code** (`~/.vscode/mcp.json`):
-    > **Note:** VS Code MCP requires [GitHub Copilot Chat](https://marketplace.visualstudio.com/items?itemName=GitHub.copilot-chat) extension.
-
-    ```json
-    {
-      "servers": {
-        "mathematica": {
-          "type": "stdio",
-          "command": "/ABSOLUTE/PATH/TO/uv",
-          "args": ["--directory", "/path/to/mathematica-mcp", "run", "mathematica-mcp-full"]
-        }
-      }
-    }
-    ```
+3.  **Configure your editor** — add the MCP server to your client's config file. See the **[Installation Guide](docs/installation.md#step-4-configure-your-editor)** for Claude Desktop, Cursor, VS Code, and other client configs.
 
 </details>
 
