@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.6] - 2026-04-06
+
+### Added
+
+- **Corpus-driven MCP test harness**: data-driven test infrastructure that runs Wolfram Language expressions against actual MCP server tools with structured oracle verification (11 strategies: exact, symbolic, numeric, structural, artifact, warning, workflow)
+- **Corpus manifest** (`tests/corpus/mathematica_mcp_corpus.json`): executable smoke manifest with 31 cases + 1 variable lifecycle workflow
+- **Corpus meta-tests**: 83 tests validating the harness itself (normalizer, verifiers, models, adapters, polling, cleanup) — no Mathematica needed
+- **Tiered CI**: smoke meta-tests run on every PR (`ci.yml`); core/extended/probe tiers run via manual dispatch or nightly schedule (`corpus.yml`)
+- **Response normalization layer**: uniform handling of JSON, dict, Image, and parse_error payloads with warning/artifact extraction
+- **Workflow engine**: self-contained multi-step workflows with per-step assertions, structured polling, state extraction, cleanup error recording, and `{tmp_path}` templating
+
+### Changed
+
+- CI now runs corpus smoke meta-tests as a required step before the full test suite
+- `CONTRIBUTING.md` updated with corpus test commands and tool-addition guidance
+- `tests/README.md` rewritten to document all three test layers, corpus tiers, and verification strategies
+- Added `pydantic>=2.0.0` to dev dependencies
+
 ## [0.8.5] - 2026-04-06
 
 ### Added
