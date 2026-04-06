@@ -137,6 +137,7 @@ _routing_mem = None  # set during startup if routing_memory != "off"
 # Transport status classification
 # ---------------------------------------------------------------------------
 
+
 class _TransportStatus:
     OK = "ok"
     DEGRADED_FALLBACK = "degraded_fallback"
@@ -144,10 +145,17 @@ class _TransportStatus:
     INFRA_ERROR = "infra_error"
 
 
-_ACTIONABLE_ERROR_FAMILIES = frozenset({
-    "Syntax", "Part", "Set", "Power", "Divide",
-    "Recursion", "UnitConvert",
-})
+_ACTIONABLE_ERROR_FAMILIES = frozenset(
+    {
+        "Syntax",
+        "Part",
+        "Set",
+        "Power",
+        "Divide",
+        "Recursion",
+        "UnitConvert",
+    }
+)
 
 _TAG_RE = re.compile(r"(\w+)::\w+")
 

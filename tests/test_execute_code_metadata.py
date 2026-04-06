@@ -90,11 +90,16 @@ class TestExtractErrorFamilies:
         assert _extract_error_families({}) == []
 
     def test_all_actionable_families(self):
-        tags = ["Syntax::sntxi", "Part::partw", "Set::write", "Power::infy",
-                "Divide::infy", "Recursion::reclim", "UnitConvert::compat"]
-        response = {
-            "messages": [{"type": "error", "tag": t, "text": "..."} for t in tags]
-        }
+        tags = [
+            "Syntax::sntxi",
+            "Part::partw",
+            "Set::write",
+            "Power::infy",
+            "Divide::infy",
+            "Recursion::reclim",
+            "UnitConvert::compat",
+        ]
+        response = {"messages": [{"type": "error", "tag": t, "text": "..."} for t in tags]}
         families = _extract_error_families(response)
         assert families == ["Divide", "Part", "Power", "Recursion", "Set", "Syntax", "UnitConvert"]
 
@@ -161,6 +166,7 @@ class TestFinalizeExecuteResponse:
             start_time=start,
         )
         import json
+
         result = json.loads(result_json)
 
         assert result["route_variant"] == "compute"
@@ -189,6 +195,7 @@ class TestFinalizeExecuteResponse:
             start_time=_time.monotonic(),
         )
         import json
+
         result = json.loads(result_json)
 
         assert result["custom_field"] == "preserved"
@@ -214,6 +221,7 @@ class TestFinalizeExecuteResponse:
             start_time=_time.monotonic(),
         )
         import json
+
         result = json.loads(result_json)
         assert result["transport_status"] == "timeout"
         assert result["route_variant"] == "notebook_kernel"
@@ -238,6 +246,7 @@ class TestFinalizeExecuteResponse:
             start_time=_time.monotonic(),
         )
         import json
+
         result = json.loads(result_json)
         # Semantic error → transport is degraded_fallback (not infra_error)
         assert result["transport_status"] == "degraded_fallback"

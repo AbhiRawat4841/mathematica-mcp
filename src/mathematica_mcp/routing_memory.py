@@ -41,6 +41,7 @@ _DECAY_HALF_LIFE_DAYS = 7.0
 
 _CACHE_DIR = Path.home() / ".cache" / "mathematica-mcp"
 
+
 def _get_storage_path() -> Path:
     base = Path(os.environ.get("MATHEMATICA_ROUTING_MEMORY_DIR", str(_CACHE_DIR)))
     return base / "routing_memory.json"
@@ -49,6 +50,7 @@ def _get_storage_path() -> Path:
 # ---------------------------------------------------------------------------
 # Data structures
 # ---------------------------------------------------------------------------
+
 
 def _latency_bucket(ms: int) -> int:
     """Return histogram bucket index for a latency value."""
@@ -74,12 +76,7 @@ class CohortStats:
     path_counts: dict[str, int] = field(default_factory=dict)
 
     def total_calls(self) -> int:
-        return (
-            self.ok_count
-            + self.degraded_fallback_count
-            + self.timeout_count
-            + self.infra_error_count
-        )
+        return self.ok_count + self.degraded_fallback_count + self.timeout_count + self.infra_error_count
 
     def apply_decay(self, factor: float) -> None:
         self.ok_count = int(self.ok_count * factor)
@@ -131,6 +128,7 @@ class ErrorFamilyStats:
 # RoutingMemory
 # ---------------------------------------------------------------------------
 
+
 class RoutingMemory:
     def __init__(self, mode: str, *, storage_path: Path | None = None):
         self.mode = mode
@@ -172,8 +170,12 @@ class RoutingMemory:
         """Increment aggregate counters. O(1), thread-safe, never raises externally."""
         try:
             self._record_inner(
-                profile, route_variant, execution_path,
-                transport_status, latency_ms, error_families,
+                profile,
+                route_variant,
+                execution_path,
+                transport_status,
+                latency_ms,
+                error_families,
             )
         except Exception:
             logger.debug("routing_memory record failed", exc_info=True)
@@ -336,15 +338,16 @@ class RoutingMemory:
             "last_decay_ts": self._last_decay_ts,
             "cohorts": {k: v.to_dict() for k, v in self._cohorts.items()},
             "error_families": {
-                k: {"count": v.count, "last_seen": v.last_seen}
-                for k, v in self._error_families.items()
+                k: {"count": v.count, "last_seen": v.last_seen} for k, v in self._error_families.items()
             },
         }
 
     def _write_atomic(self, data: dict[str, Any]) -> None:
         self._storage_path.parent.mkdir(parents=True, exist_ok=True)
         fd, tmp_path = tempfile.mkstemp(
-            dir=str(self._storage_path.parent), suffix=".tmp", prefix="routing_",
+            dir=str(self._storage_path.parent),
+            suffix=".tmp",
+            prefix="routing_",
         )
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as f:
