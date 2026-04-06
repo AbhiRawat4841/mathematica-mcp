@@ -15,6 +15,7 @@ Modes
 from __future__ import annotations
 
 import atexit
+import contextlib
 import json
 import logging
 import os
@@ -350,10 +351,8 @@ class RoutingMemory:
                 json.dump(data, f)
             os.replace(tmp_path, str(self._storage_path))
         except Exception:
-            try:
+            with contextlib.suppress(OSError):
                 os.unlink(tmp_path)
-            except OSError:
-                pass
             raise
 
     def _load(self) -> None:

@@ -271,17 +271,7 @@ If you don't include a keyword, the default mode depends on your [tool profile](
 
 ### Built-in MCP Prompts
 
-Some MCP clients (Claude Desktop, Cursor, etc.) can list **prompts** from the server — pre-built templates that fill in the right parameters for you. This server registers five prompts:
-
-| Prompt | What it does |
-|--------|-------------|
-| `calculate` | Pre-fills `style="compute"` for inline math results |
-| `notebook` | Pre-fills `style="notebook"` for notebook execution |
-| `new_notebook` | Creates a fresh notebook, then executes there |
-| `interactive` | Pre-fills `style="interactive"` for Manipulate/Dynamic |
-| `quickstart` | Shows the full execution styles reference table |
-
-**How to access them:** In Claude Desktop, click the **prompt icon** (chat bubble with `+`) at the bottom of the input box. In Cursor, use the MCP prompt picker. Not all clients support prompt selection — if yours doesn't, just use the keywords above in your message instead.
+This server exposes several MCP prompts, including `calculate`, `notebook`, `new_notebook`, `interactive`, and `quickstart` (plus `mathematica_expert`). Some MCP clients may surface these prompts in their UI, but support varies by client and version. If your client does not expose prompt selection, use the style keywords directly in your message instead.
 
 ---
 

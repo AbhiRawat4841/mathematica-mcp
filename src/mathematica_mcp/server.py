@@ -234,7 +234,7 @@ def _maybe_record_routing(response: dict, *, route_variant: str) -> None:
     """Fire-and-forget routing stat recording. Never raises."""
     if _routing_mem is None:
         return
-    try:
+    with contextlib.suppress(Exception):
         _routing_mem.record(
             profile=FEATURES.profile,
             route_variant=route_variant,
@@ -243,8 +243,6 @@ def _maybe_record_routing(response: dict, *, route_variant: str) -> None:
             latency_ms=response.get("overall_timing_ms", 0),
             error_families=response.get("error_families", []),
         )
-    except Exception:
-        pass
 
 
 async def _run_blocking(func, *args, **kwargs):

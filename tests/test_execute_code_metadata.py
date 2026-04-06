@@ -2,18 +2,11 @@
 
 from __future__ import annotations
 
-import pytest
-
-# Import the helpers directly from server module
-import sys
-sys.path.insert(0, "src")
-
-from mathematica_mcp.server import (
-    _TransportStatus,
+from mathematica_mcp.server import (  # noqa: I001
     _classify_transport,
     _extract_error_families,
+    _TransportStatus,
 )
-
 
 # ---------------------------------------------------------------------------
 # _extract_error_families

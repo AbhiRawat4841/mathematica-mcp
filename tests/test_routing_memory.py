@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 import time
 from pathlib import Path
 from unittest.mock import patch
@@ -11,9 +10,6 @@ from unittest.mock import patch
 import pytest
 
 from mathematica_mcp.routing_memory import (
-    LATENCY_BUCKET_BOUNDS,
-    CohortStats,
-    ErrorFamilyStats,
     RoutingMemory,
     _latency_bucket,
     _reset_for_tests,
