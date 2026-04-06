@@ -113,7 +113,7 @@ Pass `--profile` during setup or set `MATHEMATICA_PROFILE` env var. See the **[T
 
 ### Routing Memory (opt-in)
 
-Enable `MATHEMATICA_ROUTING_MEMORY=observe` to let the MCP learn aggregate routing statistics — which execution styles succeed, latency patterns, and recurring error families. No code or expressions are stored. A future `advise` mode is planned to surface learned routing hints. See the **[Technical Reference](docs/technical-reference.md#routing-memory)** for details.
+Enable `MATHEMATICA_ROUTING_MEMORY=observe` to collect aggregate routing statistics from `execute_code` calls — transport success rates, latency histograms, and recurring error families. No Mathematica code or expressions are stored. This improves observability today and lays the groundwork for future adaptive routing hints. See the **[Technical Reference](docs/technical-reference.md#routing-memory)** for details.
 
 ---
 
