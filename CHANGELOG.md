@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.7] - 2026-04-06
+
+### Fixed
+
+- **Corpus manifest tuned for live Mathematica**: all `execute_code` cases now include `output_target: "cli"` so responses return `output_inputform` instead of notebook-mode status
+- **Oracle expectations match actual Mathematica output**: `Factor` returns `(-3 + x)*(-2 + x)`, `StringJoin` returns quoted strings, `DSolve` uses `2*x` notation
+- **Variable workflow uses valid Wolfram names**: camelCase (`corpusTestVar`) instead of underscores (reserved for patterns)
+- **Runtime probe timeout**: increased `wolfram_runtime_available` from 5s to 30s to handle cold kernel startup
+- **Documentation accuracy**: fixed corpus counts and added manifest authoring guidance (`output_target`, camelCase naming)
+
+All 31 smoke corpus tests pass against live Mathematica.
+
 ## [0.8.6] - 2026-04-06
 
 ### Added
