@@ -7,7 +7,7 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 - **Corpus-driven MCP test harness**: data-driven test infrastructure that runs Wolfram Language expressions against actual MCP server tools with structured oracle verification (11 strategies: exact, symbolic, numeric, structural, artifact, warning, workflow)
-- **Corpus manifest** (`tests/corpus/mathematica_mcp_corpus.json`): executable smoke manifest with 31 cases + 1 variable lifecycle workflow
+- **Corpus manifest** (`tests/corpus/mathematica_mcp_corpus.json`): executable smoke manifest with 30 cases + 1 variable lifecycle workflow, validated against live Mathematica (31/31 passing)
 - **Corpus meta-tests**: 83 tests validating the harness itself (normalizer, verifiers, models, adapters, polling, cleanup) — no Mathematica needed
 - **Tiered CI**: smoke meta-tests run on every PR (`ci.yml`); core/extended/probe tiers run via manual dispatch or nightly schedule (`corpus.yml`)
 - **Response normalization layer**: uniform handling of JSON, dict, Image, and parse_error payloads with warning/artifact extraction

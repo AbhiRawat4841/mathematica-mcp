@@ -88,7 +88,7 @@ uv run pytest tests/test_corpus_runner.py::test_corpus_workflow -v
 
 | Tier | Purpose | CI |
 |------|---------|-----|
-| `smoke` | ~35 fast offline cases + 1 workflow | Required (meta-tests in CI, live tests in manual/nightly) |
+| `smoke` | 30 cases + 1 workflow (31 total) | Required (meta-tests in CI, live tests in manual/nightly) |
 | `core` | ~120 stable offline math/algebra/calculus | Nightly schedule |
 | `extended` | ~80 broader coverage (DE, ML, image, graph) | Manual dispatch |
 | `probe` | ~30 fragile/regression paths (entity, notebook advanced) | Manual dispatch, non-blocking |
@@ -137,7 +137,7 @@ Two CI workflows:
 When adding new tests:
 
 1. **Unit/integration tests**: Follow existing patterns in the relevant `test_*.py` file
-2. **Corpus test cases**: Add entries to `corpus/mathematica_mcp_corpus.json` with the correct tier, backend, oracle, and required capabilities
+2. **Corpus test cases**: Add entries to `corpus/mathematica_mcp_corpus.json` with the correct tier, backend, oracle, and required capabilities. For `execute_code` cases, always include `"output_target": "cli"` in params — without it, the server defaults to notebook mode which returns no `output_inputform`. Use camelCase for Wolfram variable names (underscores are reserved for patterns).
 3. **Corpus workflows**: Use self-contained workflow items with per-step assertions and cleanup
 4. **Tool registration**: Update expected tool sets in `test_tool_registration.py`
 5. **Always run meta-tests** after modifying corpus infrastructure: `uv run pytest tests/test_corpus_normalize.py tests/test_corpus_verifiers.py tests/test_corpus_infra.py -v`
