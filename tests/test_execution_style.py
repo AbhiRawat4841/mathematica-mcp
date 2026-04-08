@@ -85,3 +85,39 @@ class TestResolveExecutionParams:
         ot, mode = _resolve_execution_params("interactive", "cli", "kernel", "notebook")
         assert ot == "cli"
         assert mode == "kernel"
+
+
+# ---------------------------------------------------------------------------
+# response_detail parameter
+# ---------------------------------------------------------------------------
+
+
+class TestResponseDetail:
+    def test_default_detail_is_standard(self):
+        import inspect
+
+        from mathematica_mcp.server import execute_code
+
+        sig = inspect.signature(execute_code)
+        assert sig.parameters["response_detail"].default == "standard"
+
+    def test_standard_does_not_modify_frozen_keys(self):
+        """Verify that response_detail='standard' preserves all REQUIRED_SUCCESS_KEYS."""
+        import json
+        import time
+
+        from mathematica_mcp.server import _finalize_execute_response
+
+        required = {"success", "output", "output_inputform", "output_fullform", "warnings", "timing_ms"}
+        response = {k: "test" for k in required}
+        result_json = _finalize_execute_response(
+            response,
+            route_variant="compute",
+            execution_path="addon_cli",
+            fell_back=False,
+            start_time=time.monotonic(),
+            response_detail="standard",
+        )
+        parsed = json.loads(result_json)
+        missing = required - set(parsed.keys())
+        assert not missing, f"Missing keys in standard response: {missing}"

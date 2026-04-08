@@ -9,12 +9,20 @@ def register_routing_tools(mcp) -> None:
     from . import routing_memory
 
     @mcp.tool()
-    async def get_routing_memory_stats() -> str:
-        """Get routing memory statistics: mode, cohort counts, top error families."""
+    async def get_routing_memory_stats(include_hints: bool = False) -> str:
+        """Get routing memory statistics: mode, cohort counts, top error families.
+
+        Set include_hints=True to also compute and include routing hints (advise mode only).
+        """
         instance = routing_memory._CURRENT_INSTANCE
         if instance is None:
             return json.dumps({"mode": "off", "reason": "init_failed"}, indent=2)
-        return json.dumps(instance.get_stats(), indent=2)
+        stats = instance.get_stats()
+        if include_hints and instance.mode == "advise":
+            from .config import FEATURES
+
+            stats["routing_hints"] = instance.get_routing_hints(FEATURES.profile)
+        return json.dumps(stats, indent=2)
 
     @mcp.tool()
     async def clear_routing_memory() -> str:

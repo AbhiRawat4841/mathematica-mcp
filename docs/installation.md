@@ -394,10 +394,13 @@ See the [Technical Reference](technical-reference.md#tool-profiles) for details 
 Opt-in aggregate routing statistics for `execute_code`. No code or expressions are stored — only transport success rates, latency histograms, and error family frequencies.
 
 ```bash
-export MATHEMATICA_ROUTING_MEMORY=observe   # "advise" is planned for future routing hints; use "observe" today
+export MATHEMATICA_ROUTING_MEMORY=observe   # aggregate stats only
+# or
+export MATHEMATICA_ROUTING_MEMORY=advise    # + routing hints + enables routing action
+export MATHEMATICA_ROUTING_ACTION=compute_cli_skip  # optional: skip failing addon_cli transport
 ```
 
-See the [Technical Reference](technical-reference.md#routing-memory) for details.
+See the [Technical Reference](technical-reference.md#intelligent-routing--observability) for details.
 
 ### Setup Flags
 

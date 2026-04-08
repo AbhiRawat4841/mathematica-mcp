@@ -26,7 +26,12 @@ Core tests that validate individual modules and live Mathematica interactions.
 | `test_guidance.py` | Profile-aware docstrings and Claude guidance | No |
 | `test_lazy_tool_imports.py` | Lazy importing of optional tool modules | No |
 | `test_raster_cache.py` | Raster graphics caching | No |
-| `test_routing_memory.py` | Routing memory for transport tracking | No |
+| `test_routing_memory.py` | Routing memory, expression classification, hints, transport lifecycle, breaker | No |
+| `test_transport_classification.py` | Shared attempt/final transport classification | No |
+| `test_response_filter.py` | Payload shaping (compact/standard/verbose/diagnostic) | No |
+| `test_journal.py` | Computation journal ring buffer | No |
+| `test_wl_scan.py` | Wolfram scanner (string/comment stripping, brace counting) | No |
+| `test_config.py` | Feature flags (routing_action) | No |
 | `test_session_backend.py` | Session backend implementation | No |
 | `test_symbol_index.py` | Symbol lookup and indexing | No |
 | `test_telemetry_wiring.py` | Telemetry integration | No |

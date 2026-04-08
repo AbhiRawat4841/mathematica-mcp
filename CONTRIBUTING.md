@@ -48,6 +48,23 @@ See [docs/technical-reference.md](docs/technical-reference.md) for the full arch
 5. **Update registration tests** — add the tool name to the expected sets in `tests/test_tool_registration.py`
 6. **Add corpus coverage** — add test cases to `tests/corpus/mathematica_mcp_corpus.json` with the appropriate tier, backend, oracle, and required capabilities (see `tests/README.md` for details)
 
+### Key Modules
+
+| Module | Purpose |
+|--------|---------|
+| `server.py` | Core MCP server, tool registration, execute_code routing |
+| `config.py` | Feature flags, profiles, environment variable resolution |
+| `routing_memory.py` | Routing statistics, expression classification, transport lifecycle, breaker |
+| `transport_classification.py` | Shared attempt/final transport classification (single source of truth) |
+| `response_filter.py` | Pure response payload shaping (`response_detail` parameter) |
+| `journal.py` | In-memory computation journal (ring buffer) |
+| `cache.py` | Query cache with epoch-insensitive optimization, code analysis |
+| `wl_scan.py` | Wolfram Language scanner (string/comment stripping, brace counting) |
+| `constants.py` | Shared ExecutionPath labels and AttemptOutcome enum |
+| `session.py` | Kernel lifecycle, execution, raster cache |
+| `guidance.py` | Dynamic tool docstrings, prompts, session brief |
+| `connection.py` | Socket-based communication with Mathematica addon |
+
 ## Pull Request Process
 
 1. Fork the repository and create a feature branch

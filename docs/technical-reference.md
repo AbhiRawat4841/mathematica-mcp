@@ -1007,9 +1007,10 @@ Control features via environment variables. Defaults shown are for the `full` pr
 | `MATHEMATICA_ENABLE_MATH_ALIASES` | `true` | Named math operations |
 | `MATHEMATICA_ENABLE_CACHE` | `true` | Expression caching |
 | `MATHEMATICA_ENABLE_TELEMETRY` | `false` | Usage telemetry |
-| `MATHEMATICA_ROUTING_MEMORY` | `off` | Routing memory: `off` or `observe` (`advise` reserved for future use) |
+| `MATHEMATICA_ROUTING_MEMORY` | `off` | Routing memory: `off`, `observe`, or `advise` |
+| `MATHEMATICA_ROUTING_ACTION` | `off` | Routing action: `off` or `compute_cli_skip` (requires `advise`) |
 
-> **Routing memory** collects aggregate routing statistics for `execute_code` (transport success rates, latency histograms, error families) to improve observability. It stores no raw code or expressions — only cohort counters. When enabled in `observe` mode, stats are persisted to `~/.cache/mathematica-mcp/routing_memory.json`. A future `advise` mode may inject learned routing hints into the expert prompt. See [Routing Memory](#routing-memory) for details.
+> **Routing memory** collects aggregate routing statistics for `execute_code` (transport success rates, latency histograms, error families) to improve observability. It stores no raw code or expressions — only cohort counters. In `observe` mode, stats are persisted to `~/.cache/mathematica-mcp/routing_memory.json`. In `advise` mode, the system additionally generates routing hints and enables the optional adaptive routing action. See [Intelligent Routing & Observability](#intelligent-routing--observability) for details.
 
 ---
 
@@ -1022,50 +1023,145 @@ Control features via environment variables. Defaults shown are for the `full` pr
 | `MATHEMATICA_PROFILE` | `full` | Tool profile: `math`, `notebook`, or `full` |
 | `MATHEMATICA_MCP_TOKEN` | *(none)* | Authentication token for secure connections |
 | `MATHEMATICA_MCP_CACHE_DIR` | `~/.cache/mathematica-mcp/notebooks` | Disk cache directory for notebook extraction |
-| `MATHEMATICA_ROUTING_MEMORY` | `off` | Routing memory: `off` or `observe` (`advise` reserved for future use) |
+| `MATHEMATICA_ROUTING_MEMORY` | `off` | Routing memory: `off`, `observe`, or `advise` |
+| `MATHEMATICA_ROUTING_ACTION` | `off` | Routing action: `off` or `compute_cli_skip` (requires `advise` mode) |
 
 ---
 
-## Routing Memory
+## Intelligent Routing & Observability
 
-Routing memory is an opt-in observability layer that learns aggregate routing statistics from `execute_code` calls. It tracks which execution styles, paths, and modes succeed or fail — without storing any Mathematica code or expressions. `observe` mode is implemented; `advise` mode is planned as optional future work.
+The server includes a multi-layer intelligence system for routing optimization, payload efficiency, session awareness, and smart caching.
 
-### Modes
+### Payload Shaping (`response_detail`)
+
+The `execute_code` tool accepts a `response_detail` parameter to control response size:
+
+| Level | Behavior |
+|-------|----------|
+| `"standard"` (default) | Exact backward-compatible response — no fields added or removed |
+| `"compact"` | Essential fields only: `success`, `status`, `message`, `output`, `timing_ms`, notebook IDs, transport fields. Strips verbose analysis/metadata. Auto-summarizes outputs > 4000 chars with balanced-brace list element counting. Swaps graphics placeholders to `output_inputform`. |
+| `"verbose"` | Full response + `detail_level` marker |
+| `"diagnostic"` | Full response + `detail_level`, `cache_epoch`, and `routing_hints` (if available) |
+
+The filter is a pure function — `standard` is guaranteed to be byte-for-byte identical to the unfiltered response.
+
+### Session Brief
+
+`get_session_brief()` returns a compact ~100-token snapshot:
+
+```
+## Session Brief
+- **Profile**: full | **Connection**: addon | **Default**: notebook
+- **Recent errors**: Syntax::sntxi, Part::partw
+- **Routing advice**: addon_cli (compute): 40% infra error rate
+```
+
+Uses a 500ms addon timeout and never starts a fresh kernel session. Recent errors are sorted by actual recency (last_seen), not frequency, with a 24-hour age cutoff.
+
+### Computation Journal
+
+`get_computation_journal()` returns recent computation history as an in-memory ring buffer (10 entries). Each entry includes:
+
+- Code preview (first 100 chars) and output preview (first 100 chars)
+- `success`, `timing_ms`, `route_variant`, `execution_path`
+- `transport_status`, `error_families`, `timed_out`, `from_cache`
+
+The journal records raw canonical results **before** response-detail filtering, so it always captures full output previews regardless of `response_detail` setting. Use `clear_computation_journal()` to reset.
+
+### Smart Caching
+
+Pure-System expressions — those referencing only built-in Wolfram functions with no user-defined symbols — are now **epoch-insensitive**: they survive kernel state mutations (`set_variable`, `clear_variables`, etc.) without re-evaluation.
+
+Examples of epoch-insensitive expressions: `Sin[Pi]`, `Integrate[x^2, x]`, `1 + 1`
+
+Examples of epoch-sensitive expressions (correctly invalidated): `f[3]` (user symbol `f`), `Sin[x]` (user symbol `x`), `Names["MyPkg\`*"]` (session-sensitive introspection), `$Packages` (session-sensitive global)
+
+The analysis is memoized (`lru_cache(1024)`) with a single-pass Wolfram scanner that handles nested comments and string literals. Malformed input safely falls back to epoch-sensitive.
+
+### Routing Memory
+
+Routing memory is an opt-in observability layer that learns aggregate routing statistics from `execute_code` calls. No Mathematica code or expressions are stored.
+
+**Modes:**
 
 | Mode | Behavior |
 |------|----------|
 | `off` (default) | No recording, no file I/O, zero overhead |
 | `observe` | Records aggregate counters, persists to disk periodically |
-| `advise` | Observe + planned routing hints in the expert prompt (not yet implemented) |
+| `advise` | Observe + routing hints + enables routing action (if gated) |
 
-Enable with: `MATHEMATICA_ROUTING_MEMORY=observe`
+Enable with: `MATHEMATICA_ROUTING_MEMORY=observe` (or `advise`)
 
-### What it tracks
+**What it tracks:**
 
-Per-cohort counters grouped by `(profile, route_variant)`:
+End-to-end cohort stats grouped by `(profile, route_variant)`, plus optional `expression_type`:
 - **Transport outcomes:** ok, degraded fallback, timeout, infrastructure error
 - **Semantic errors:** error family frequencies (Syntax, Part, Set, etc.)
 - **Latency histogram:** 7 buckets from <50ms to >5s
-- **Execution path breakdown:** addon_notebook, addon_cli, kernel_fallback
+- **Execution path breakdown:** addon_notebook, addon_cli, kernel_fallback, kernel_direct_routing_skip
+
+Attempt-level transport telemetry per transport leg:
+- **Per-path outcomes:** `path_transport_outcomes` tracks typed outcomes (OK, INFRA_ERROR, TIMEOUT, SEMANTIC_ERROR) for each transport path independently
+- **Expression classification:** code classified into routing-relevant categories (plot, frontend_dynamic, symbolic_heavy, numeric_heavy, io, general) for fine-grained cohort analysis
+
+**Transport Leg Matrix:**
+
+| Leg | Attempt telemetry | Final telemetry | Notes |
+|-----|:-:|:-:|-------|
+| addon_notebook | Yes | Yes | Primary notebook path |
+| addon_cli | Yes | Yes | Primary CLI path |
+| kernel_fallback | No | Yes | Last-resort fallback |
+| kernel_direct_routing_skip | No | Yes | Routing decision, not transport |
+
+**Advisory hints** (advise mode only): Built from two sources — transport-path hints (per-path infra/timeout rates) and end-to-end hints (timeout/fallback rates). Structured with severity ordering, deduplication, and 5-hint cap. Available via `get_routing_memory_stats(include_hints=True)`.
+
+### Adaptive Routing Action (opt-in)
+
+When enabled, the server proactively skips transport legs that are persistently failing:
+
+```
+MATHEMATICA_ROUTING_MEMORY=advise
+MATHEMATICA_ROUTING_ACTION=compute_cli_skip
+```
+
+**Both** flags are required. Scoped to compute-only addon_cli bypass (notebook routing is untouched).
+
+**Circuit breaker behavior:**
+- Trips after 5 consecutive `INFRA_ERROR` outcomes on a transport path (timeouts and semantic errors do NOT trip)
+- 60-second cooldown window during which the path is skipped
+- Half-open probe after cooldown: exactly one request is allowed through (concurrency-safe with lock-protected probe-in-flight state)
+- Probe success closes the breaker; probe failure retrips with fresh cooldown
+- Abort (exception before transport attempt) reverts to open without recording a failure or resetting cooldown
+
+When the breaker skips addon_cli, execution goes directly to kernel with a truthful `kernel_direct_routing_skip` execution path (not mislabeled as `kernel_fallback`).
+
+**Observability:** Skip count, last skip reason, and last skip timestamp are available via `get_routing_memory_stats()` (runtime-only, not persisted).
 
 ### Privacy
 
-- No raw Mathematica code or notebook content is stored
+- No full Mathematica code or notebook content is persisted to disk
+- The in-memory journal stores 100-char code/output previews (not persisted)
 - Only aggregate counters and known system error families are persisted
 - User-defined error tags are mapped to `"other"`
 - Storage: `~/.cache/mathematica-mcp/routing_memory.json` (~2-5 KB)
 
-### Tools (full profile only)
+### Tools
 
-When routing memory is enabled and the `full` profile is active, two admin tools are available:
-- `get_routing_memory_stats()` — mode, cohort counts, top error families, file size
-- `clear_routing_memory()` — reset all stats and delete the persisted file
+| Tool | Profile | Description |
+|------|---------|-------------|
+| `get_session_brief()` | all | Compact session state summary |
+| `get_computation_journal()` | all | Recent computation history |
+| `clear_computation_journal()` | all | Reset journal |
+| `get_routing_memory_stats(include_hints=False)` | full | Routing stats + optional hints |
+| `clear_routing_memory()` | full | Reset all routing stats and breaker state |
 
 ### Data lifecycle
 
 - **Exponential decay:** counters are aged with a 7-day half-life so old patterns fade
+- **Zero-value pruning:** decayed counters and empty nested maps are pruned during serialization
 - **Persistence:** atomic JSON writes every 60s (or 200 records), plus on shutdown
 - **Fail-open:** any storage failure disables persistence silently; tools continue working
+- **Schema migration:** v1 files (pre-0.9.0) load cleanly with missing fields defaulting to empty
 
 ---
 

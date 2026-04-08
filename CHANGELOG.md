@@ -2,6 +2,46 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.0] - 2026-04-09
+
+### Added
+
+- **Payload shaping** (`response_detail` parameter on `execute_code`): Four detail levels — `compact` (essential fields only, token-efficient), `standard` (exact backward-compatible default), `verbose` (+ detail_level marker), `diagnostic` (+ cache epoch, routing hints). Compact mode preserves notebook IDs, transport status, error families, and handles graphics placeholders by swapping to `output_inputform`. Large outputs auto-summarized with balanced-brace list element counting. Pure response filter module with no runtime singleton dependencies.
+
+- **Session brief** (`get_session_brief()` tool): Compact ~100-token session state snapshot showing connection mode (addon/kernel_only/disconnected), recent error families (sorted by recency with 24h age cutoff), and routing advice. Uses 500ms addon timeout and never starts a fresh kernel session.
+
+- **Computation journal** (`get_computation_journal()`, `clear_computation_journal()` tools): In-memory ring buffer (10 entries) recording code/output previews, timing, transport status, error families, timed_out, and from_cache for each `execute_code` call. Records raw canonical results before response filtering. Survives context compaction.
+
+- **Smart cache optimization**: Pure-System expressions (no user-defined symbols, no session-sensitive introspection like `Names`, `Contexts`, `$Packages`, `Definition`) are now epoch-insensitive — they survive `set_variable`/`clear_variables` mutations without re-evaluation. Memoized single-pass code analysis with `lru_cache(1024)`, static ~200 builtin allowlist, session-sensitive symbol denylist. Malformed input (unbalanced strings/comments) falls back to epoch-sensitive (safe degradation).
+
+- **Expression classification**: Regex-based classifier categorizes Wolfram code into routing-relevant classes (`plot`, `frontend_dynamic`, `symbolic_heavy`, `numeric_heavy`, `io`, `general`). Strips strings and nested comments before matching. Used for expr-type-specific routing cohorts and transport-path hints.
+
+- **Per-path transport outcomes**: Attempt-level telemetry records each transport leg independently (addon_notebook, addon_cli) with typed `AttemptOutcome` (OK, INFRA_ERROR, TIMEOUT, SEMANTIC_ERROR). Persisted in `path_transport_outcomes` on aggregate cohorts. Fixes the data flow bug where addon failures were invisible after kernel fallback.
+
+- **Routing hints**: Advisory hints built from two sources — transport-path hints (per-path infra/timeout rates from attempt telemetry) and end-to-end hints (timeout/fallback rates from final cohort data). Structured `RoutingHint` records with severity/specificity ordering, deduplication, and 5-hint cap. Available via `get_routing_memory_stats(include_hints=True)` and in `diagnostic` response detail.
+
+- **Conservative routing action** (opt-in): Concurrency-safe half-open circuit breaker that skips persistently failing addon_cli transport legs for compute requests. Requires both `MATHEMATICA_ROUTING_MEMORY=advise` and `MATHEMATICA_ROUTING_ACTION=compute_cli_skip`. Breaker trips on 5 consecutive `INFRA_ERROR` outcomes only (ignores timeouts and semantic errors). 60s cooldown with single-probe recovery. Idempotent finish/abort lifecycle. Skip counter observability in routing stats. Uses truthful `kernel_direct_routing_skip` execution path (not `kernel_fallback`).
+
+- **Transport lifecycle API**: `begin_transport_attempt()` / `finish_transport_attempt()` / `abort_transport_attempt()` API. The primary CLI transport path uses a unified `finish` call that handles both persisted attempt telemetry and breaker state. Idempotent with `_completed` guard. Probe-in-flight concurrency control under lock.
+
+- **Shared Wolfram scanner** (`wl_scan.py`): Single-pass state machine for stripping string literals and nested Mathematica comments. Preserves token boundaries with space replacement. Returns `ScanResult(cleaned, ok)` for safe degradation on malformed input. Also provides balanced-brace top-level element counting (tolerates leading whitespace, rejects trailing content).
+
+- **Shared transport classification** (`transport_classification.py`): Single source of truth for attempt-level and final-level classification. Refactored `_classify_transport()` and `_extract_error_families()` from server.py. Handles non-dict results safely.
+
+- **Shared constants** (`constants.py`): `ExecutionPath` labels and `AttemptOutcome` enum used across server, routing memory, and transport classification.
+
+- **Routing memory schema v2**: Adds `path_transport_outcomes` to cohort stats. Backward-compatible: v1 files load cleanly (missing field defaults to empty dict). Zero-valued counters pruned during decay/serialization to prevent JSON growth.
+
+- **Recent error families API** (`get_recent_error_families()`): Public accessor on routing memory, sorted by `last_seen` (not frequency). Filters `"other"` unless no better candidates. Configurable `max_age_seconds` cutoff.
+
+### Changed
+
+- `execute_code` now accepts `response_detail` parameter (default `"standard"` — exact backward-compatible behavior)
+- `get_routing_memory_stats` now accepts `include_hints` parameter (default `False`)
+- Routing memory `_SCHEMA_VERSION` bumped from 1 to 2 (backward-compatible load)
+- `clear_routing_memory()` now resets runtime-only breaker state and skip counters
+- `FeatureFlags` now includes `routing_action` field (default `"off"`)
+
 ## [0.8.7] - 2026-04-06
 
 ### Fixed

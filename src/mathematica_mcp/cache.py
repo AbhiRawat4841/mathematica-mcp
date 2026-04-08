@@ -1,10 +1,148 @@
+import functools
 import hashlib
+import re
 import time
-from collections import OrderedDict
+from collections import OrderedDict, namedtuple
 from dataclasses import dataclass, field
 from typing import Any
 
 from .config import FEATURES
+from .wl_scan import scan_clean
+
+
+# ---------------------------------------------------------------------------
+# Code analysis — memoized, single-pass
+# ---------------------------------------------------------------------------
+
+_CodeAnalysis = namedtuple("_CodeAnalysis", ["user_symbols", "session_sensitive"])
+
+# Top ~200 System` builtins — static, no symbol_index on hot path
+_SYSTEM_BUILTINS = frozenset({
+    # Core language
+    "If", "Which", "Switch", "Module", "Block", "With", "Do", "For", "While",
+    "Return", "Break", "Continue", "Throw", "Catch", "Goto", "Label", "CompoundExpression",
+    # Constants
+    "True", "False", "Null", "None", "All", "Automatic", "Full", "Infinity",
+    "Pi", "E", "I", "Degree", "GoldenRatio", "EulerGamma",
+    # Math functions
+    "Sin", "Cos", "Tan", "ArcSin", "ArcCos", "ArcTan", "Sinh", "Cosh", "Tanh",
+    "Exp", "Log", "Log2", "Log10", "Sqrt", "Abs", "Sign", "Floor", "Ceiling",
+    "Round", "Max", "Min", "Mod", "Power", "Plus", "Times", "Subtract", "Divide",
+    "Factorial", "Binomial", "Gamma", "Beta",
+    # Algebra
+    "Integrate", "Sum", "Product", "D", "Limit", "Series", "Residue",
+    "Solve", "DSolve", "RSolve", "Reduce", "Eliminate", "Roots",
+    "Simplify", "FullSimplify", "Expand", "Factor", "Apart", "Together", "Cancel",
+    "Collect", "CoefficientList", "Coefficient",
+    # Numeric
+    "N", "NIntegrate", "NSolve", "NDSolve", "FindRoot", "NMinimize", "NMaximize",
+    "LinearSolve", "Eigenvalues", "Eigenvectors", "SingularValueDecomposition",
+    # List/functional
+    "List", "Table", "Range", "Array", "Map", "Apply", "Select", "Cases",
+    "Sort", "SortBy", "Reverse", "Length", "Dimensions", "Flatten", "Partition",
+    "Take", "Drop", "Part", "First", "Last", "Rest", "Most", "Append", "Prepend",
+    "Join", "Union", "Intersection", "Complement", "DeleteDuplicates",
+    "Position", "MemberQ", "FreeQ", "Count", "Total", "Mean", "Median",
+    "Transpose", "Dot", "Cross", "Norm", "Normalize",
+    "Fold", "FoldList", "NestList", "Nest", "FixedPoint", "Through",
+    "Association", "AssociationThread", "KeyValueMap", "Keys", "Values", "Lookup",
+    # Patterns
+    "Pattern", "Blank", "BlankSequence", "BlankNullSequence",
+    "Alternatives", "Repeated", "Condition", "PatternTest",
+    "Rule", "RuleDelayed", "Set", "SetDelayed", "Unset",
+    "MatchQ", "ReplaceAll", "ReplaceRepeated",
+    # Strings
+    "StringQ", "StringJoin", "StringLength", "StringTake", "StringDrop",
+    "StringReplace", "StringCases", "StringSplit", "ToString", "ToExpression",
+    # I/O
+    "Print", "Echo", "Export", "Import", "Get", "Put", "ReadList",
+    "FilePrint", "FileExistsQ", "DirectoryQ",
+    # Graphics
+    "Plot", "Plot3D", "ListPlot", "ListLinePlot", "ListLogPlot",
+    "ContourPlot", "DensityPlot", "ParametricPlot", "RegionPlot",
+    "Graphics", "Graphics3D", "Show", "GraphicsRow", "GraphicsColumn",
+    "BarChart", "PieChart", "Histogram",
+    "Point", "Line", "Circle", "Disk", "Rectangle", "Polygon", "Arrow",
+    "Text", "Inset", "Tooltip", "Labeled",
+    "RGBColor", "Hue", "Red", "Blue", "Green", "Black", "White", "Gray",
+    "Thick", "Thin", "Dashed", "Dotted", "Opacity",
+    "Rasterize", "Image", "ImageSize",
+    # Dynamic
+    "Manipulate", "Dynamic", "DynamicModule", "Animate", "Slider",
+    # Format
+    "InputForm", "FullForm", "TeXForm", "MatrixForm", "TableForm",
+    "NumberForm", "ScientificForm",
+    # Type checking
+    "Head", "IntegerQ", "NumericQ", "ListQ", "AtomQ", "VectorQ", "MatrixQ",
+    "NumberQ", "EvenQ", "OddQ", "PrimeQ", "PositiveQ",
+    # Special
+    "Quiet", "Check", "AbortProtect", "TimeConstrained", "MemoryConstrained",
+    "Timing", "AbsoluteTiming", "Pause",
+    "Random", "RandomReal", "RandomInteger", "RandomChoice", "RandomSample",
+    "SeedRandom", "BlockRandom",
+    # Entity/knowledge
+    "Entity", "EntityValue", "WolframAlpha", "Interpreter",
+    # Data
+    "Dataset", "Query", "GroupBy", "CountsBy",
+})
+
+# Session-sensitive symbols — result changes across kernel mutations even
+# though no user symbol appears in the expression
+_SESSION_SENSITIVE = frozenset({
+    "Names", "Contexts", "Options", "Attributes", "Definition",
+    "OwnValues", "DownValues", "SubValues", "UpValues", "FormatValues",
+    "Messages", "Information", "Symbol",
+})
+
+_IDENTIFIER_RE = re.compile(r"\b(\$?[a-zA-Z][a-zA-Z0-9$]*)\b")
+
+
+@functools.lru_cache(maxsize=1024)
+def _analyze_code(normalized_code: str) -> _CodeAnalysis:
+    """Analyze Wolfram code for user symbols and session-sensitive references.
+
+    Memoized by normalized code string for hot-path efficiency.
+    Uses wl_scan for string/comment stripping.
+    """
+    scan = scan_clean(normalized_code)
+    if not scan.ok:
+        # Malformed input → treat as epoch-sensitive (safe degradation)
+        return _CodeAnalysis(user_symbols=frozenset({"__malformed__"}), session_sensitive=True)
+
+    cleaned = scan.cleaned
+
+    # Check session-sensitive symbols
+    session_sensitive = False
+    for sym in _SESSION_SENSITIVE:
+        if re.search(rf"\b{sym}\b", cleaned):
+            session_sensitive = True
+            break
+    # Also check $-prefixed globals
+    if not session_sensitive and re.search(r"\$[A-Z][a-zA-Z]+", cleaned):
+        session_sensitive = True
+
+    # Extract identifiers and filter out system builtins
+    all_ids = set(_IDENTIFIER_RE.findall(cleaned))
+    user_symbols = frozenset(all_ids - _SYSTEM_BUILTINS - _SESSION_SENSITIVE)
+
+    return _CodeAnalysis(user_symbols=user_symbols, session_sensitive=session_sensitive)
+
+
+def _is_epoch_insensitive(code: str) -> bool:
+    """Return True if an expression is safe to cache across epoch bumps.
+
+    An expression is epoch-insensitive only when:
+    - wl_scan reports well-formed code (ok=True)
+    - no user-defined symbols are referenced
+    - no session-sensitive system symbols are referenced
+    """
+    analysis = _analyze_code(" ".join(code.split()))
+    return len(analysis.user_symbols) == 0 and not analysis.session_sensitive
+
+
+# ---------------------------------------------------------------------------
+# Expression cache
+# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -70,9 +208,12 @@ class QueryCache:
         context_key: str | None,
     ) -> str:
         normalized = " ".join(code.split())
+        # Epoch-insensitive expressions (pure System, no user symbols, no session-sensitive)
+        # omit epoch from hash key so they survive kernel state mutations
+        epoch_part = "" if _is_epoch_insensitive(code) else f"|epoch={_kernel_epoch}"
         options = (
             f"|fmt={output_format}|gfx={int(render_graphics)}|seed={deterministic_seed}"
-            f"|ctx={context_key}|epoch={_kernel_epoch}"
+            f"|ctx={context_key}{epoch_part}"
         )
         return hashlib.sha256((normalized + options).encode()).hexdigest()[:16]
 

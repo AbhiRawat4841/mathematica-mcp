@@ -121,6 +121,17 @@ def _resolve_routing_memory() -> str:
     return explicit if explicit in _VALID_ROUTING_MEMORY_MODES else "off"
 
 
+_VALID_ROUTING_ACTIONS = frozenset({"off", "compute_cli_skip"})
+
+
+def _resolve_routing_action(routing_memory: str) -> str:
+    """Resolve routing action from env. Forced to 'off' unless routing_memory='advise'."""
+    if routing_memory != "advise":
+        return "off"
+    explicit = os.getenv("MATHEMATICA_ROUTING_ACTION", "").strip().lower()
+    return explicit if explicit in _VALID_ROUTING_ACTIONS else "off"
+
+
 @dataclass(frozen=True)
 class FeatureFlags:
     profile: str
@@ -134,6 +145,7 @@ class FeatureFlags:
     telemetry: bool
     cache_tools: bool
     routing_memory: str  # "off" | "observe" | "advise"
+    routing_action: str  # "off" | "compute_cli_skip" (requires advise)
     default_output_target: str
 
     @classmethod
@@ -143,6 +155,7 @@ class FeatureFlags:
             profile = "full"
         expression_cache = _resolve_feature("expression_cache", profile)
         telemetry = _resolve_feature("telemetry", profile)
+        routing_memory = _resolve_routing_memory()
         return cls(
             profile=profile,
             tool_groups=PROFILE_TOOL_GROUPS[profile],
@@ -154,7 +167,8 @@ class FeatureFlags:
             expression_cache=expression_cache,
             telemetry=telemetry,
             cache_tools=expression_cache and profile == "full",
-            routing_memory=_resolve_routing_memory(),
+            routing_memory=routing_memory,
+            routing_action=_resolve_routing_action(routing_memory),
             default_output_target="cli" if profile == "math" else "notebook",
         )
 
@@ -177,6 +191,7 @@ class FeatureFlags:
             "expression_cache": self.expression_cache,
             "cache_tools": self.cache_tools,
             "routing_memory": self.routing_memory,
+            "routing_action": self.routing_action,
             "telemetry": self.telemetry,
         }
 

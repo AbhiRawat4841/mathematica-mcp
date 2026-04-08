@@ -420,6 +420,11 @@ def get_kernel_session():
         return None
 
 
+def has_existing_kernel_session() -> bool:
+    """Best-effort check if a cached kernel session exists. Does not verify liveness."""
+    return _kernel_session is not None and not _use_wolframscript
+
+
 def close_kernel_session():
     global _kernel_session, _last_kernel_health_check
     if _kernel_session is not None:

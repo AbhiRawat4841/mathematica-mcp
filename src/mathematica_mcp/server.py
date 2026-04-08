@@ -132,88 +132,21 @@ def _json_response(payload: Any) -> str:
 
 _routing_mem = None  # set during startup if routing_memory != "off"
 
+# Journal singleton — records computation history before response filtering
+_journal = None  # type: ignore[assignment]
+
 
 # ---------------------------------------------------------------------------
 # Transport status classification
 # ---------------------------------------------------------------------------
 
 
-class _TransportStatus:
-    OK = "ok"
-    DEGRADED_FALLBACK = "degraded_fallback"
-    TIMEOUT = "timeout"
-    INFRA_ERROR = "infra_error"
-
-
-_ACTIONABLE_ERROR_FAMILIES = frozenset(
-    {
-        "Syntax",
-        "Part",
-        "Set",
-        "Power",
-        "Divide",
-        "Recursion",
-        "UnitConvert",
-    }
+from .constants import ExecutionPath as _EP
+from .transport_classification import (
+    TransportStatus as _TransportStatus,
+    classify_final_transport as _classify_transport,
+    extract_error_families as _extract_error_families,
 )
-
-_TAG_RE = re.compile(r"(\w+)::\w+")
-
-
-def _extract_error_families(response: dict) -> list[str]:
-    """Best-effort semantic tag extraction from all available response fields."""
-    families: set[str] = set()
-
-    # Notebook path: structured messages with tag/text/type dicts
-    for msg in response.get("messages", []):
-        if isinstance(msg, dict) and msg.get("type") == "error":
-            tag = msg.get("tag", "")
-            family = tag.split("::")[0] if "::" in tag else ""
-            if family in _ACTIONABLE_ERROR_FAMILIES:
-                families.add(family)
-            elif family and family != "General":
-                families.add("other")
-
-    # Kernel/CLI path: raw warning strings
-    for w in response.get("warnings", []):
-        if isinstance(w, str):
-            for match in _TAG_RE.findall(w):
-                if match in _ACTIONABLE_ERROR_FAMILIES:
-                    families.add(match)
-                elif match != "General":
-                    families.add("other")
-
-    # Fallback: scan error field
-    if not families:
-        error_text = response.get("error", "")
-        if isinstance(error_text, str):
-            for match in _TAG_RE.findall(error_text):
-                if match in _ACTIONABLE_ERROR_FAMILIES:
-                    families.add(match)
-
-    # Last resort: scan output ONLY if success=False AND error is empty
-    if not families and response.get("success") is False and not response.get("error"):
-        output_text = response.get("output", "")
-        if isinstance(output_text, str):
-            for match in _TAG_RE.findall(output_text):
-                if match in _ACTIONABLE_ERROR_FAMILIES:
-                    families.add(match)
-
-    return sorted(families)
-
-
-def _classify_transport(response: dict, *, fell_back: bool) -> str:
-    """Classify transport status from final result + extracted error families."""
-    if response.get("timed_out"):
-        return _TransportStatus.TIMEOUT
-    if response.get("success") is False:
-        # Semantic families found → transport worked, math failed
-        if response.get("error_families"):
-            return _TransportStatus.DEGRADED_FALLBACK if fell_back else _TransportStatus.OK
-        return _TransportStatus.INFRA_ERROR
-    if fell_back:
-        return _TransportStatus.DEGRADED_FALLBACK
-    return _TransportStatus.OK
 
 
 def _finalize_execute_response(
@@ -223,6 +156,8 @@ def _finalize_execute_response(
     execution_path: str,
     fell_back: bool,
     start_time: float,
+    response_detail: str = "standard",
+    expression_type: str | None = None,
 ) -> str:
     """Normalize execute_code response and optionally record routing stats."""
     import time as _time
@@ -234,11 +169,44 @@ def _finalize_execute_response(
     response["error_families"] = _extract_error_families(response)
     # Then classify — uses error_families to avoid misclassifying semantic failures
     response["transport_status"] = _classify_transport(response, fell_back=fell_back)
-    _maybe_record_routing(response, route_variant=route_variant)
-    return _json_response(response)
+    _maybe_record_routing(response, route_variant=route_variant, expression_type=expression_type)
+
+    # Journal recording — BEFORE response filtering (captures raw canonical result)
+    if _journal is not None:
+        with contextlib.suppress(Exception):
+            _journal.record(
+                code=response.get("code", ""),
+                output=response.get("output", ""),
+                success=response.get("success", response.get("status") == "executed_in_notebook"),
+                timing_ms=response.get("overall_timing_ms", 0),
+                route_variant=route_variant,
+                execution_path=execution_path,
+                transport_status=response.get("transport_status", ""),
+                error_families=response.get("error_families"),
+                timed_out=response.get("timed_out", False),
+                from_cache=response.get("from_cache", False),
+            )
+
+    # Response detail filtering — applied LAST (after routing + journal recording)
+    from .cache import get_kernel_epoch
+    from .response_filter import _filter_response
+
+    _diag_hints = None
+    if response_detail == "diagnostic" and _routing_mem is not None:
+        _diag_hints = _routing_mem.get_routing_hints(FEATURES.profile) or None
+
+    filtered = _filter_response(
+        response,
+        response_detail,
+        cache_epoch=get_kernel_epoch() if response_detail == "diagnostic" else None,
+        routing_hints=_diag_hints,
+    )
+    return _json_response(filtered)
 
 
-def _maybe_record_routing(response: dict, *, route_variant: str) -> None:
+def _maybe_record_routing(
+    response: dict, *, route_variant: str, expression_type: str | None = None
+) -> None:
     """Fire-and-forget routing stat recording. Never raises."""
     if _routing_mem is None:
         return
@@ -250,6 +218,7 @@ def _maybe_record_routing(response: dict, *, route_variant: str) -> None:
             transport_status=response.get("transport_status", "ok"),
             latency_ms=response.get("overall_timing_ms", 0),
             error_families=response.get("error_families", []),
+            expression_type=expression_type,
         )
 
 
@@ -577,6 +546,42 @@ async def get_mathematica_status() -> str:
             )
 
 
+@_tool("core")
+async def get_session_brief() -> str:
+    """Compact session state summary: connection, profile, recent errors, routing advice."""
+    from .guidance import build_session_brief
+    from .session import has_existing_kernel_session
+
+    # Determine connection mode with short timeout
+    connection_mode = "disconnected"
+    try:
+        result = await _addon_result("get_status", timeout=0.5)
+        if result.get("success") is not False:
+            connection_mode = "addon"
+        else:
+            # Addon returned failure — check for kernel session
+            if await _run_blocking(has_existing_kernel_session):
+                connection_mode = "kernel_only"
+    except Exception:
+        if await _run_blocking(has_existing_kernel_session):
+            connection_mode = "kernel_only"
+
+    # Gather routing hints and recent errors
+    routing_hints: list[str] = []
+    recent_errors: list[str] = []
+    if _routing_mem is not None:
+        if _routing_mem.mode == "advise":
+            routing_hints = _routing_mem.get_routing_hints(FEATURES.profile)[:2]
+        recent_errors = _routing_mem.get_recent_error_families(limit=3, max_age_seconds=86400)
+
+    return build_session_brief(
+        FEATURES,
+        connection_mode=connection_mode,
+        routing_hints=routing_hints,
+        recent_errors=recent_errors,
+    )
+
+
 @_tool("notebook_primary")
 async def get_notebooks() -> str:
     """List all open Mathematica notebooks. Returns ID, filename, title."""
@@ -750,6 +755,7 @@ async def execute_code(
     sync_wait: float = 2,
     *,
     style: Literal["compute", "notebook", "interactive"] | None = None,
+    response_detail: Literal["compact", "standard", "verbose", "diagnostic"] = "standard",
 ) -> str:
     """Execute Wolfram Language code."""
     import time as _time
@@ -767,6 +773,13 @@ async def execute_code(
         route_variant = "notebook_frontend"
     else:
         route_variant = "notebook_kernel"
+
+    # Expression classification for routing telemetry
+    _expr_type: str | None = None
+    if _routing_mem is not None:
+        from .routing_memory import _classify_expression
+
+        _expr_type = _classify_expression(code)
 
     if output_target == "notebook":
         try:
@@ -820,6 +833,8 @@ async def execute_code(
                     execution_path="addon_notebook",
                     fell_back=False,
                     start_time=_exec_start,
+                    response_detail=response_detail,
+                    expression_type=_expr_type,
                 )
 
             if result.get("success"):
@@ -908,12 +923,22 @@ async def execute_code(
                     execution_path="addon_notebook",
                     fell_back=False,
                     start_time=_exec_start,
+                    response_detail=response_detail,
+                    expression_type=_expr_type,
                 )
             else:
                 raise RuntimeError(result.get("error", "Atomic notebook execution failed"))
 
         except Exception as e:
             logger.warning(f"Notebook execution failed: {e}. Falling back to CLI.")
+
+            # Record addon_notebook failure in attempt telemetry
+            if _routing_mem is not None:
+                from .constants import AttemptOutcome as _AO
+
+                _routing_mem.record_transport_attempt(
+                    FEATURES.profile, route_variant, _EP.ADDON_NOTEBOOK, _AO.INFRA_ERROR
+                )
 
             # Fallback to CLI execution with auto-rasterization for graphics
             try:
@@ -929,6 +954,16 @@ async def execute_code(
                     params["deterministic_seed"] = deterministic_seed
                 socket_timeout = float(timeout) + 10.0
                 result = await _addon_result("execute_code", params, timeout=socket_timeout)
+
+                # Record addon_cli attempt telemetry for notebook fallback
+                if _routing_mem is not None:
+                    from .transport_classification import classify_attempt_outcome as _classify_att
+
+                    _routing_mem.record_transport_attempt(
+                        FEATURES.profile, route_variant, _EP.ADDON_CLI,
+                        _classify_att(result),
+                    )
+
                 if isinstance(result, dict):
                     result["note"] = "Executed via CLI (notebook error)."
                     result["executed_output_target"] = "cli"
@@ -941,9 +976,19 @@ async def execute_code(
                         execution_path="addon_cli",
                         fell_back=True,
                         start_time=_exec_start,
+                        response_detail=response_detail,
+                        expression_type=_expr_type,
                     )
                 return f"{result}\n(Note: Executed via CLI due to notebook error)"
             except Exception:
+                # Record addon_cli infra error for notebook fallback
+                if _routing_mem is not None:
+                    from .constants import AttemptOutcome as _AO
+
+                    _routing_mem.record_transport_attempt(
+                        FEATURES.profile, route_variant, _EP.ADDON_CLI, _AO.INFRA_ERROR
+                    )
+
                 result = await _run_blocking(
                     execute_in_kernel,
                     code,
@@ -966,7 +1011,45 @@ async def execute_code(
                     execution_path="kernel_fallback",
                     fell_back=True,
                     start_time=_exec_start,
+                    response_detail=response_detail,
+                    expression_type=_expr_type,
                 )
+
+    # Check breaker before attempting addon_cli
+    _cli_lease = None
+    _routing_skipped = False
+    if _routing_mem is not None:
+        _cli_lease = _routing_mem.begin_transport_attempt(
+            FEATURES.profile, route_variant, _EP.ADDON_CLI
+        )
+        if _cli_lease.action == "skip":
+            _routing_skipped = True
+
+    if _routing_skipped:
+        # Breaker says skip addon_cli — go straight to kernel
+        result = await _run_blocking(
+            execute_in_kernel,
+            code,
+            format,
+            render_graphics=render_graphics,
+            deterministic_seed=deterministic_seed,
+            session_id=session_id,
+            isolate_context=isolate_context,
+            timeout=timeout,
+        )
+        result["executed_output_target"] = "cli"
+        if style is not None:
+            result["requested_style"] = style
+        _attach_image_if_valid(result)
+        return _finalize_execute_response(
+            result,
+            route_variant=route_variant,
+            execution_path=_EP.KERNEL_DIRECT_ROUTING_SKIP,
+            fell_back=False,
+            start_time=_exec_start,
+            response_detail=response_detail,
+            expression_type=_expr_type,
+        )
 
     params = {
         "code": code,
@@ -979,7 +1062,33 @@ async def execute_code(
     if deterministic_seed is not None:
         params["deterministic_seed"] = deterministic_seed
     socket_timeout = float(timeout) + 10.0
-    result = await _addon_result("execute_code", params, timeout=socket_timeout)
+
+    _lease_completed = False
+    try:
+        result = await _addon_result("execute_code", params, timeout=socket_timeout)
+
+        # Unified lifecycle: records attempt telemetry + handles probe
+        if _routing_mem is not None and _cli_lease is not None:
+            from .transport_classification import classify_attempt_outcome
+
+            _attempt_outcome = classify_attempt_outcome(result)
+            _routing_mem.finish_transport_attempt(
+                _cli_lease, _attempt_outcome, profile=FEATURES.profile
+            )
+            _lease_completed = True
+    except Exception:
+        if _routing_mem is not None and _cli_lease is not None:
+            from .constants import AttemptOutcome as _AO
+
+            _routing_mem.finish_transport_attempt(
+                _cli_lease, _AO.INFRA_ERROR, profile=FEATURES.profile
+            )
+            _lease_completed = True
+        raise
+    finally:
+        if _cli_lease is not None and not _lease_completed:
+            _routing_mem.abort_transport_attempt(_cli_lease)
+
     # Check if addon command succeeded, otherwise fall back to kernel
     _cli_fell_back = False
     if result.get("success") is False or "error" in result:
@@ -1002,9 +1111,11 @@ async def execute_code(
     return _finalize_execute_response(
         result,
         route_variant=route_variant,
-        execution_path="kernel_fallback" if _cli_fell_back else "addon_cli",
+        execution_path=_EP.KERNEL_FALLBACK if _cli_fell_back else _EP.ADDON_CLI,
         fell_back=_cli_fell_back,
         start_time=_exec_start,
+        response_detail=response_detail,
+        expression_type=_expr_type,
     )
 
 
@@ -2357,6 +2468,23 @@ async def get_feature_status() -> str:
     )
 
 
+@_tool("debug")
+async def get_computation_journal() -> str:
+    """Get recent computation history: code previews, outputs, timing, success status."""
+    if _journal is None:
+        return _json_response({"success": False, "error": "Journal not initialized"})
+    return _json_response({"success": True, **_journal.to_dict()})
+
+
+@_tool("debug")
+async def clear_computation_journal() -> str:
+    """Clear the computation journal."""
+    if _journal is None:
+        return _json_response({"success": False, "error": "Journal not initialized"})
+    _journal.clear()
+    return _json_response({"success": True, "message": "Computation journal cleared."})
+
+
 _apply_guidance_docs()
 _register_core_tools()
 _register_optional_tools()
@@ -2366,6 +2494,11 @@ if FEATURES.routing_memory != "off":
     from .routing_memory import init as _init_routing
 
     _routing_mem = _init_routing(FEATURES.routing_memory)
+
+# Initialize journal
+from .journal import ComputationJournal
+
+_journal = ComputationJournal()
 
 
 @mcp.prompt()

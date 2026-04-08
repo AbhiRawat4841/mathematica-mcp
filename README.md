@@ -1,6 +1,8 @@
 # Mathematica MCP
 
-**Give your AI Agent the power of Wolfram Language.**
+**Turn Mathematica into a first-class tool for AI agents.**
+
+Run symbolic math, generate plots, control live notebooks, and inspect results — from Claude, Cursor, VS Code, Codex, or Gemini.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
@@ -11,32 +13,71 @@
 
 ---
 
-## Who This Is For
-
-| Audience | Use Case |
-|----------|----------|
-| Researchers using LLM coding assistants | Run Mathematica from Claude/Cursor/VS Code without leaving your editor |
-| Data scientists | Import, transform, and visualize data through natural language |
-| Educators | Create interactive Mathematica notebooks through AI conversation |
-| **Not for** | Production web services, untrusted multi-tenant environments |
-
----
-
-## What is this?
-
-An **MCP Server** that gives AI agents a direct interface to your local **Wolfram Engine**. ~79 tools across configurable profiles (varies by feature flags) for symbolic reasoning, visualization, and notebook control.
-
 ### Watch it in action
 
 [![Mathematica MCP Demo](https://img.youtube.com/vi/TjGSkvVyc1Y/0.jpg)](https://www.youtube.com/watch?v=TjGSkvVyc1Y)
 
 ---
 
+## Why This Exists
+
+LLMs can write Mathematica code, but they can't run it, verify it, or interact with live notebooks. This MCP server bridges that gap:
+
+- **Live notebook control** — create, edit, evaluate, and screenshot Mathematica notebooks directly from your AI agent. Not code generation; actual execution in a running Mathematica instance.
+- **Symbolic + numeric + visual in one MCP** — ~79 tools covering algebra, calculus, differential equations, plotting, data import/export, Wolfram Alpha queries, and interactive Manipulate UIs.
+- **Agent-optimized** — execution styles, compact response shaping, session state tools, and computation journaling designed for how LLM agents actually work.
+- **Local and private** — a local MCP server connecting to your running Mathematica instance. Everything runs on your machine. No code leaves your environment. No cloud dependencies.
+
+> Ask your agent for a derivation, a 3D plot, a notebook edit, or a verification step — and it can actually do it.
+
+---
+
+## What Your Agent Can Do
+
+**"Integrate x^2 sin(x) from 0 to pi, then verify the result."**
+
+```text
+execute_code("Integrate[x^2 Sin[x], {x, 0, Pi}]")  =>  -4 + Pi^2
+verify_derivation(steps=["Integrate[...", "-4 + Pi^2"])  =>  All steps valid
+```
+
+**"Plot the sombrero function in a new notebook."**
+
+```text
+create_notebook(title="Sombrero")
+execute_code("Plot3D[Sinc[Sqrt[x^2+y^2]], {x,-4,4}, {y,-4,4}]", style="notebook")
+=> [3D surface plot rendered in live notebook]
+```
+
+**"Interactive: slider for Sin[n x]"**
+
+```text
+execute_code("Manipulate[Plot[Sin[n x],{x,0,2Pi}],{n,1,10}]", style="interactive")
+=> [Live slider UI in Mathematica frontend]
+```
+
+Beyond these: **data import/export** (hundreds of formats), **Wolfram Alpha queries**, **notebook reading/analysis**, **symbolic debugging**, and more. See the [Technical Reference](docs/technical-reference.md) for the full tool list.
+
+---
+
+## How It Compares
+
+| Capability | Plain LLM | Copy-paste to Mathematica | **This MCP** |
+|------------|:---------:|:-------------------------:|:------------:|
+| Write Mathematica code | Yes | Yes | Yes |
+| Execute and return results | No | Manual | **Automatic** |
+| Generate plots/images | No | Manual | **Inline in chat** |
+| Control live notebooks | No | No | **Yes** |
+| Verify derivations | No | Manual | **One tool call** |
+| Interactive UIs (sliders) | No | Manual | **Yes** |
+| Session state awareness | No | No | **Yes** |
+| Private / local execution | N/A | Yes | **Yes** |
+
+---
+
 ## Quick Start
 
 ### Prerequisites
-
-Before installing, you need:
 
 1. **Mathematica 14.0+** with `wolframscript` in your PATH
    - [Download Mathematica](https://www.wolfram.com/mathematica/)
@@ -47,7 +88,7 @@ Before installing, you need:
    curl -LsSf https://astral.sh/uv/install.sh | sh
    ```
 
-### One-Command Setup (Recommended)
+### One-Command Setup
 
 ```bash
 # For Claude Desktop
@@ -80,8 +121,8 @@ Then restart Mathematica and your editor. Done!
 > **Prerequisite:** [GitHub Copilot Chat](https://marketplace.visualstudio.com/items?itemName=GitHub.copilot-chat) extension must be installed - MCP support is built into Copilot.
 
 1. Press `Cmd+Shift+P` (Mac) / `Ctrl+Shift+P` (Windows)
-2. Type "MCP" → Select **"MCP: Add Server"**
-3. Choose **"Command (stdio)"** — *not "pip"*
+2. Type "MCP" -> Select **"MCP: Add Server"**
+3. Choose **"Command (stdio)"** -- *not "pip"*
 4. Enter command: `uvx`
 5. Enter args: `mathematica-mcp-full`
 6. Name it: `mathematica`
@@ -89,11 +130,14 @@ Then restart Mathematica and your editor. Done!
 
 </details>
 
-### Alternative: Interactive Installer
+<details>
+<summary>Alternative: Interactive Installer</summary>
 
 ```bash
 bash <(curl -sSL https://raw.githubusercontent.com/AbhiRawat4841/mathematica-mcp/main/install.sh)
 ```
+
+</details>
 
 ### Verify Installation
 
@@ -106,14 +150,65 @@ uvx mathematica-mcp-full doctor
 > uv cache clean mathematica-mcp-full && uvx mathematica-mcp-full setup <client>
 > ```
 
-### Tool Profiles
+---
 
-Choose how many tools to expose: `math` (~25 tools), `notebook` (~45), or `full` (~79, default).
-Pass `--profile` during setup or set `MATHEMATICA_PROFILE` env var. See the **[Technical Reference](docs/technical-reference.md#tool-profiles)** for details.
+## Execution Styles
 
-### Routing Memory (opt-in)
+Control where results appear with natural language or the `style` parameter:
 
-Enable `MATHEMATICA_ROUTING_MEMORY=observe` to collect aggregate routing statistics from `execute_code` calls — transport success rates, latency histograms, and recurring error families. No Mathematica code or expressions are stored. This improves observability today and lays the groundwork for future adaptive routing hints. See the **[Technical Reference](docs/technical-reference.md#routing-memory)** for details.
+| Say this... | `style=` | What happens |
+|-------------|----------|-------------|
+| "calculate ...", "compute ...", "what is ..." | `"compute"` | Result appears as text in chat |
+| "plot ...", "show ...", "in notebook ..." | `"notebook"` | Executes in the current Mathematica notebook |
+| "in new notebook: ..." | *two-step* | `create_notebook()` then `execute_code(style="notebook")` |
+| "interactive ...", "manipulate ..." | `"interactive"` | Live front-end evaluation (sliders, animations) |
+
+If you don't include a keyword, the default depends on your [tool profile](#tool-profiles).
+
+---
+
+## Tool Profiles
+
+Choose how many tools to expose:
+
+| Profile | Tools | Best for |
+|---------|-------|----------|
+| `math` | ~25 | Pure computation, no notebook UI |
+| `notebook` | ~45 | + notebook read/write/screenshot |
+| `full` (default) | ~79 | + advanced notebook ops, repositories, admin |
+
+Pass `--profile` during setup or set `MATHEMATICA_PROFILE` env var.
+
+---
+
+## Built for Long Agent Sessions
+
+The server is designed for how LLM agents actually work — long conversations with context limits, intermittent failures, and token budgets:
+
+| Feature | What it does | How to use |
+|---------|-------------|------------|
+| **Compact Responses** | Strip verbose metadata, keep essentials. Saves tokens. | `response_detail="compact"` on `execute_code` |
+| **Session Brief** | One-call snapshot: connection status, recent errors, routing advice | `get_session_brief()` |
+| **Computation Journal** | Ring buffer of recent computations — helps agents recover context across long conversations | `get_computation_journal()` |
+| **Smart Caching** | Pure expressions (`Sin[Pi]`) survive variable mutations without re-evaluation | Always on |
+| **Diagnostic Mode** | Full response + cache epoch + routing hints for debugging | `response_detail="diagnostic"` |
+
+### Routing Intelligence (opt-in)
+
+For power users, the server can learn from transport outcomes and adapt:
+
+```bash
+# Observe mode: collect stats, no behavior change
+export MATHEMATICA_ROUTING_MEMORY=observe
+
+# Advise mode: + routing hints + enables adaptive routing
+export MATHEMATICA_ROUTING_MEMORY=advise
+export MATHEMATICA_ROUTING_ACTION=compute_cli_skip  # optional: skip failing transport
+```
+
+The adaptive routing circuit-breaker automatically skips persistently failing compute CLI transport with half-open probe recovery. See the [Technical Reference](docs/technical-reference.md#intelligent-routing--observability) for details.
+
+> **Privacy:** No full Mathematica code or notebook content is persisted to disk. Routing memory stores only aggregate counters; the in-memory journal stores short code/output previews (not persisted).
 
 ---
 
@@ -141,109 +236,27 @@ For full details, troubleshooting, and advanced configuration, see the **[Instal
 
 </details>
 
-📖 See the **[Installation Guide](docs/installation.md)** for troubleshooting and advanced setup.
-
 ---
 
-## What You Can Do
+## Who This Is For
 
-### 1. Solve and Verify a Calculus Problem
-
-> "Integrate x^2 sin(x) from 0 to pi, then verify by differentiating."
-
-```text
-Agent calls: execute_code("Integrate[x^2 Sin[x], {x, 0, Pi}]")
-=> -4 + Pi^2
-
-Agent calls: verify_derivation(
-  steps=["Integrate[x^2 Sin[x], {x, 0, Pi}]", "-4 + Pi^2"]
-)
-=> {"success": true, "report": "Step 1 → 2: ✓ VALID\n...\n**Summary**: All steps are valid!", "raw_data": {...}, "format": "text"}
-```
-
-### 2. Generate a 3D Plot
-
-> "Plot the sombrero function and export it."
-
-```text
-Agent calls: execute_code("Plot3D[Sinc[Sqrt[x^2 + y^2]], {x, -4, 4}, {y, -4, 4}]")
-=> [3D surface plot rendered as image]
-
-Agent calls: export_graphics("Plot3D[Sinc[Sqrt[x^2+y^2]], {x,-4,4}, {y,-4,4}]", "/tmp/sombrero.png", "PNG")
-```
-
-### 3. Read and Analyze a Notebook
-
-> "Show me the outline of SinPlot.nb, then extract the code cells."
-
-```text
-Agent calls: read_notebook("SinPlot.nb", output_format="outline")
-=> {"success": true, "format": "outline", "section_count": 0, "sections": []}
-
-Agent calls: read_notebook("SinPlot.nb", output_format="json")
-=> {"success": true, "cell_count": 2, "code_cells": 1, "cells": [{"style": "Input", "content": "Plot[Sin[x], {x, 0, 2 Pi}]"}, ...]}
-```
-
-Beyond these workflows: **symbolic computation**, **2D/3D visualization**, **notebook operations**, **Wolfram Alpha queries**, **data import/export** (hundreds of Wolfram-supported formats), and **debugging tools**. See the [Technical Reference](docs/technical-reference.md) for the full tool list.
-
----
-
-## Execution Styles
-
-### For chat users — use keywords in your prompt
-
-| Say this...                                        | What happens                                       |
-|----------------------------------------------------|----------------------------------------------------|
-| **"calculate ..."**, **"compute ..."**, **"what is ..."** | Result appears as text in chat              |
-| **"plot ..."**, **"show ..."**, **"in notebook ..."**     | Executes in the current Mathematica notebook |
-| **"in new notebook: ..."**                         | Creates a fresh notebook, then executes there      |
-| **"interactive ..."**, **"manipulate ..."**, **"dynamic ..."** | Live front-end evaluation (sliders, animations) |
-
-### For tool callers — use the `style` parameter
-
-| `style=`        | `output_target` | `mode`     | Best for                           |
-|-----------------|-----------------|------------|------------------------------------|
-| `"compute"`     | cli             | kernel     | Math, algebra, parsing results     |
-| `"notebook"`    | notebook        | kernel     | Plots, visual artifacts            |
-| `"interactive"` | notebook        | frontend   | Manipulate, Dynamic, animations    |
-
-`style` is a high-level shortcut for `output_target` + `mode`. Individual params still work and override style.
-
-> **Note:** There is no `style="new_notebook"`. Creating a fresh notebook is a two-step workflow:
-> `create_notebook(title="...")` then `execute_code(style="notebook")`.
-
-### Examples
-
-```text
-"Calculate the integral of x^3 from 0 to 1"
-  → Result appears inline in chat
-
-"Plot Sin[x] from 0 to 2π"
-  → Plot appears in current Mathematica notebook
-
-"In new notebook: integrate 1/x^5 + x^7 and plot the integration region"
-  → Fresh notebook is created with the work
-
-"Interactive: Manipulate a slider for Plot[Sin[n x], {x, 0, 2π}]"
-  → Dynamic UI with sliders in notebook
-```
-
-If you don't include a keyword, the default mode depends on your [tool profile](#tool-profiles): `notebook` profiles default to notebook output, `math` profile defaults to inline.
-
-### Built-in MCP Prompts
-
-This server exposes several MCP prompts, including `calculate`, `notebook`, `new_notebook`, `interactive`, and `quickstart` (plus `mathematica_expert`). Some MCP clients may surface these prompts in their UI, but support varies by client and version. If your client does not expose prompt selection, use the style keywords directly in your message instead.
+| Audience | Use Case |
+|----------|----------|
+| Researchers using LLM coding assistants | Run Mathematica from Claude/Cursor/VS Code without leaving your editor |
+| Data scientists | Import, transform, and visualize data through natural language |
+| Educators | Create interactive Mathematica notebooks through AI conversation |
+| **Not for** | Production web services, untrusted multi-tenant environments |
 
 ---
 
 ## Documentation
 
-*   **[Technical Reference](docs/technical-reference.md)** — Architecture, tools, and configuration
-*   **[Security Model](SECURITY.md)** — Threat model, permissions, and vulnerability reporting
-*   **[Benchmarks](docs/benchmarks.md)** — Performance data and reproduction steps
-*   **[Contributing](CONTRIBUTING.md)** — Development setup, testing, and PR process
-*   **[Changelog](CHANGELOG.md)** — Version history
-*   **[Examples](docs/examples/)** — Polished agent session walkthroughs
+*   **[Technical Reference](docs/technical-reference.md)** -- Architecture, tools, and configuration
+*   **[Security Model](SECURITY.md)** -- Threat model, permissions, and vulnerability reporting
+*   **[Benchmarks](docs/benchmarks.md)** -- Performance data and reproduction steps
+*   **[Contributing](CONTRIBUTING.md)** -- Development setup, testing, and PR process
+*   **[Changelog](CHANGELOG.md)** -- Version history
+*   **[Examples](docs/examples/)** -- Polished agent session walkthroughs
 
 ---
 

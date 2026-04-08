@@ -105,3 +105,51 @@ def test_math_profile_command_omits_notebook_flows():
     assert 'style="compute"' in command
     assert 'style="notebook"' not in command
     assert 'style="interactive"' not in command
+
+
+# ---------------------------------------------------------------------------
+# Session brief
+# ---------------------------------------------------------------------------
+
+
+def test_session_brief_includes_profile_and_connection():
+    guidance, features = _reload_guidance("full")
+    brief = guidance.build_session_brief(features, connection_mode="addon")
+    assert "full" in brief
+    assert "addon" in brief
+
+
+def test_session_brief_recent_errors_shown():
+    guidance, features = _reload_guidance("full")
+    brief = guidance.build_session_brief(features, recent_errors=["Syntax::sntxi", "Part::partw"])
+    assert "Syntax" in brief
+    assert "Part" in brief
+
+
+def test_session_brief_no_errors_says_none():
+    guidance, features = _reload_guidance("full")
+    brief = guidance.build_session_brief(features, recent_errors=[])
+    assert "none" in brief.lower()
+
+
+def test_session_brief_routing_hints_shown():
+    guidance, features = _reload_guidance("full")
+    brief = guidance.build_session_brief(features, routing_hints=["Plot timeout 40%"])
+    assert "Plot timeout" in brief
+
+
+def test_session_brief_no_hints_omits_section():
+    guidance, features = _reload_guidance("full")
+    brief = guidance.build_session_brief(features, routing_hints=[])
+    assert "Routing" not in brief
+
+
+def test_session_brief_compact_length():
+    guidance, features = _reload_guidance("full")
+    brief = guidance.build_session_brief(
+        features,
+        connection_mode="addon",
+        recent_errors=["Syntax"],
+        routing_hints=["Plot timeout 40%"],
+    )
+    assert len(brief) < 600

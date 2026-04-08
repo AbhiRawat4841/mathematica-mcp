@@ -44,28 +44,30 @@ class TestEpochInCacheKey:
     def test_cache_miss_after_epoch_bump(self):
         from mathematica_mcp.cache import _query_cache, bump_kernel_epoch
 
-        _query_cache.put("1+1", {"output": "2"}, output_format="text")
+        # Use expression with user symbol so it IS epoch-sensitive
+        _query_cache.put("x+1", {"output": "6"}, output_format="text")
 
         bump_kernel_epoch()
 
-        result = _query_cache.get("1+1", output_format="text")
+        result = _query_cache.get("x+1", output_format="text")
         assert result is None
 
     def test_new_entry_visible_in_new_epoch(self):
         from mathematica_mcp.cache import _query_cache, bump_kernel_epoch
 
-        _query_cache.put("1+1", {"output": "2"}, output_format="text")
+        # Use expression with user symbol so it IS epoch-sensitive
+        _query_cache.put("x+1", {"output": "6"}, output_format="text")
 
         bump_kernel_epoch()
 
         # Miss on old entry.
-        assert _query_cache.get("1+1", output_format="text") is None
+        assert _query_cache.get("x+1", output_format="text") is None
 
         # New entry at new epoch.
-        _query_cache.put("1+1", {"output": "2"}, output_format="text")
-        result = _query_cache.get("1+1", output_format="text")
+        _query_cache.put("x+1", {"output": "11"}, output_format="text")
+        result = _query_cache.get("x+1", output_format="text")
         assert result is not None
-        assert result["output"] == "2"
+        assert result["output"] == "11"
 
     def test_multiple_bumps_invalidate_all_prior(self):
         from mathematica_mcp.cache import _query_cache, bump_kernel_epoch
@@ -346,3 +348,190 @@ class TestNonCacheableDetection:
         result = _query_cache.get("Sin[x] + Cos[x]", output_format="text")
         assert result is not None
         assert result["output"] == "result"
+
+
+# ---------------------------------------------------------------------------
+# Code analysis
+# ---------------------------------------------------------------------------
+
+
+class TestCodeAnalysis:
+    def test_simple_variable(self):
+        from mathematica_mcp.cache import _analyze_code
+
+        _analyze_code.cache_clear()
+        result = _analyze_code("x + 1")
+        assert "x" in result.user_symbols
+
+    def test_system_builtins_excluded(self):
+        from mathematica_mcp.cache import _analyze_code
+
+        _analyze_code.cache_clear()
+        result = _analyze_code("Sin[x] + Cos[y]")
+        assert "Sin" not in result.user_symbols
+        assert "Cos" not in result.user_symbols
+        assert "x" in result.user_symbols
+        assert "y" in result.user_symbols
+
+    def test_empty_code(self):
+        from mathematica_mcp.cache import _analyze_code
+
+        _analyze_code.cache_clear()
+        result = _analyze_code("")
+        assert len(result.user_symbols) == 0
+
+    def test_pure_system_code(self):
+        from mathematica_mcp.cache import _analyze_code
+
+        _analyze_code.cache_clear()
+        result = _analyze_code("Sin[Pi/2]")
+        assert len(result.user_symbols) == 0
+        assert result.session_sensitive is False
+
+    def test_string_literals_ignored(self):
+        from mathematica_mcp.cache import _analyze_code
+
+        _analyze_code.cache_clear()
+        result = _analyze_code('"myVar is text"')
+        assert "myVar" not in result.user_symbols
+
+    def test_dollar_packages_session_sensitive(self):
+        from mathematica_mcp.cache import _analyze_code
+
+        _analyze_code.cache_clear()
+        result = _analyze_code("$Packages")
+        assert result.session_sensitive is True
+
+    def test_names_session_sensitive(self):
+        from mathematica_mcp.cache import _analyze_code
+
+        _analyze_code.cache_clear()
+        result = _analyze_code('Names["MyPkg`*"]')
+        assert result.session_sensitive is True
+
+    def test_contexts_session_sensitive(self):
+        from mathematica_mcp.cache import _analyze_code
+
+        _analyze_code.cache_clear()
+        result = _analyze_code("Contexts[]")
+        assert result.session_sensitive is True
+
+    def test_definition_session_sensitive(self):
+        from mathematica_mcp.cache import _analyze_code
+
+        _analyze_code.cache_clear()
+        result = _analyze_code("Definition[f]")
+        assert result.session_sensitive is True
+
+    def test_options_session_sensitive(self):
+        from mathematica_mcp.cache import _analyze_code
+
+        _analyze_code.cache_clear()
+        result = _analyze_code("Options[Plot]")
+        assert result.session_sensitive is True
+
+    def test_malformed_input_epoch_sensitive(self):
+        from mathematica_mcp.cache import _analyze_code
+
+        _analyze_code.cache_clear()
+        result = _analyze_code("(* unclosed Plot[x]")
+        assert result.session_sensitive is True
+
+    def test_memoization(self):
+        from mathematica_mcp.cache import _analyze_code
+
+        _analyze_code.cache_clear()
+        _analyze_code("Sin[Pi]")
+        _analyze_code("Sin[Pi]")  # should be cached
+        assert _analyze_code.cache_info().hits >= 1
+
+
+class TestEpochInsensitive:
+    def test_sin_pi_is_epoch_insensitive(self):
+        from mathematica_mcp.cache import _is_epoch_insensitive
+
+        assert _is_epoch_insensitive("Sin[Pi]") is True
+
+    def test_x_plus_1_is_epoch_sensitive(self):
+        from mathematica_mcp.cache import _is_epoch_insensitive
+
+        assert _is_epoch_insensitive("x + 1") is False
+
+    def test_names_is_epoch_sensitive(self):
+        from mathematica_mcp.cache import _is_epoch_insensitive
+
+        assert _is_epoch_insensitive('Names["MyPkg`*"]') is False
+
+    def test_dollar_packages_is_epoch_sensitive(self):
+        from mathematica_mcp.cache import _is_epoch_insensitive
+
+        assert _is_epoch_insensitive("$Packages") is False
+
+
+class TestEpochInsensitivePureExpressions:
+    """Verify that pure-System expressions survive epoch bumps."""
+
+    def test_pure_system_expr_survives_epoch_bump(self):
+        from mathematica_mcp.cache import _query_cache, bump_kernel_epoch
+
+        _query_cache.put("Sin[Pi]", {"output": "0"}, output_format="text")
+        bump_kernel_epoch()
+        # Sin[Pi] has no user symbols → epoch-insensitive → should survive
+        result = _query_cache.get("Sin[Pi]", output_format="text")
+        assert result is not None
+        assert result["output"] == "0"
+
+    def test_user_symbol_expr_invalidated_by_epoch(self):
+        from mathematica_mcp.cache import _query_cache, bump_kernel_epoch
+
+        _query_cache.put("x + 1", {"output": "6"}, output_format="text")
+        bump_kernel_epoch()
+        assert _query_cache.get("x + 1", output_format="text") is None
+
+    def test_mixed_expr_invalidated(self):
+        from mathematica_mcp.cache import _query_cache, bump_kernel_epoch
+
+        _query_cache.put("Sin[x]", {"output": "Sin[x]"}, output_format="text")
+        bump_kernel_epoch()
+        assert _query_cache.get("Sin[x]", output_format="text") is None
+
+    def test_non_cacheable_still_blocked(self):
+        from mathematica_mcp.cache import _query_cache
+
+        _query_cache.put("RandomReal[]", {"output": "0.5"}, output_format="text")
+        assert _query_cache.get("RandomReal[]", output_format="text") is None
+
+    def test_names_invalidated_by_epoch(self):
+        from mathematica_mcp.cache import _query_cache, bump_kernel_epoch
+
+        _query_cache.put('Names["System`*"]', {"output": "{...}"}, output_format="text")
+        bump_kernel_epoch()
+        assert _query_cache.get('Names["System`*"]', output_format="text") is None
+
+    def test_definition_invalidated_by_epoch(self):
+        from mathematica_mcp.cache import _query_cache, bump_kernel_epoch
+
+        _query_cache.put("Definition[f]", {"output": "..."}, output_format="text")
+        bump_kernel_epoch()
+        assert _query_cache.get("Definition[f]", output_format="text") is None
+
+
+class TestIndirectDependencySafety:
+    """Verify that user-defined function calls are epoch-sensitive (safe)."""
+
+    def test_user_function_call_is_epoch_sensitive(self):
+        from mathematica_mcp.cache import _query_cache, bump_kernel_epoch
+
+        # f[3] contains user symbol "f" → epoch-sensitive
+        _query_cache.put("f[3]", {"output": "8"}, output_format="text")
+        bump_kernel_epoch()
+        assert _query_cache.get("f[3]", output_format="text") is None
+
+    def test_pure_system_not_affected_by_user_state(self):
+        from mathematica_mcp.cache import _query_cache, bump_kernel_epoch
+
+        _query_cache.put("Sin[Pi]", {"output": "0"}, output_format="text")
+        bump_kernel_epoch()
+        # Pure system expression survives — correct because Sin[Pi] never
+        # depends on user state
+        assert _query_cache.get("Sin[Pi]", output_format="text") is not None

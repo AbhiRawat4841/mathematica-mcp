@@ -351,3 +351,32 @@ directly. You never need to touch the filesystem.
 {notebook_keywords}
 Default when ambiguous: `{features.default_output_target}`
 {workflow_example}"""
+
+
+def build_session_brief(
+    features: FeatureFlags,
+    *,
+    connection_mode: str = "unknown",
+    routing_hints: list[str] | None = None,
+    recent_errors: list[str] | None = None,
+) -> str:
+    """Build a compact session state brief (~80-100 tokens).
+
+    Pure function — all state passed as parameters for testability.
+    """
+    lines = ["## Session Brief"]
+    lines.append(
+        f"- **Profile**: {features.profile} | "
+        f"**Connection**: {connection_mode} | "
+        f"**Default**: {features.default_output_target}"
+    )
+
+    if recent_errors:
+        lines.append(f"- **Recent errors**: {', '.join(recent_errors[:3])}")
+    else:
+        lines.append("- **Recent errors**: none")
+
+    if routing_hints:
+        lines.append(f"- **Routing advice**: {'; '.join(routing_hints[:2])}")
+
+    return "\n".join(lines)

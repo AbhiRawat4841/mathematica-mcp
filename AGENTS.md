@@ -45,4 +45,11 @@ Default when ambiguous: `notebook`
 ```
 
 That's it. No mkdir, no export, no file search.
+
+## Session tools
+
+- `get_session_brief()` — quick snapshot of connection status, recent errors, and routing advice
+- `get_computation_journal()` — recent computation history (survives context compaction)
+- Use `response_detail="compact"` on `execute_code` for shorter responses when full metadata is not needed
+- Use `response_detail="diagnostic"` to see cache epoch and, when available, routing hints
 <!-- mathematica-mcp:end -->
