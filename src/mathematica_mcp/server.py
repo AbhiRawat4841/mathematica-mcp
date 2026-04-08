@@ -24,6 +24,7 @@ from .cache import (
 )
 from .config import FEATURES
 from .connection import get_mathematica_connection
+from .constants import ExecutionPath as _EP
 from .error_analyzer import analyze_messages, format_error_for_llm
 from .guidance import (
     build_mathematica_expert_prompt,
@@ -42,6 +43,12 @@ from .session import (
     get_kernel_session,
 )
 from .telemetry import get_usage_stats, reset_stats
+from .transport_classification import (
+    classify_final_transport as _classify_transport,
+)
+from .transport_classification import (
+    extract_error_families as _extract_error_families,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("mathematica_mcp")
@@ -141,14 +148,6 @@ _journal = None  # type: ignore[assignment]
 # ---------------------------------------------------------------------------
 
 
-from .constants import ExecutionPath as _EP
-from .transport_classification import (
-    TransportStatus as _TransportStatus,
-    classify_final_transport as _classify_transport,
-    extract_error_families as _extract_error_families,
-)
-
-
 def _finalize_execute_response(
     response: dict,
     *,
@@ -204,9 +203,7 @@ def _finalize_execute_response(
     return _json_response(filtered)
 
 
-def _maybe_record_routing(
-    response: dict, *, route_variant: str, expression_type: str | None = None
-) -> None:
+def _maybe_record_routing(response: dict, *, route_variant: str, expression_type: str | None = None) -> None:
     """Fire-and-forget routing stat recording. Never raises."""
     if _routing_mem is None:
         return
@@ -960,7 +957,9 @@ async def execute_code(
                     from .transport_classification import classify_attempt_outcome as _classify_att
 
                     _routing_mem.record_transport_attempt(
-                        FEATURES.profile, route_variant, _EP.ADDON_CLI,
+                        FEATURES.profile,
+                        route_variant,
+                        _EP.ADDON_CLI,
                         _classify_att(result),
                     )
 
@@ -1019,9 +1018,7 @@ async def execute_code(
     _cli_lease = None
     _routing_skipped = False
     if _routing_mem is not None:
-        _cli_lease = _routing_mem.begin_transport_attempt(
-            FEATURES.profile, route_variant, _EP.ADDON_CLI
-        )
+        _cli_lease = _routing_mem.begin_transport_attempt(FEATURES.profile, route_variant, _EP.ADDON_CLI)
         if _cli_lease.action == "skip":
             _routing_skipped = True
 
@@ -1072,17 +1069,13 @@ async def execute_code(
             from .transport_classification import classify_attempt_outcome
 
             _attempt_outcome = classify_attempt_outcome(result)
-            _routing_mem.finish_transport_attempt(
-                _cli_lease, _attempt_outcome, profile=FEATURES.profile
-            )
+            _routing_mem.finish_transport_attempt(_cli_lease, _attempt_outcome, profile=FEATURES.profile)
             _lease_completed = True
     except Exception:
         if _routing_mem is not None and _cli_lease is not None:
             from .constants import AttemptOutcome as _AO
 
-            _routing_mem.finish_transport_attempt(
-                _cli_lease, _AO.INFRA_ERROR, profile=FEATURES.profile
-            )
+            _routing_mem.finish_transport_attempt(_cli_lease, _AO.INFRA_ERROR, profile=FEATURES.profile)
             _lease_completed = True
         raise
     finally:
@@ -2496,7 +2489,7 @@ if FEATURES.routing_memory != "off":
     _routing_mem = _init_routing(FEATURES.routing_memory)
 
 # Initialize journal
-from .journal import ComputationJournal
+from .journal import ComputationJournal  # noqa: E402
 
 _journal = ComputationJournal()
 

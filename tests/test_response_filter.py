@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from mathematica_mcp.response_filter import _filter_response, _summarize_large_output
 
-
 # ---------------------------------------------------------------------------
 # _summarize_large_output
 # ---------------------------------------------------------------------------
@@ -62,7 +61,15 @@ class TestFilterResponseStandard:
 
     def test_standard_preserves_frozen_keys(self):
         """Verify REQUIRED_SUCCESS_KEYS from test_session.py are preserved."""
-        required = {"success", "output", "output_inputform", "output_fullform", "warnings", "timing_ms", "execution_method"}
+        required = {
+            "success",
+            "output",
+            "output_inputform",
+            "output_fullform",
+            "warnings",
+            "timing_ms",
+            "execution_method",
+        }
         response = {k: "test" for k in required}
         filtered = _filter_response(response, "standard")
         missing = required - set(filtered.keys())

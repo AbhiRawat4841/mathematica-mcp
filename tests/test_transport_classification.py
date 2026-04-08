@@ -10,7 +10,6 @@ from mathematica_mcp.transport_classification import (
     extract_error_families,
 )
 
-
 # ---------------------------------------------------------------------------
 # extract_error_families (migrated from test_execute_code_metadata.py)
 # ---------------------------------------------------------------------------

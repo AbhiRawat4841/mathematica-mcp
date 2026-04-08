@@ -939,7 +939,6 @@ class TestTransportLifecycle:
         assert mem._breaker_state.get(("compute", "addon_cli")) == "closed"
 
     def test_finish_infra_error_trips_breaker(self, _isolate):
-        from mathematica_mcp.constants import AttemptOutcome
 
         mem = _make_mem(_isolate)
         self._trip_breaker(mem)
@@ -996,7 +995,6 @@ class TestTransportLifecycle:
         assert lease2.action == "skip"
 
     def test_abort_reverts_to_open_no_cooldown_reset(self, _isolate, monkeypatch):
-        from mathematica_mcp.routing_memory import TransportLease
 
         monkeypatch.setenv("MATHEMATICA_ROUTING_ACTION", "compute_cli_skip")
         monkeypatch.setenv("MATHEMATICA_ROUTING_MEMORY", "advise")
@@ -1007,7 +1005,6 @@ class TestTransportLifecycle:
         importlib.reload(mathematica_mcp.config)
         mem = self._make_advise_mem(_isolate)
         self._trip_breaker(mem)
-        original_trip_time = mem._tripped_at[("compute", "addon_cli")]
         # Expire cooldown and get probe
         mem._tripped_at[("compute", "addon_cli")] = time.monotonic() - 120
         lease = mem.begin_transport_attempt("full", "compute", "addon_cli")
@@ -1065,7 +1062,6 @@ class TestTransportLifecycle:
 
     def test_clear_resets_breaker_state(self, _isolate):
         """Fix 1: clear() must reset runtime-only breaker state."""
-        from mathematica_mcp.constants import AttemptOutcome
 
         mem = _make_mem(_isolate)
         self._trip_breaker(mem)

@@ -69,9 +69,7 @@ _EXPR_CATEGORIES: list[tuple[str, re.Pattern[str]]] = [
     ),
     (
         "symbolic_heavy",
-        re.compile(
-            r"\b(Integrate|Solve|DSolve|Sum|Series|Limit|Simplify|Expand|Factor|Apart|Together)\["
-        ),
+        re.compile(r"\b(Integrate|Solve|DSolve|Sum|Series|Limit|Simplify|Expand|Factor|Apart|Together)\["),
     ),
     (
         "numeric_heavy",
@@ -440,10 +438,7 @@ class RoutingMemory:
         from .config import FEATURES
 
         # Only compute addon_cli can be skipped
-        if (
-            FEATURES.routing_action != "compute_cli_skip"
-            or route_variant != "compute"
-        ):
+        if FEATURES.routing_action != "compute_cli_skip" or route_variant != "compute":
             return TransportLease(action="allow", key=breaker_key)
 
         with self._lock:
@@ -494,9 +489,7 @@ class RoutingMemory:
         if lease.key is not None:
             route_variant, execution_path = lease.key
             # Record attempt telemetry (persisted + breaker recent_outcomes)
-            self.record_transport_attempt(
-                profile or "unknown", route_variant, execution_path, outcome
-            )
+            self.record_transport_attempt(profile or "unknown", route_variant, execution_path, outcome)
 
         # Handle probe completion
         if lease.action == "probe" and lease.key is not None:
@@ -564,24 +557,36 @@ class RoutingMemory:
                 # End-to-end hints
                 timeout_rate = cohort.timeout_count / total
                 if timeout_rate > 0.3:
-                    hints.append(RoutingHint(
-                        severity=2, specificity=specificity, label=label,
-                        message=f"{label}: {timeout_rate:.0%} timeout rate",
-                    ))
+                    hints.append(
+                        RoutingHint(
+                            severity=2,
+                            specificity=specificity,
+                            label=label,
+                            message=f"{label}: {timeout_rate:.0%} timeout rate",
+                        )
+                    )
 
                 infra_rate = cohort.infra_error_count / total
                 if infra_rate > 0.4:
-                    hints.append(RoutingHint(
-                        severity=1, specificity=specificity, label=label,
-                        message=f"{label}: {infra_rate:.0%} infra error rate",
-                    ))
+                    hints.append(
+                        RoutingHint(
+                            severity=1,
+                            specificity=specificity,
+                            label=label,
+                            message=f"{label}: {infra_rate:.0%} infra error rate",
+                        )
+                    )
 
                 fallback_rate = cohort.degraded_fallback_count / total
                 if fallback_rate > 0.4:
-                    hints.append(RoutingHint(
-                        severity=3, specificity=specificity, label=label,
-                        message=f"{label}: {fallback_rate:.0%} fallback rate",
-                    ))
+                    hints.append(
+                        RoutingHint(
+                            severity=3,
+                            specificity=specificity,
+                            label=label,
+                            message=f"{label}: {fallback_rate:.0%} fallback rate",
+                        )
+                    )
 
                 # Transport-path hints (aggregate cohorts only, actionable paths)
                 if not expr_type:
@@ -595,16 +600,24 @@ class RoutingMemory:
                         path_label = f"{path} ({route_variant})"
                         infra_count = outcomes.get("infra_error", 0)
                         if infra_count / path_total > 0.3:
-                            hints.append(RoutingHint(
-                                severity=1, specificity=2, label=path_label,
-                                message=f"{path_label}: {infra_count / path_total:.0%} infra error rate in transport attempts",
-                            ))
+                            hints.append(
+                                RoutingHint(
+                                    severity=1,
+                                    specificity=2,
+                                    label=path_label,
+                                    message=f"{path_label}: {infra_count / path_total:.0%} infra error rate in transport attempts",
+                                )
+                            )
                         timeout_count = outcomes.get("timeout", 0)
                         if timeout_count / path_total > 0.4:
-                            hints.append(RoutingHint(
-                                severity=2, specificity=2, label=path_label,
-                                message=f"{path_label}: {timeout_count / path_total:.0%} timeout rate in transport attempts",
-                            ))
+                            hints.append(
+                                RoutingHint(
+                                    severity=2,
+                                    specificity=2,
+                                    label=path_label,
+                                    message=f"{path_label}: {timeout_count / path_total:.0%} timeout rate in transport attempts",
+                                )
+                            )
 
         # Dedupe: if aggregate and expr-type both flag same issue, keep more specific
         seen: dict[str, RoutingHint] = {}
@@ -629,9 +642,7 @@ class RoutingMemory:
             now = time.time()
             cutoff = now - max_age_seconds
             candidates = [
-                (name, stats.last_seen)
-                for name, stats in self._error_families.items()
-                if stats.last_seen >= cutoff
+                (name, stats.last_seen) for name, stats in self._error_families.items() if stats.last_seen >= cutoff
             ]
 
         # Filter "other" unless it's the only candidate

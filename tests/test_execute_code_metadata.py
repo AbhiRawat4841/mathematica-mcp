@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from mathematica_mcp.server import (  # noqa: I001
-    _classify_transport,
-    _extract_error_families,
-    _TransportStatus,
+from mathematica_mcp.transport_classification import (
+    TransportStatus as _TransportStatus,
+    classify_final_transport as _classify_transport,
+    extract_error_families as _extract_error_families,
 )
 
 # ---------------------------------------------------------------------------

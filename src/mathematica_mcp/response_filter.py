@@ -10,7 +10,6 @@ from typing import Any
 
 from .wl_scan import count_top_level_braces
 
-
 # ---------------------------------------------------------------------------
 # Large output summarisation
 # ---------------------------------------------------------------------------

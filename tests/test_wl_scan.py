@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from mathematica_mcp.wl_scan import count_top_level_braces, scan_clean
 
-
 # ---------------------------------------------------------------------------
 # scan_clean — string stripping
 # ---------------------------------------------------------------------------
