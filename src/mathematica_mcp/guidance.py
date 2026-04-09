@@ -60,10 +60,7 @@ def _style_keyword_bullets(features: FeatureFlags) -> list[str]:
 
 def _profile_intro(features: FeatureFlags) -> str:
     if _has_notebook(features):
-        return (
-            'A "notebook" here means a LIVE WINDOW inside the Mathematica frontend, '
-            'not a `.nb` file on disk.'
-        )
+        return 'A "notebook" here means a LIVE WINDOW inside the Mathematica frontend, not a `.nb` file on disk.'
     return "This profile is compute-first. Notebook tools are not exposed in this configuration."
 
 
@@ -75,29 +72,31 @@ def _routing_lines(features: FeatureFlags) -> list[str]:
                 'Plot, image, notebook-visible output, or notebook artifact -> `execute_code(style="notebook")`',
                 'New notebook explicitly requested -> `create_notebook(title="...")` then `execute_code(style="notebook")`',
                 'Interactive or dynamic content -> `execute_code(style="interactive")`',
-                'Existing `.nb` file on disk -> `read_notebook()` first; `open_notebook_file()` only if the user wants a live window',
-                'Persist or visually verify notebook state -> `save_notebook()`, `screenshot_notebook()`, or `screenshot_cell()`',
+                "Existing `.nb` file on disk -> `read_notebook()` first; `open_notebook_file()` only if the user wants a live window",
+                "Persist or visually verify notebook state -> `save_notebook()`, `screenshot_notebook()`, or `screenshot_cell()`",
             ]
         )
     lines.append(
-        'Knowledge or entity query -> `wolfram_alpha()`, `entity_lookup()`, `convert_units()`, or `get_constant()`'
+        "Knowledge or entity query -> `wolfram_alpha()`, `entity_lookup()`, `convert_units()`, or `get_constant()`"
     )
     if features.symbol_lookup:
-        lines.append('Syntax uncertainty -> `resolve_function()` or `check_syntax()`')
+        lines.append("Syntax uncertainty -> `resolve_function()` or `check_syntax()`")
     else:
-        lines.append('Syntax uncertainty -> `check_syntax()`')
-    lines.append('Verification or debugging -> `verify_derivation()`, `trace_evaluation()`, `time_expression()`, or `get_messages()`')
+        lines.append("Syntax uncertainty -> `check_syntax()`")
+    lines.append(
+        "Verification or debugging -> `verify_derivation()`, `trace_evaluation()`, `time_expression()`, or `get_messages()`"
+    )
     if features.async_computation:
-        lines.append('Long computation (>5 min) or repeated timeout -> `submit_computation()`')
+        lines.append("Long computation (>5 min) or repeated timeout -> `submit_computation()`")
     else:
-        lines.append('Long computation (>5 min) -> prefer `execute_code(..., timeout=...)` and break work into steps')
+        lines.append("Long computation (>5 min) -> prefer `execute_code(..., timeout=...)` and break work into steps")
     return lines
 
 
 def _quick_defaults(features: FeatureFlags) -> list[str]:
     lines = [
-        'Prefer one compound Wolfram expression over several sequential `execute_code` calls when only the final result matters.',
-        'Reuse `session_id` for any multi-step workflow.',
+        "Prefer one compound Wolfram expression over several sequential `execute_code` calls when only the final result matters.",
+        "Reuse `session_id` for any multi-step workflow.",
         'Consider `response_detail="compact"` in long or multi-step workflows to reduce token usage; use `"diagnostic"` only for debugging.',
     ]
     if _has_notebook(features):
@@ -105,20 +104,22 @@ def _quick_defaults(features: FeatureFlags) -> list[str]:
             '`execute_code(style="notebook")` reuses the active notebook; call `create_notebook()` first only when the user asks for a new or different notebook.'
         )
     if features.async_computation:
-        lines.append('Use `submit_computation()` instead of retrying the same long-running foreground call.')
+        lines.append("Use `submit_computation()` instead of retrying the same long-running foreground call.")
     return lines
 
 
 def _recovery_defaults(features: FeatureFlags) -> list[str]:
     return [
-        'Call `get_session_brief()` before resuming after failures or long context gaps.',
-        'Use `get_computation_journal()` to recover recent code/output history after context compaction.',
+        "Call `get_session_brief()` before resuming after failures or long context gaps.",
+        "Use `get_computation_journal()` to recover recent code/output history after context compaction.",
         'Use `get_messages()` or `response_detail="diagnostic"` when Mathematica errors are unclear.',
     ]
 
 
 def _avoid_lines(features: FeatureFlags) -> list[str]:
-    lines = ['NEVER: split a simple sequential derivation across many MCP round-trips when one Wolfram expression can do it.']
+    lines = [
+        "NEVER: split a simple sequential derivation across many MCP round-trips when one Wolfram expression can do it."
+    ]
     if _has_notebook(features):
         lines.extend(
             [
@@ -127,7 +128,7 @@ def _avoid_lines(features: FeatureFlags) -> list[str]:
                 'NEVER: `create_notebook` -> `write_cell` -> `evaluate_cell` for fresh execution; INSTEAD: `execute_code(code, style="notebook")`.',
                 'NEVER: use `sync="refresh"` or `sync="strict"` by default; prefer `sync="none"`.',
                 'NEVER: use `style="interactive"` for non-dynamic content; it is slower and more timing-sensitive than kernel notebook execution.',
-                'NEVER: reach for legacy notebook readers when `read_notebook()` is sufficient.',
+                "NEVER: reach for legacy notebook readers when `read_notebook()` is sufficient.",
             ]
         )
     return lines
@@ -349,7 +350,7 @@ def build_codex_guidance(features: FeatureFlags) -> str:
     if _has_notebook(features):
         rules.extend(
             [
-                'For notebook files on disk, prefer `read_notebook()` first. Use `open_notebook_file()`, `save_notebook()`, or export only when the user explicitly wants a live window or disk output.',
+                "For notebook files on disk, prefer `read_notebook()` first. Use `open_notebook_file()`, `save_notebook()`, or export only when the user explicitly wants a live window or disk output.",
             ]
         )
     keyword_table = _style_keyword_table(features)
