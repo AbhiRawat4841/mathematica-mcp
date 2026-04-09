@@ -21,7 +21,7 @@
 ```
 
 **Two components:**
-1. **Python MCP Server** - Exposes ~79 tools to LLMs via MCP protocol (varies by profile and feature flags)
+1. **Python MCP Server** - Exposes ~82 tools to LLMs via MCP protocol (varies by profile and feature flags)
 2. **Mathematica Addon** - Runs inside Mathematica with persistent session state
 
 **Performance:** Notebook execution uses an atomic command that combines notebook lookup, cell creation, and evaluation into a single round-trip (vs. 4 separate calls), resulting in 3-4x faster plot rendering.
@@ -36,8 +36,8 @@ The server supports three profiles that control which tools are exposed. This le
 
 | Profile | Tools | Use Case |
 |---------|-------|----------|
-| `math` | ~25 | Pure computation, no notebook tools |
-| `notebook` | ~45 | Computation + notebook reading/management + `create_notebook` |
+| `math` | ~28 | Pure computation, no notebook tools |
+| `notebook` | ~48 | Computation + notebook reading/management + `create_notebook` |
 | `full` (default) | ~79 | Everything including legacy, admin, and all optional tools |
 
 ### Selecting a Profile
@@ -233,14 +233,14 @@ OpenCode does not have automated `uvx setup` support. Add the MCP server definit
 The server's built-in [LLM Guidance System](#llm-guidance-system) handles most routing automatically. For best results, install project guidance during setup:
 
 ```bash
-# Claude Code — installs CLAUDE.md + .claude/commands/mathematica.md
+# Claude Code: installs CLAUDE.md + .claude/commands/mathematica.md
 uvx mathematica-mcp-full setup claude-code --project-dir .
 
-# Codex — installs AGENTS.md
+# Codex: installs AGENTS.md
 uvx mathematica-mcp-full setup codex --project-dir .
 ```
 
-**Execution style keywords** — users can steer where results appear:
+**Execution style keywords**: users can steer where results appear:
 
 | Say this | Result |
 |----------|--------|
@@ -726,6 +726,9 @@ create_animation(
 | `get_mathematica_status` | Connection status, addon version, and system info |
 | `get_kernel_state` | Memory usage, uptime, version, loaded packages |
 | `get_feature_status` | Show active profile, enabled tool groups, and feature flags |
+| `get_session_brief` | Compact session state summary: connection mode, recent errors, routing advice |
+| `get_computation_journal` | Recent computation history (in-memory ring buffer) |
+| `clear_computation_journal` | Reset the computation journal |
 
 #### Notebook Management
 
@@ -757,7 +760,7 @@ create_animation(
 
 | Tool | Description |
 |------|-------------|
-| `execute_code` | Run Wolfram Language code (primary tool — use `style="compute"`, `"notebook"`, or `"interactive"`) |
+| `execute_code` | Run Wolfram Language code (primary tool: use `style="compute"`, `"notebook"`, or `"interactive"`) |
 | `evaluate_selection` | Evaluate selected cells |
 
 #### Kernel Tools
@@ -1010,7 +1013,7 @@ Control features via environment variables. Defaults shown are for the `full` pr
 | `MATHEMATICA_ROUTING_MEMORY` | `off` | Routing memory: `off`, `observe`, or `advise` |
 | `MATHEMATICA_ROUTING_ACTION` | `off` | Routing action: `off` or `compute_cli_skip` (requires `advise`) |
 
-> **Routing memory** collects aggregate routing statistics for `execute_code` (transport success rates, latency histograms, error families) to improve observability. It stores no raw code or expressions — only cohort counters. In `observe` mode, stats are persisted to `~/.cache/mathematica-mcp/routing_memory.json`. In `advise` mode, the system additionally generates routing hints and enables the optional adaptive routing action. See [Intelligent Routing & Observability](#intelligent-routing--observability) for details.
+> **Routing memory** collects aggregate routing statistics for `execute_code` (transport success rates, latency histograms, error families) to improve observability. It stores no raw code or expressions: only cohort counters. In `observe` mode, stats are persisted to `~/.cache/mathematica-mcp/routing_memory.json`. In `advise` mode, the system additionally generates routing hints and enables the optional adaptive routing action. See [Intelligent Routing & Observability](#intelligent-routing--observability) for details.
 
 ---
 
@@ -1038,12 +1041,12 @@ The `execute_code` tool accepts a `response_detail` parameter to control respons
 
 | Level | Behavior |
 |-------|----------|
-| `"standard"` (default) | Exact backward-compatible response — no fields added or removed |
+| `"standard"` (default) | Exact backward-compatible response: no fields added or removed |
 | `"compact"` | Essential fields only: `success`, `status`, `message`, `output`, `timing_ms`, notebook IDs, transport fields. Strips verbose analysis/metadata. Auto-summarizes outputs > 4000 chars with balanced-brace list element counting. Swaps graphics placeholders to `output_inputform`. |
 | `"verbose"` | Full response + `detail_level` marker |
 | `"diagnostic"` | Full response + `detail_level`, `cache_epoch`, and `routing_hints` (if available) |
 
-The filter is a pure function — `standard` is guaranteed to be byte-for-byte identical to the unfiltered response.
+The filter is a pure function: `standard` is guaranteed to be byte-for-byte identical to the unfiltered response.
 
 ### Session Brief
 
@@ -1070,7 +1073,7 @@ The journal records raw canonical results **before** response-detail filtering, 
 
 ### Smart Caching
 
-Pure-System expressions — those referencing only built-in Wolfram functions with no user-defined symbols — are now **epoch-insensitive**: they survive kernel state mutations (`set_variable`, `clear_variables`, etc.) without re-evaluation.
+Pure-System expressions (those referencing only built-in Wolfram functions with no user-defined symbols) are now **epoch-insensitive**: they survive kernel state mutations (`set_variable`, `clear_variables`, etc.) without re-evaluation.
 
 Examples of epoch-insensitive expressions: `Sin[Pi]`, `Integrate[x^2, x]`, `1 + 1`
 
@@ -1113,7 +1116,7 @@ Attempt-level transport telemetry per transport leg:
 | kernel_fallback | No | Yes | Last-resort fallback |
 | kernel_direct_routing_skip | No | Yes | Routing decision, not transport |
 
-**Advisory hints** (advise mode only): Built from two sources — transport-path hints (per-path infra/timeout rates) and end-to-end hints (timeout/fallback rates). Structured with severity ordering, deduplication, and 5-hint cap. Available via `get_routing_memory_stats(include_hints=True)`.
+**Advisory hints** (advise mode only): Built from two sources: transport-path hints (per-path infra/timeout rates) and end-to-end hints (timeout/fallback rates). Structured with severity ordering, deduplication, and 5-hint cap. Available via `get_routing_memory_stats(include_hints=True)`.
 
 ### Adaptive Routing Action (opt-in)
 
@@ -1152,8 +1155,8 @@ When the breaker skips addon_cli, execution goes directly to kernel with a truth
 | `get_session_brief()` | all | Compact session state summary |
 | `get_computation_journal()` | all | Recent computation history |
 | `clear_computation_journal()` | all | Reset journal |
-| `get_routing_memory_stats(include_hints=False)` | full | Routing stats + optional hints |
-| `clear_routing_memory()` | full | Reset all routing stats and breaker state |
+| `get_routing_memory_stats(include_hints=False)` | full (opt-in) | Routing stats + optional hints. Requires `MATHEMATICA_ROUTING_MEMORY=observe` or `advise`. |
+| `clear_routing_memory()` | full (opt-in) | Reset all routing stats and breaker state. Requires `MATHEMATICA_ROUTING_MEMORY=observe` or `advise`. |
 
 ### Data lifecycle
 
@@ -1189,7 +1192,7 @@ Get["~/mcp/mathematica-mcp/addon/MathematicaMCP.wl"]
 StartMCPServer[]
 ```
 
-This applies any time `addon/MathematicaMCP.wl` changes — the Python server picks up changes automatically, but the Mathematica side requires an explicit reload.
+This applies any time `addon/MathematicaMCP.wl` changes: the Python server picks up changes automatically, but the Mathematica side requires an explicit reload.
 
 ### "Address already in use" on port 9881
 
@@ -1412,4 +1415,4 @@ MIT License
 
 ---
 
-*Last updated: April 2026 (v0.8.1 — Absolute launcher paths in generated configs, numeric type hints for math alias tools)*
+*Last updated: April 2026 (v0.9.0: payload shaping, session brief, computation journal, smart caching, routing memory v2, adaptive routing)*

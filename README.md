@@ -26,7 +26,7 @@ A local MCP server that lets AI agents run Mathematica, control notebooks, and v
 LLMs can write Mathematica code, but they can't run it, verify it, or interact with live notebooks. This MCP server bridges that gap:
 
 - **Live notebook control**: create, edit, evaluate, and screenshot Mathematica notebooks directly from your AI agent
-- **Symbolic + numeric + visual in one MCP**: ~79 tools covering algebra, calculus, plotting, data import/export, Wolfram Alpha, and interactive UIs
+- **Symbolic + numeric + visual in one MCP**: ~82 tools covering algebra, calculus, plotting, data import/export, Wolfram Alpha, and interactive UIs
 - **Agent-optimized**: compact response shaping, session state tools, and computation journaling designed for how LLM agents actually work
 - **Error-aware execution**: Mathematica errors and warnings are returned directly to the agent, so it can debug without you manually copying notebook output back into chat
 - **Local and private**: everything runs on your machine, no code leaves your environment
@@ -190,8 +190,8 @@ Choose how many tools to expose:
 
 | Profile | Tools | Best for |
 |---------|-------|----------|
-| `math` | ~25 | Pure computation, no notebook UI |
-| `notebook` | ~45 | + notebook read/write/screenshot |
+| `math` | ~28 | Pure computation, no notebook UI |
+| `notebook` | ~48 | + notebook read/write/screenshot |
 | `full` (default) | ~79 | + advanced notebook ops, repositories, admin |
 
 Pass `--profile` during setup or set `MATHEMATICA_PROFILE` env var.
