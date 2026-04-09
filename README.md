@@ -2,7 +2,7 @@
 
 **Turn Mathematica into a first-class tool for AI agents.**
 
-A local MCP server that lets AI agents run Mathematica, control notebooks, and verify results -- from Claude, Cursor, VS Code, Codex, or Gemini.
+A local MCP server that lets AI agents run Mathematica, control notebooks, and verify results. Works with Claude, Cursor, VS Code, Codex, and Gemini.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
@@ -17,7 +17,7 @@ A local MCP server that lets AI agents run Mathematica, control notebooks, and v
 
 [![Mathematica MCP Demo](https://img.youtube.com/vi/TjGSkvVyc1Y/0.jpg)](https://www.youtube.com/watch?v=TjGSkvVyc1Y)
 
-*An AI agent solving math, generating plots, and controlling a live Mathematica notebook -- with errors returned directly to the agent, no copy-pasting notebook output back into chat.*
+*An AI agent solving math, generating plots, and controlling a live Mathematica notebook. Errors are returned directly to the agent, no copy-pasting notebook output back into chat.*
 
 ---
 
@@ -25,13 +25,13 @@ A local MCP server that lets AI agents run Mathematica, control notebooks, and v
 
 LLMs can write Mathematica code, but they can't run it, verify it, or interact with live notebooks. This MCP server bridges that gap:
 
-- **Live notebook control** -- create, edit, evaluate, and screenshot Mathematica notebooks directly from your AI agent
-- **Symbolic + numeric + visual in one MCP** -- ~79 tools covering algebra, calculus, plotting, data import/export, Wolfram Alpha, and interactive UIs
-- **Agent-optimized** -- compact response shaping, session state tools, and computation journaling designed for how LLM agents actually work
-- **Error-aware execution** -- Mathematica errors and warnings are returned directly to the agent, so it can debug without you manually copying notebook output back into chat
-- **Local and private** -- everything runs on your machine, no code leaves your environment
+- **Live notebook control**: create, edit, evaluate, and screenshot Mathematica notebooks directly from your AI agent
+- **Symbolic + numeric + visual in one MCP**: ~79 tools covering algebra, calculus, plotting, data import/export, Wolfram Alpha, and interactive UIs
+- **Agent-optimized**: compact response shaping, session state tools, and computation journaling designed for how LLM agents actually work
+- **Error-aware execution**: Mathematica errors and warnings are returned directly to the agent, so it can debug without you manually copying notebook output back into chat
+- **Local and private**: everything runs on your machine, no code leaves your environment
 
-> Ask your agent for a derivation, a 3D plot, a notebook edit, or a verification step -- and it can actually do it.
+> Ask your agent for a derivation, a 3D plot, a notebook edit, or a verification step, and it can actually do it.
 
 ---
 
@@ -139,7 +139,7 @@ Then restart Mathematica and your editor. Done!
 
 1. Press `Cmd+Shift+P` (Mac) / `Ctrl+Shift+P` (Windows)
 2. Type "MCP" -> Select **"MCP: Add Server"**
-3. Choose **"Command (stdio)"** -- *not "pip"*
+3. Choose **"Command (stdio)"**: *not "pip"*
 4. Enter command: `uvx`
 5. Enter args: `mathematica-mcp-full`
 6. Name it: `mathematica`
@@ -200,13 +200,13 @@ Pass `--profile` during setup or set `MATHEMATICA_PROFILE` env var.
 
 ## Built for Agent Workflows
 
-The server is designed for how LLM agents actually work -- long conversations with context limits, intermittent failures, and token budgets:
+The server is designed for how LLM agents actually work: long conversations with context limits, intermittent failures, and token budgets:
 
 | Feature | What it does | How to use |
 |---------|-------------|------------|
 | **Compact Responses** | Strip verbose metadata, keep essentials. Saves tokens. | `response_detail="compact"` on `execute_code` |
 | **Session Brief** | One-call snapshot: connection status, recent errors, routing advice | `get_session_brief()` |
-| **Computation Journal** | Ring buffer of recent computations -- helps agents recover context across long conversations | `get_computation_journal()` |
+| **Computation Journal** | Ring buffer of recent computations that helps agents recover context across long conversations | `get_computation_journal()` |
 | **Smart Caching** | Pure expressions (`Sin[Pi]`) survive variable mutations without re-evaluation | Always on |
 | **Diagnostic Mode** | Full response + cache epoch + routing hints for debugging | `response_detail="diagnostic"` |
 
@@ -249,7 +249,7 @@ For full details, troubleshooting, and advanced configuration, see the **[Instal
     ```
     *Restart Mathematica after this step.*
 
-3.  **Configure your editor** -- add the MCP server to your client's config file. See the **[Installation Guide](docs/installation.md#step-4-configure-your-editor)** for Claude Desktop, Cursor, VS Code, and other client configs.
+3.  **Configure your editor**: add the MCP server to your client's config file. See the **[Installation Guide](docs/installation.md#step-4-configure-your-editor)** for Claude Desktop, Cursor, VS Code, and other client configs.
 
 </details>
 
@@ -257,12 +257,12 @@ For full details, troubleshooting, and advanced configuration, see the **[Instal
 
 ## Documentation
 
-*   **[Technical Reference](docs/technical-reference.md)** -- Architecture, tools, and configuration
-*   **[Security Model](SECURITY.md)** -- Threat model, permissions, and vulnerability reporting
-*   **[Benchmarks](docs/benchmarks.md)** -- Performance data and reproduction steps
-*   **[Contributing](CONTRIBUTING.md)** -- Development setup, testing, and PR process
-*   **[Changelog](CHANGELOG.md)** -- Version history
-*   **[Examples](docs/examples/)** -- Polished agent session walkthroughs
+*   **[Technical Reference](docs/technical-reference.md)**: Architecture, tools, and configuration
+*   **[Security Model](SECURITY.md)**: Threat model, permissions, and vulnerability reporting
+*   **[Benchmarks](docs/benchmarks.md)**: Performance data and reproduction steps
+*   **[Contributing](CONTRIBUTING.md)**: Development setup, testing, and PR process
+*   **[Changelog](CHANGELOG.md)**: Version history
+*   **[Examples](docs/examples/)**: Polished agent session walkthroughs
 
 ---
 
