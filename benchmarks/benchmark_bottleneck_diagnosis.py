@@ -148,8 +148,15 @@ class Measurement:
         return ", ".join(parts)
 
 
-def measure(conn: DiagConnection, name: str, command: str, params: dict | None = None,
-            iterations: int = 5, warmup: int = 1, timeout: float | None = None) -> Measurement:
+def measure(
+    conn: DiagConnection,
+    name: str,
+    command: str,
+    params: dict | None = None,
+    iterations: int = 5,
+    warmup: int = 1,
+    timeout: float | None = None,
+) -> Measurement:
     """Run a command repeatedly and collect timing."""
     m = Measurement(name=name)
 
@@ -192,6 +199,7 @@ def print_measurement(m: Measurement, indent: str = "    "):
 
 # ── Scenario implementations ───────────────────────────────────────────────
 
+
 def scenario_a_baseline(conn: DiagConnection) -> list[Measurement]:
     """Clean-state baseline for all evaluation paths."""
     print("\n" + "=" * 70)
@@ -207,26 +215,43 @@ def scenario_a_baseline(conn: DiagConnection) -> list[Measurement]:
     results.append(m)
 
     # 2. execute_code trivial (preemptive link, no notebook)
-    m = measure(conn, "execute_code 1+1 (preemptive)", "execute_code",
-                {"code": "1+1"}, iterations=10, warmup=2)
+    m = measure(conn, "execute_code 1+1 (preemptive)", "execute_code", {"code": "1+1"}, iterations=10, warmup=2)
     print_measurement(m)
     results.append(m)
 
     # 3. execute_code moderate
-    m = measure(conn, "execute_code Integrate (preemptive)", "execute_code",
-                {"code": "Integrate[Sin[x]^2, x]"}, iterations=5, warmup=1)
+    m = measure(
+        conn,
+        "execute_code Integrate (preemptive)",
+        "execute_code",
+        {"code": "Integrate[Sin[x]^2, x]"},
+        iterations=5,
+        warmup=1,
+    )
     print_measurement(m)
     results.append(m)
 
     # 4. execute_code with graphics (heavier preemptive)
-    m = measure(conn, "execute_code Plot (preemptive)", "execute_code",
-                {"code": "Plot[Sin[x], {x, 0, 2 Pi}]"}, iterations=3, warmup=1)
+    m = measure(
+        conn,
+        "execute_code Plot (preemptive)",
+        "execute_code",
+        {"code": "Plot[Sin[x], {x, 0, 2 Pi}]"},
+        iterations=3,
+        warmup=1,
+    )
     print_measurement(m)
     results.append(m)
 
     # 5. execute_code_notebook kernel mode (preemptive + cell write)
-    m = measure(conn, "exec_notebook kernel 1+1", "execute_code_notebook",
-                {"code": "1+1", "mode": "kernel", "session_id": "diag-bench"}, iterations=5, warmup=1)
+    m = measure(
+        conn,
+        "exec_notebook kernel 1+1",
+        "execute_code_notebook",
+        {"code": "1+1", "mode": "kernel", "session_id": "diag-bench"},
+        iterations=5,
+        warmup=1,
+    )
     print_measurement(m)
     results.append(m)
 
@@ -234,14 +259,17 @@ def scenario_a_baseline(conn: DiagConnection) -> list[Measurement]:
     #    Write a cell first, then evaluate it
     print("\n    [Setting up evaluate_cell test...]")
     try:
-        write_result = conn.send_command("write_cell", {
-            "content": "2+2", "style": "Input", "session_id": "diag-bench"
-        })
+        write_result = conn.send_command("write_cell", {"content": "2+2", "style": "Input", "session_id": "diag-bench"})
         cell_id = write_result.get("cell_id")
         if cell_id:
-            m = measure(conn, "evaluate_cell 2+2 (main link)", "evaluate_cell",
-                        {"cell_id": cell_id, "max_wait": 10, "session_id": "diag-bench"},
-                        iterations=5, warmup=1)
+            m = measure(
+                conn,
+                "evaluate_cell 2+2 (main link)",
+                "evaluate_cell",
+                {"cell_id": cell_id, "max_wait": 10, "session_id": "diag-bench"},
+                iterations=5,
+                warmup=1,
+            )
             print_measurement(m)
             results.append(m)
         else:
@@ -250,9 +278,14 @@ def scenario_a_baseline(conn: DiagConnection) -> list[Measurement]:
         print(f"    ✗ evaluate_cell setup failed: {e}")
 
     # 7. execute_code_notebook frontend mode (main link)
-    m = measure(conn, "exec_notebook frontend 1+1 (main link)", "execute_code_notebook",
-                {"code": "1+1", "mode": "frontend", "max_wait": 10, "session_id": "diag-bench"},
-                iterations=3, warmup=1)
+    m = measure(
+        conn,
+        "exec_notebook frontend 1+1 (main link)",
+        "execute_code_notebook",
+        {"code": "1+1", "mode": "frontend", "max_wait": 10, "session_id": "diag-bench"},
+        iterations=3,
+        warmup=1,
+    )
     print_measurement(m)
     results.append(m)
 
@@ -276,19 +309,16 @@ def scenario_b_main_link_blocked(conn: DiagConnection) -> list[Measurement]:
     print("    [Injecting Pause[15] on main link via evaluate_cell...]")
     try:
         # Write a cell with long computation
-        write_result = conn.send_command("write_cell", {
-            "content": "Pause[15]; \"main_link_unblocked\"",
-            "style": "Input", "session_id": "diag-bench"
-        })
+        write_result = conn.send_command(
+            "write_cell", {"content": 'Pause[15]; "main_link_unblocked"', "style": "Input", "session_id": "diag-bench"}
+        )
         blocker_cell_id = write_result.get("cell_id")
         if not blocker_cell_id:
             print("    ✗ Could not create blocker cell")
             return results
 
         # Start evaluation but return after 0.5s (cell keeps running on main link)
-        conn.send_command("evaluate_cell", {
-            "cell_id": blocker_cell_id, "max_wait": 0.5, "session_id": "diag-bench"
-        })
+        conn.send_command("evaluate_cell", {"cell_id": blocker_cell_id, "max_wait": 0.5, "session_id": "diag-bench"})
         print("    [Main link now blocked for ~15 seconds]")
         time.sleep(0.5)  # small buffer for eval to start
 
@@ -300,8 +330,14 @@ def scenario_b_main_link_blocked(conn: DiagConnection) -> list[Measurement]:
     block_start = time.perf_counter()
 
     # Preemptive path should be fast
-    m = measure(conn, "execute_code 1+1 WHILE main blocked (preemptive)", "execute_code",
-                {"code": "1+1"}, iterations=5, warmup=0)
+    m = measure(
+        conn,
+        "execute_code 1+1 WHILE main blocked (preemptive)",
+        "execute_code",
+        {"code": "1+1"},
+        iterations=5,
+        warmup=0,
+    )
     print_measurement(m)
     results.append(m)
 
@@ -312,14 +348,17 @@ def scenario_b_main_link_blocked(conn: DiagConnection) -> list[Measurement]:
     # Main link path should be slow/blocked
     # Write another cell to evaluate
     try:
-        write_result = conn.send_command("write_cell", {
-            "content": "3+3", "style": "Input", "session_id": "diag-bench"
-        })
+        write_result = conn.send_command("write_cell", {"content": "3+3", "style": "Input", "session_id": "diag-bench"})
         test_cell_id = write_result.get("cell_id")
         if test_cell_id:
-            m = measure(conn, "evaluate_cell 3+3 WHILE main blocked", "evaluate_cell",
-                        {"cell_id": test_cell_id, "max_wait": 3, "session_id": "diag-bench"},
-                        iterations=1, warmup=0)
+            m = measure(
+                conn,
+                "evaluate_cell 3+3 WHILE main blocked",
+                "evaluate_cell",
+                {"cell_id": test_cell_id, "max_wait": 3, "session_id": "diag-bench"},
+                iterations=1,
+                warmup=0,
+            )
             print_measurement(m)
             results.append(m)
             # Check: did the evaluate_cell return quickly (because max_wait expired)
@@ -346,8 +385,7 @@ def scenario_b_main_link_blocked(conn: DiagConnection) -> list[Measurement]:
         time.sleep(remaining)
 
     # Verify main link is free again
-    m = measure(conn, "execute_code 1+1 AFTER main unblocked", "execute_code",
-                {"code": "1+1"}, iterations=3, warmup=0)
+    m = measure(conn, "execute_code 1+1 AFTER main unblocked", "execute_code", {"code": "1+1"}, iterations=3, warmup=0)
     print_measurement(m)
     results.append(m)
 
@@ -381,7 +419,7 @@ def scenario_c_preemptive_blocked(conn: DiagConnection) -> list[Measurement]:
         try:
             t0 = time.perf_counter()
             # This runs Pause[8] on the preemptive link, blocking the handler
-            conn1.send_command("execute_code", {"code": "Pause[8]; \"preemptive_done\""}, timeout=30.0)
+            conn1.send_command("execute_code", {"code": 'Pause[8]; "preemptive_done"'}, timeout=30.0)
             blocker_result["elapsed_ms"] = (time.perf_counter() - t0) * 1000
         except Exception as e:
             blocker_result["error"] = str(e)
@@ -399,16 +437,22 @@ def scenario_c_preemptive_blocked(conn: DiagConnection) -> list[Measurement]:
     print("    [Testing commands on primary socket while preemptive is blocked...]")
 
     # Ping should be very slow (queued behind the Pause[8])
-    m = measure(conn, "ping WHILE preemptive blocked", "ping",
-                iterations=1, warmup=0, timeout=15.0)
+    m = measure(conn, "ping WHILE preemptive blocked", "ping", iterations=1, warmup=0, timeout=15.0)
     print_measurement(m)
     results.append(m)
     if m.ok and m.mean > 3000:
         print("      ^ Slow ping confirms preemptive link was blocked. EXPECTED.")
 
     # execute_code should also be slow
-    m = measure(conn, "execute_code 1+1 WHILE preemptive blocked", "execute_code",
-                {"code": "1+1"}, iterations=1, warmup=0, timeout=15.0)
+    m = measure(
+        conn,
+        "execute_code 1+1 WHILE preemptive blocked",
+        "execute_code",
+        {"code": "1+1"},
+        iterations=1,
+        warmup=0,
+        timeout=15.0,
+    )
     print_measurement(m)
     results.append(m)
 
@@ -420,8 +464,7 @@ def scenario_c_preemptive_blocked(conn: DiagConnection) -> list[Measurement]:
         print(f"    Blocker thread completed in {blocker_result['elapsed_ms']:.0f}ms")
 
     # Post-block: should be fast again
-    m = measure(conn, "ping AFTER preemptive unblocked", "ping",
-                iterations=3, warmup=0)
+    m = measure(conn, "ping AFTER preemptive unblocked", "ping", iterations=3, warmup=0)
     print_measurement(m)
     results.append(m)
 
@@ -471,6 +514,7 @@ def scenario_d_socket_degradation(conn: DiagConnection) -> list[Measurement]:
 
     # 4. Many concurrent sockets (simulates MCP server under load)
     print("    [Testing 5 concurrent connections...]")
+
     def concurrent_ping(idx):
         c = DiagConnection(label=f"concurrent-{idx}", timeout=10.0)
         if not c.connect():
@@ -487,8 +531,10 @@ def scenario_d_socket_degradation(conn: DiagConnection) -> list[Measurement]:
     threads = []
     thread_results = [None] * 5
     for i in range(5):
+
         def worker(idx=i):
             thread_results[idx] = concurrent_ping(idx)
+
         t = threading.Thread(target=worker)
         threads.append(t)
 
@@ -525,8 +571,7 @@ def scenario_e_memory_pressure(conn: DiagConnection) -> list[Measurement]:
     results = []
 
     # Baseline before loading data
-    m = measure(conn, "execute_code 1+1 (before load)", "execute_code",
-                {"code": "1+1"}, iterations=5, warmup=1)
+    m = measure(conn, "execute_code 1+1 (before load)", "execute_code", {"code": "1+1"}, iterations=5, warmup=1)
     print_measurement(m)
     results.append(m)
 
@@ -534,9 +579,11 @@ def scenario_e_memory_pressure(conn: DiagConnection) -> list[Measurement]:
     print("\n    [Loading ~100MB table into kernel...]")
     try:
         t0 = time.perf_counter()
-        conn.send_command("execute_code", {
-            "code": "$mcpBenchData = RandomReal[1, {1000, 1000}]; ByteCount[$mcpBenchData]"
-        }, timeout=30.0)
+        conn.send_command(
+            "execute_code",
+            {"code": "$mcpBenchData = RandomReal[1, {1000, 1000}]; ByteCount[$mcpBenchData]"},
+            timeout=30.0,
+        )
         load_ms = (time.perf_counter() - t0) * 1000
         print(f"    Loaded in {load_ms:.0f}ms")
     except Exception as e:
@@ -544,14 +591,20 @@ def scenario_e_memory_pressure(conn: DiagConnection) -> list[Measurement]:
         return results
 
     # Measure after loading
-    m = measure(conn, "execute_code 1+1 (after 100MB load)", "execute_code",
-                {"code": "1+1"}, iterations=5, warmup=1)
+    m = measure(conn, "execute_code 1+1 (after 100MB load)", "execute_code", {"code": "1+1"}, iterations=5, warmup=1)
     print_measurement(m)
     results.append(m)
 
     # Trigger computation that touches the large data
-    m = measure(conn, "execute_code Total[$mcpBenchData]", "execute_code",
-                {"code": "Total[$mcpBenchData, 2]"}, iterations=3, warmup=0, timeout=30.0)
+    m = measure(
+        conn,
+        "execute_code Total[$mcpBenchData]",
+        "execute_code",
+        {"code": "Total[$mcpBenchData, 2]"},
+        iterations=3,
+        warmup=0,
+        timeout=30.0,
+    )
     print_measurement(m)
     results.append(m)
 
@@ -615,8 +668,7 @@ def scenario_f_restart_mcp(conn: DiagConnection) -> list[Measurement]:
     print_measurement(m)
     results.append(m)
 
-    m = measure(conn, "execute_code 1+1 (after restart)", "execute_code",
-                {"code": "1+1"}, iterations=5, warmup=1)
+    m = measure(conn, "execute_code 1+1 (after restart)", "execute_code", {"code": "1+1"}, iterations=5, warmup=1)
     print_measurement(m)
     results.append(m)
 
@@ -624,6 +676,7 @@ def scenario_f_restart_mcp(conn: DiagConnection) -> list[Measurement]:
 
 
 # ── Diagnosis summary ──────────────────────────────────────────────────────
+
 
 def print_diagnosis(all_results: dict[str, list[Measurement]]):
     """Print actionable diagnosis based on collected measurements."""
@@ -682,6 +735,7 @@ When to restart what:
 
 # ── Main ───────────────────────────────────────────────────────────────────
 
+
 def main():
     print("╔══════════════════════════════════════════════════════════════════════╗")
     print("║  Mathematica MCP Bottleneck Diagnosis Benchmark                    ║")
@@ -708,9 +762,10 @@ def main():
     print("\n[Setup] Creating diagnostic notebook session...")
     try:
         conn.send_command("create_notebook", {"title": "Bottleneck Diagnosis", "session_id": "diag-bench"})
-        conn.send_command("execute_code_notebook", {
-            "code": "(* Bottleneck diagnosis session *)", "mode": "kernel", "session_id": "diag-bench"
-        })
+        conn.send_command(
+            "execute_code_notebook",
+            {"code": "(* Bottleneck diagnosis session *)", "mode": "kernel", "session_id": "diag-bench"},
+        )
         print("  Notebook session ready")
     except Exception as e:
         print(f"  Warning: Could not create notebook session: {e}")
