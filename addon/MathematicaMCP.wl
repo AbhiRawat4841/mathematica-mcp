@@ -841,7 +841,7 @@ cmdEvaluateCell[params_] := Module[{cell, nb, maxWait, waitInterval, elapsed, sy
   ];
   nb = ParentNotebook[cell];
   maxWait = Lookup[params, "max_wait", 10];
-  waitInterval = 0.1;
+  waitInterval = 0.05;
   syncMode = resolveSyncMode[params];
   syncWait = Lookup[params, "sync_wait", 2];
 
@@ -1013,7 +1013,7 @@ cmdExecuteSelection[params_] := Module[{nb, maxWait, waitInterval, elapsed, sync
   sessionId = Lookup[params, "session_id", None];
   nb = resolveNotebook[Lookup[params, "notebook", None], sessionId];
   maxWait = Lookup[params, "max_wait", 10];
-  waitInterval = 0.1;
+  waitInterval = 0.05;
   syncMode = resolveSyncMode[params];
   syncWait = Lookup[params, "sync_wait", 2];
 
@@ -1249,7 +1249,7 @@ executeCodeNotebookKernel[nb_, code_, timeout_, syncMode_, createdNew_, sessionI
 ];
 
 executeCodeNotebookFrontend[nb_, code_, maxWait_, timeout_, syncMode_, createdNew_, sessionId_, deterministicSeed_, isolateContext_, syncWait_] := Module[
-  {cell, cellsBefore, cellsAfter, waitInterval, elapsed, inputCellId, inputCellObj, execCode, ctx, effectiveWait, gotNewCell},
+  {cell, cellsBefore, cellsAfter, waitInterval, elapsed, inputCellId, inputCellObj, execCode, ctx, effectiveWait, gotNewCell, evaluating},
 
   cellsBefore = Length[Cells[nb]];
 
@@ -1284,13 +1284,16 @@ executeCodeNotebookFrontend[nb_, code_, maxWait_, timeout_, syncMode_, createdNe
   While[elapsed < effectiveWait,
     Pause[waitInterval];
     elapsed += waitInterval;
-    cellsAfter = Length[Cells[nb]];
-    If[cellsAfter > cellsBefore + 1,
-      gotNewCell = True;
-      Pause[0.1];
+    (* Primary signal: notebook finished evaluating (proven reliable from preemptive link) *)
+    evaluating = Quiet[Check[CurrentValue[nb, Evaluating], False]];
+    If[!TrueQ[evaluating],
       Break[];
     ];
   ];
+  (* After evaluation completes, give FrontEnd a moment to finalize output cell *)
+  Pause[0.05];
+  cellsAfter = Length[Cells[nb]];
+  gotNewCell = cellsAfter > cellsBefore + 1;
 
   If[syncMode =!= "none",
     FrontEndTokenExecute[nb, "Refresh"];

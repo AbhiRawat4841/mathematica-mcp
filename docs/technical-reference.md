@@ -1301,7 +1301,9 @@ mathematica-mcp/
 
 Notebook operations (`style="notebook"`) use a kernel-mode fast path (`executeCodeNotebookKernel`) that combines notebook lookup, cell creation, and evaluation into a single atomic round-trip. This is the default and is reliable for standard use.
 
-However, when using **frontend mode** (`style="interactive"` or legacy frontend evaluation), or when performing rapid sequences of individual cell operations (`write_cell` followed immediately by `get_cells`), the Mathematica frontend may not have finished updating its internal state. This can cause:
+Frontend mode (`style="interactive"`) dispatches evaluation through the Mathematica FrontEnd via `FrontEndTokenExecute["EvaluateCells"]`, then polls for completion. This path is required for `Manipulate`, `Dynamic`, and other interactive content that relies on the FrontEnd evaluation pipeline.
+
+When performing rapid sequences of individual cell operations (`write_cell` followed immediately by `get_cells`), the Mathematica frontend may not have finished updating its internal state. This can cause:
 
 - Cells appearing empty when queried immediately after creation
 - Stale cell counts from `get_cells` after rapid mutations
@@ -1311,6 +1313,47 @@ However, when using **frontend mode** (`style="interactive"` or legacy frontend 
 - For interactive/dynamic content (`Manipulate`, `Animate`), `style="interactive"` uses frontend evaluation by design — results appear in the Mathematica window
 - Use `style="compute"` when you only need the result as text, not a notebook artifact
 
+### Evaluation Architecture: Preemptive vs Main Link
+
+Understanding the two kernel links is essential for diagnosing notebook evaluation latency:
+
+```
+Claude Code → Python MCP → TCP :9881 → MathematicaMCP.wl (SocketListen)
+                                             │
+                             ┌────────────────┴────────────────┐
+                             │                                 │
+                       PREEMPTIVE LINK                    MAIN LINK
+                       • execute_code                    • evaluate_cell (FrontEnd dispatch)
+                       • kernel-mode notebook            • frontend-mode notebook
+                       • Dynamic/Manipulate updates      • Shift+Enter in notebook UI
+                       • All MCP socket handlers         • Queued, single-threaded
+```
+
+**Key behaviors:**
+- **SocketListen handlers** run on the **preemptive link** and can interrupt the main link.
+- **`execute_code`** evaluates entirely on the preemptive link — fast even when the main link is busy.
+- **`evaluate_cell`** and **frontend-mode `execute_code_notebook`** dispatch to the **main link** via `FrontEndTokenExecute["EvaluateCells"]`, then poll with `CurrentValue[nb, Evaluating]` on the preemptive link.
+- **`Manipulate`/`Dynamic`** slider updates use the preemptive link — they stay responsive even when cells show "Running...".
+
+**Blocking scenarios and remediation:**
+
+| Symptom | Root Cause | Fix |
+|---------|-----------|-----|
+| Notebook cell shows "Running..." for simple expressions | Main link queue blocked by a previous computation | Restart kernel |
+| All MCP commands slow (including ping) | Preemptive link blocked by a long `execute_code` | Wait for it to finish, or restart kernel |
+| MCP timeout, but manual notebook evaluation works | TCP socket stale or addon connection dropped | `RestartMCPServer[]` (preserves kernel state) |
+| `Manipulate` sliders work, but typed cells stuck | Preemptive link free, main link blocked | Restart kernel to clear main link queue |
+
+> **Note:** `RestartMCPServer[]` only restarts the TCP socket listener — it does **not** restart the kernel. It is only useful when the socket connection itself is broken. For evaluation-related slowness, restart the kernel instead.
+
+### Frontend Polling Fix (v0.9.4)
+
+Prior to v0.9.4, `executeCodeNotebookFrontend` used a cell-count polling loop (`Length[Cells[nb]] > cellsBefore + 1`) to detect when the FrontEnd had finished evaluating and produced an output cell. This check was unreliable from the preemptive link — it never resolved, causing the loop to burn the entire `max_wait` timeout (10-30 seconds) even for `1+1`.
+
+The fix replaced this with `CurrentValue[nb, Evaluating]` polling — the same approach already proven reliable in `cmdEvaluateCell` and `cmdExecuteSelection`. Result: frontend mode latency dropped from **10,893ms to 129ms** for trivial expressions.
+
+Additionally, the polling interval for `cmdEvaluateCell` and `cmdExecuteSelection` was reduced from 100ms to 50ms, cutting detection latency for fast-completing computations.
+
 ---
 
 ## License
@@ -1319,4 +1362,4 @@ MIT License
 
 ---
 
-*Last updated: April 2026 (v0.9.1: lean guidance layering, profile-aware conditioning, expanded intent keywords)*
+*Last updated: April 2026 (v0.9.4: frontend polling fix, evaluation architecture documentation)*

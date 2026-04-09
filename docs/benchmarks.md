@@ -61,6 +61,35 @@ The symbol index is now persisted to disk at `~/.cache/mathematica-mcp/symbols/`
 
 ---
 
+## Frontend Polling Fix (v0.9.4)
+
+**Source:** `benchmarks/benchmark_bottleneck_diagnosis.py`
+**Date:** 2026-04-09 | **Post-fix measurements**
+
+The `executeCodeNotebookFrontend` polling loop was using `Length[Cells[nb]]` cell-count checking to detect output cell creation. From the preemptive link, this check never resolved, burning the entire `max_wait` timeout. Replaced with `CurrentValue[nb, Evaluating]` polling.
+
+| Benchmark | Before (v0.9.3) | After (v0.9.4) | Speedup |
+|-----------|-----------------|-----------------|---------|
+| `exec_notebook frontend 1+1` | 10,893ms | 129ms | **85x** |
+| `evaluate_cell 2+2` | 134ms | 98ms | 1.4x |
+| `exec_notebook kernel 1+1` | 55ms | 47ms | 1.2x |
+| `execute_code 1+1` (preemptive) | 29ms | 30ms | (baseline) |
+| `ping` (socket round-trip) | 28ms | 27ms | (baseline) |
+
+### Bottleneck Diagnosis Results
+
+The benchmark also confirmed these architectural properties:
+
+| Scenario | Finding |
+|----------|---------|
+| Main link blocked (Pause[15]) | Preemptive path unaffected (11ms); evaluate_cell returns at max_wait |
+| Preemptive link blocked (Pause[8]) | ALL MCP commands stall (ping: 7,015ms queued behind blocker) |
+| Socket health | Cold connect: 5ms; reconnect cycle: 6ms — negligible overhead |
+| Memory pressure (100MB loaded) | No degradation (3ms before and after) |
+| RestartMCPServer[] | Performance identical before/after (only fixes broken TCP state) |
+
+---
+
 ## Addon Timing Accuracy
 
 The addon's reported `timing_ms` now correctly measures evaluation time. Previously, `ToExpression[code]` was called before `AbsoluteTiming`, causing all reported timings to be ~0ms. The fix uses `HoldComplete` to defer evaluation into the timed block, which also corrects context isolation and timeout behavior.

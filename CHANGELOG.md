@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.4] - 2026-04-09
+
+### Fixed
+
+- **Frontend evaluation polling (85x speedup)**: `executeCodeNotebookFrontend` was using a broken `Length[Cells[nb]]` cell-count check to detect evaluation completion. From the preemptive link, this check never resolved, causing the polling loop to burn the entire `max_wait` timeout (10-30 seconds) even for trivial expressions like `1+1`. Replaced with `CurrentValue[nb, Evaluating]` - the same proven pattern used by `cmdEvaluateCell` and `cmdExecuteSelection`. Frontend mode latency dropped from **10,893ms to 129ms** (median).
+- **Evaluation polling intervals halved**: `cmdEvaluateCell` and `cmdExecuteSelection` polling intervals reduced from 100ms to 50ms, cutting average detection latency for fast-completing computations (~134ms to ~98ms).
+
+### Changed
+
+- Updated technical reference, benchmarks documentation, and addon README to reflect the frontend polling fix and evaluation architecture
+
 ## [0.9.3] - 2026-04-09
 
 ### Fixed
@@ -44,19 +55,19 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- **Payload shaping** (`response_detail` parameter on `execute_code`): Four detail levels — `compact` (essential fields only, token-efficient), `standard` (exact backward-compatible default), `verbose` (+ detail_level marker), `diagnostic` (+ cache epoch, routing hints). Compact mode preserves notebook IDs, transport status, error families, and handles graphics placeholders by swapping to `output_inputform`. Large outputs auto-summarized with balanced-brace list element counting. Pure response filter module with no runtime singleton dependencies.
+- **Payload shaping** (`response_detail` parameter on `execute_code`): Four detail levels - `compact` (essential fields only, token-efficient), `standard` (exact backward-compatible default), `verbose` (+ detail_level marker), `diagnostic` (+ cache epoch, routing hints). Compact mode preserves notebook IDs, transport status, error families, and handles graphics placeholders by swapping to `output_inputform`. Large outputs auto-summarized with balanced-brace list element counting. Pure response filter module with no runtime singleton dependencies.
 
 - **Session brief** (`get_session_brief()` tool): Compact ~100-token session state snapshot showing connection mode (addon/kernel_only/disconnected), recent error families (sorted by recency with 24h age cutoff), and routing advice. Uses 500ms addon timeout and never starts a fresh kernel session.
 
 - **Computation journal** (`get_computation_journal()`, `clear_computation_journal()` tools): In-memory ring buffer (10 entries) recording code/output previews, timing, transport status, error families, timed_out, and from_cache for each `execute_code` call. Records raw canonical results before response filtering. Survives context compaction.
 
-- **Smart cache optimization**: Pure-System expressions (no user-defined symbols, no session-sensitive introspection like `Names`, `Contexts`, `$Packages`, `Definition`) are now epoch-insensitive — they survive `set_variable`/`clear_variables` mutations without re-evaluation. Memoized single-pass code analysis with `lru_cache(1024)`, static ~200 builtin allowlist, session-sensitive symbol denylist. Malformed input (unbalanced strings/comments) falls back to epoch-sensitive (safe degradation).
+- **Smart cache optimization**: Pure-System expressions (no user-defined symbols, no session-sensitive introspection like `Names`, `Contexts`, `$Packages`, `Definition`) are now epoch-insensitive - they survive `set_variable`/`clear_variables` mutations without re-evaluation. Memoized single-pass code analysis with `lru_cache(1024)`, static ~200 builtin allowlist, session-sensitive symbol denylist. Malformed input (unbalanced strings/comments) falls back to epoch-sensitive (safe degradation).
 
 - **Expression classification**: Regex-based classifier categorizes Wolfram code into routing-relevant classes (`plot`, `frontend_dynamic`, `symbolic_heavy`, `numeric_heavy`, `io`, `general`). Strips strings and nested comments before matching. Used for expr-type-specific routing cohorts and transport-path hints.
 
 - **Per-path transport outcomes**: Attempt-level telemetry records each transport leg independently (addon_notebook, addon_cli) with typed `AttemptOutcome` (OK, INFRA_ERROR, TIMEOUT, SEMANTIC_ERROR). Persisted in `path_transport_outcomes` on aggregate cohorts. Fixes the data flow bug where addon failures were invisible after kernel fallback.
 
-- **Routing hints**: Advisory hints built from two sources — transport-path hints (per-path infra/timeout rates from attempt telemetry) and end-to-end hints (timeout/fallback rates from final cohort data). Structured `RoutingHint` records with severity/specificity ordering, deduplication, and 5-hint cap. Available via `get_routing_memory_stats(include_hints=True)` and in `diagnostic` response detail.
+- **Routing hints**: Advisory hints built from two sources - transport-path hints (per-path infra/timeout rates from attempt telemetry) and end-to-end hints (timeout/fallback rates from final cohort data). Structured `RoutingHint` records with severity/specificity ordering, deduplication, and 5-hint cap. Available via `get_routing_memory_stats(include_hints=True)` and in `diagnostic` response detail.
 
 - **Conservative routing action** (opt-in): Concurrency-safe half-open circuit breaker that skips persistently failing addon_cli transport legs for compute requests. Requires both `MATHEMATICA_ROUTING_MEMORY=advise` and `MATHEMATICA_ROUTING_ACTION=compute_cli_skip`. Breaker trips on 5 consecutive `INFRA_ERROR` outcomes only (ignores timeouts and semantic errors). 60s cooldown with single-probe recovery. Idempotent finish/abort lifecycle. Skip counter observability in routing stats. Uses truthful `kernel_direct_routing_skip` execution path (not `kernel_fallback`).
 
@@ -74,7 +85,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
-- `execute_code` now accepts `response_detail` parameter (default `"standard"` — exact backward-compatible behavior)
+- `execute_code` now accepts `response_detail` parameter (default `"standard"` - exact backward-compatible behavior)
 - `get_routing_memory_stats` now accepts `include_hints` parameter (default `False`)
 - Routing memory `_SCHEMA_VERSION` bumped from 1 to 2 (backward-compatible load)
 - `clear_routing_memory()` now resets runtime-only breaker state and skip counters
@@ -98,7 +109,7 @@ All 31 smoke corpus tests pass against live Mathematica.
 
 - **Corpus-driven MCP test harness**: data-driven test infrastructure that runs Wolfram Language expressions against actual MCP server tools with structured oracle verification (11 strategies: exact, symbolic, numeric, structural, artifact, warning, workflow)
 - **Corpus manifest** (`tests/corpus/mathematica_mcp_corpus.json`): executable smoke manifest with 30 cases + 1 variable lifecycle workflow, validated against live Mathematica (31/31 passing)
-- **Corpus meta-tests**: 83 tests validating the harness itself (normalizer, verifiers, models, adapters, polling, cleanup) — no Mathematica needed
+- **Corpus meta-tests**: 83 tests validating the harness itself (normalizer, verifiers, models, adapters, polling, cleanup) - no Mathematica needed
 - **Tiered CI**: smoke meta-tests run on every PR (`ci.yml`); core/extended/probe tiers run via manual dispatch or nightly schedule (`corpus.yml`)
 - **Response normalization layer**: uniform handling of JSON, dict, Image, and parse_error payloads with warning/artifact extraction
 - **Workflow engine**: self-contained multi-step workflows with per-step assertions, structured polling, state extraction, cleanup error recording, and `{tmp_path}` templating
@@ -114,7 +125,7 @@ All 31 smoke corpus tests pass against live Mathematica.
 
 ### Added
 
-- **Routing memory** (`MATHEMATICA_ROUTING_MEMORY`): opt-in observability layer that collects aggregate routing statistics from `execute_code` — transport success rates, latency histograms, and error family frequencies. Modes: `off` (default), `observe`. No raw code or expressions stored. (`advise` mode reserved for future routing hints.) See [Technical Reference](docs/technical-reference.md#routing-memory).
+- **Routing memory** (`MATHEMATICA_ROUTING_MEMORY`): opt-in observability layer that collects aggregate routing statistics from `execute_code` - transport success rates, latency histograms, and error family frequencies. Modes: `off` (default), `observe`. No raw code or expressions stored. (`advise` mode reserved for future routing hints.) See [Technical Reference](docs/technical-reference.md#routing-memory).
 - **Response metadata normalization**: every `execute_code` response now includes `route_variant`, `execution_path`, `transport_status`, `overall_timing_ms`, and `error_families` across all branches
 - **Wolframclient message capture**: the `wolframclient` execution path now captures `$MessageList` with `Block` isolation, matching the existing `wolframscript` path for symmetric error reporting
 - **Routing memory admin tools**: `get_routing_memory_stats()` and `clear_routing_memory()` (full profile only, when routing memory is enabled)
@@ -137,14 +148,14 @@ All 31 smoke corpus tests pass against live Mathematica.
 
 ### Added
 
-- **Execution `style` parameter**: New keyword-only `style` parameter on `execute_code` bundles `output_target` + `mode` into three presets: `"compute"` (cli/kernel), `"notebook"` (notebook/kernel), `"interactive"` (notebook/frontend) — reduces LLM argument assembly errors
+- **Execution `style` parameter**: New keyword-only `style` parameter on `execute_code` bundles `output_target` + `mode` into three presets: `"compute"` (cli/kernel), `"notebook"` (notebook/kernel), `"interactive"` (notebook/frontend) - reduces LLM argument assembly errors
 - **Pure execution resolver**: `_resolve_execution_params()` handles style→param resolution with explicit>style>profile priority, unknown-style errors, and CLI mode normalization
-- **Unconditional execution metadata**: Every `execute_code` response now includes `executed_output_target` (and `executed_mode` when applicable) across all 6 response paths — including timeout and fallback — so callers always know what actually happened
+- **Unconditional execution metadata**: Every `execute_code` response now includes `executed_output_target` (and `executed_mode` when applicable) across all 6 response paths - including timeout and fallback - so callers always know what actually happened
 - **Profile-aware guidance**: `build_claude_hint()`, `build_claude_command()`, and `build_codex_guidance()` now conditionally omit notebook/interactive flows for the `math` profile, matching the existing behavior of `build_mathematica_expert_prompt()`
 
 ### Fixed
 
-- **`create_notebook` profile exposure**: Moved `create_notebook` from `notebook_advanced` to `notebook_primary` group — previously all guidance told LLMs to call it for "new notebook" flows, but it was not registered in the `notebook` profile
+- **`create_notebook` profile exposure**: Moved `create_notebook` from `notebook_advanced` to `notebook_primary` group - previously all guidance told LLMs to call it for "new notebook" flows, but it was not registered in the `notebook` profile
 - **Addon robustness**: Added `StringQ` guards in `editableNotebookQ`, `jsonSanitize`, and `maybeCompressResponse` to prevent crashes from unexpected non-string values; improved `dispatchCommand` error capture with `$MessageList`
 - **Oversized response handling**: Connection layer now closes socket and clears buffer on oversized responses instead of leaving stale data
 - **Ruff lint violations**: Replaced `try/except OSError: pass` with `contextlib.suppress(OSError)` (SIM105); fixed formatting across cli, server, and test files
@@ -160,7 +171,7 @@ All 31 smoke corpus tests pass against live Mathematica.
 
 ### Added
 
-- **Execution mode keywords**: Users can steer routing with natural language keywords ("calculate", "plot", "new notebook", "interactive") — documented in README, CLAUDE.md, AGENTS.md, and server instructions
+- **Execution mode keywords**: Users can steer routing with natural language keywords ("calculate", "plot", "new notebook", "interactive") - documented in README, CLAUDE.md, AGENTS.md, and server instructions
 - **MCP server instructions**: FastMCP `instructions` field tells all connected agents to use MCP tools directly, never wolframscript CLI or manual .nb file creation; clarifies "notebook" means a live Mathematica window, not a file on disk
 - **MCP prompts**: Five new prompts (`calculate`, `notebook`, `new_notebook`, `interactive`, `quickstart`) so MCP clients can surface structured mode selection to users
 - **Codex project guidance**: `build_codex_guidance()` generates AGENTS.md content; `setup codex --project-dir .` now installs it alongside config, matching Claude Code's CLAUDE.md flow
