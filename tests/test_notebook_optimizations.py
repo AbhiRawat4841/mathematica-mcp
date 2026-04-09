@@ -225,6 +225,16 @@ class TestStatusReporting:
         assert result["total_captured"] >= result["count"]
         assert any("infy" in msg.get("message", "") or "infy" in msg.get("tag", "") for msg in result["messages"])
 
+    def test_get_messages_returns_most_recent_entries(self, mcp_client):
+        """get_messages should return the newest captured messages, not the oldest slice of history."""
+        mcp_client.send_command("execute_code_notebook", {"code": "1/0", "mode": "kernel"})
+        mcp_client.send_command("execute_code_notebook", {"code": "{}[[1]]", "mode": "kernel"})
+
+        result = mcp_client.send_command("get_messages", {"count": 1})
+
+        assert result["count"] == 1
+        assert result["messages"][0].get("tag", "") == "Part::partw"
+
 
 class TestScreenshotOptimization:
     """Tests for screenshot using ExportPacket."""

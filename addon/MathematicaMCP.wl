@@ -1750,7 +1750,10 @@ cmdGetMessages[params_] := Module[{count, messages},
   count = Lookup[params, "count", 10];
   If[!IntegerQ[count] || count < 0, count = 10];
   
-  messages = Take[$MCPMessageLog, UpTo[count]];
+  messages = If[count == 0,
+    {},
+    Take[$MCPMessageLog, -Min[count, Length[$MCPMessageLog]]]
+  ];
   
   <|
     "success" -> True,
