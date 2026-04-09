@@ -2,7 +2,7 @@
 
 **Turn Mathematica into a first-class tool for AI agents.**
 
-Run symbolic math, generate plots, control live notebooks, and inspect results — from Claude, Cursor, VS Code, Codex, or Gemini.
+A local MCP server that lets AI agents run Mathematica, control notebooks, and verify results -- from Claude, Cursor, VS Code, Codex, or Gemini.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
@@ -17,22 +17,36 @@ Run symbolic math, generate plots, control live notebooks, and inspect results �
 
 [![Mathematica MCP Demo](https://img.youtube.com/vi/TjGSkvVyc1Y/0.jpg)](https://www.youtube.com/watch?v=TjGSkvVyc1Y)
 
+*An AI agent solving math, generating plots, and controlling a live Mathematica notebook -- with errors returned directly to the agent, no copy-pasting notebook output back into chat.*
+
 ---
 
 ## Why This Exists
 
 LLMs can write Mathematica code, but they can't run it, verify it, or interact with live notebooks. This MCP server bridges that gap:
 
-- **Live notebook control** — create, edit, evaluate, and screenshot Mathematica notebooks directly from your AI agent. Not code generation; actual execution in a running Mathematica instance.
-- **Symbolic + numeric + visual in one MCP** — ~79 tools covering algebra, calculus, differential equations, plotting, data import/export, Wolfram Alpha queries, and interactive Manipulate UIs.
-- **Agent-optimized** — execution styles, compact response shaping, session state tools, and computation journaling designed for how LLM agents actually work.
-- **Local and private** — a local MCP server connecting to your running Mathematica instance. Everything runs on your machine. No code leaves your environment. No cloud dependencies.
+- **Live notebook control** -- create, edit, evaluate, and screenshot Mathematica notebooks directly from your AI agent
+- **Symbolic + numeric + visual in one MCP** -- ~79 tools covering algebra, calculus, plotting, data import/export, Wolfram Alpha, and interactive UIs
+- **Agent-optimized** -- compact response shaping, session state tools, and computation journaling designed for how LLM agents actually work
+- **Error-aware execution** -- Mathematica errors and warnings are returned directly to the agent, so it can debug without you manually copying notebook output back into chat
+- **Local and private** -- everything runs on your machine, no code leaves your environment
 
-> Ask your agent for a derivation, a 3D plot, a notebook edit, or a verification step — and it can actually do it.
+> Ask your agent for a derivation, a 3D plot, a notebook edit, or a verification step -- and it can actually do it.
 
 ---
 
-## What Your Agent Can Do
+## Who This Is For
+
+| Audience | Use Case |
+|----------|----------|
+| Researchers using LLM coding assistants | Run Mathematica from Claude/Cursor/VS Code without leaving your editor |
+| Data scientists | Import, transform, and visualize data through natural language |
+| Educators | Create interactive Mathematica notebooks through AI conversation |
+| **Not for** | Production web services, untrusted multi-tenant environments |
+
+---
+
+## What You Can Ask For
 
 **"Integrate x^2 sin(x) from 0 to pi, then verify the result."**
 
@@ -70,12 +84,15 @@ Beyond these: **data import/export** (hundreds of formats), **Wolfram Alpha quer
 | Control live notebooks | No | No | **Yes** |
 | Verify derivations | No | Manual | **One tool call** |
 | Interactive UIs (sliders) | No | Manual | **Yes** |
+| Error-aware debugging | No | Manual copy-paste | **Yes** |
 | Session state awareness | No | No | **Yes** |
 | Private / local execution | N/A | Yes | **Yes** |
 
 ---
 
 ## Quick Start
+
+From install to first working notebook plot in under 2 minutes.
 
 ### Prerequisites
 
@@ -181,15 +198,15 @@ Pass `--profile` during setup or set `MATHEMATICA_PROFILE` env var.
 
 ---
 
-## Built for Long Agent Sessions
+## Built for Agent Workflows
 
-The server is designed for how LLM agents actually work — long conversations with context limits, intermittent failures, and token budgets:
+The server is designed for how LLM agents actually work -- long conversations with context limits, intermittent failures, and token budgets:
 
 | Feature | What it does | How to use |
 |---------|-------------|------------|
 | **Compact Responses** | Strip verbose metadata, keep essentials. Saves tokens. | `response_detail="compact"` on `execute_code` |
 | **Session Brief** | One-call snapshot: connection status, recent errors, routing advice | `get_session_brief()` |
-| **Computation Journal** | Ring buffer of recent computations — helps agents recover context across long conversations | `get_computation_journal()` |
+| **Computation Journal** | Ring buffer of recent computations -- helps agents recover context across long conversations | `get_computation_journal()` |
 | **Smart Caching** | Pure expressions (`Sin[Pi]`) survive variable mutations without re-evaluation | Always on |
 | **Diagnostic Mode** | Full response + cache epoch + routing hints for debugging | `response_detail="diagnostic"` |
 
@@ -232,20 +249,9 @@ For full details, troubleshooting, and advanced configuration, see the **[Instal
     ```
     *Restart Mathematica after this step.*
 
-3.  **Configure your editor** — add the MCP server to your client's config file. See the **[Installation Guide](docs/installation.md#step-4-configure-your-editor)** for Claude Desktop, Cursor, VS Code, and other client configs.
+3.  **Configure your editor** -- add the MCP server to your client's config file. See the **[Installation Guide](docs/installation.md#step-4-configure-your-editor)** for Claude Desktop, Cursor, VS Code, and other client configs.
 
 </details>
-
----
-
-## Who This Is For
-
-| Audience | Use Case |
-|----------|----------|
-| Researchers using LLM coding assistants | Run Mathematica from Claude/Cursor/VS Code without leaving your editor |
-| Data scientists | Import, transform, and visualize data through natural language |
-| Educators | Create interactive Mathematica notebooks through AI conversation |
-| **Not for** | Production web services, untrusted multi-tenant environments |
 
 ---
 
