@@ -380,7 +380,7 @@ That's it. No mkdir, no export, no file search.
 ```
 """
 
-    guidance = f"""# Mathematica MCP — Agent Instructions
+    guidance = """# Mathematica MCP — Agent Instructions
 
 This project has a Mathematica MCP server connected. It gives you direct
 control of a running Mathematica instance through MCP tools.
