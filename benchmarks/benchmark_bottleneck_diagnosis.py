@@ -32,13 +32,13 @@ Run:
   python benchmarks/benchmark_bottleneck_diagnosis.py
 """
 
+import contextlib
 import json
 import socket
 import statistics
 import sys
 import threading
 import time
-from contextlib import contextmanager
 from dataclasses import dataclass, field
 
 # ── Connection ──────────────────────────────────────────────────────────────
@@ -101,10 +101,8 @@ class DiagConnection:
 
     def close(self):
         if self._socket:
-            try:
+            with contextlib.suppress(Exception):
                 self._socket.close()
-            except Exception:
-                pass
             self._socket = None
 
     def reconnect(self) -> bool:
@@ -473,8 +471,6 @@ def scenario_d_socket_degradation(conn: DiagConnection) -> list[Measurement]:
 
     # 4. Many concurrent sockets (simulates MCP server under load)
     print("    [Testing 5 concurrent connections...]")
-    concurrent_results = []
-
     def concurrent_ping(idx):
         c = DiagConnection(label=f"concurrent-{idx}", timeout=10.0)
         if not c.connect():
@@ -561,10 +557,8 @@ def scenario_e_memory_pressure(conn: DiagConnection) -> list[Measurement]:
 
     # Cleanup
     print("\n    [Cleaning up benchmark data...]")
-    try:
+    with contextlib.suppress(Exception):
         conn.send_command("execute_code", {"code": "Remove[$mcpBenchData]"})
-    except Exception:
-        pass
 
     return results
 
@@ -604,7 +598,7 @@ def scenario_f_restart_mcp(conn: DiagConnection) -> list[Measurement]:
     t0 = time.perf_counter()
     if not conn.reconnect():
         # Try a couple more times
-        for attempt in range(3):
+        for _attempt in range(3):
             time.sleep(1.0)
             if conn.reconnect():
                 break
