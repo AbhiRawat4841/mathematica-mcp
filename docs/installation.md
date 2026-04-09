@@ -308,7 +308,7 @@ uvx mathematica-mcp-full setup claude-code --project-dir .
 uvx mathematica-mcp-full setup codex --project-dir .
 ```
 
-This teaches the agent that a "notebook" is a live Mathematica window (not a `.nb` file on disk), and to use MCP tools instead of shell commands like `wolframscript`.
+These files add client-specific rules, keyword tables, and workflow examples. The MCP server's built-in instructions already carry universal defaults and anti-patterns, so the project guidance files stay short and additive.
 
 ### Step 6: Restart Your Editor
 
@@ -409,7 +409,7 @@ See the [Technical Reference](technical-reference.md#intelligent-routing--observ
 | `--profile {math,notebook,full}` | Set the tool profile in the client config |
 | `--skip-addon` | Skip Mathematica addon installation |
 | `--local` | Use local path instead of `uvx` (for development) |
-| `--project-dir PATH` | Install agent guidance files (CLAUDE.md for Claude Code, AGENTS.md for Codex) |
+| `--project-dir PATH` | Install additive agent guidance files (CLAUDE.md hint for Claude Code, AGENTS.md for Codex) |
 
 ### Session Isolation
 

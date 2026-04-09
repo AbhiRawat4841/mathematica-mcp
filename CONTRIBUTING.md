@@ -62,7 +62,7 @@ See [docs/technical-reference.md](docs/technical-reference.md) for the full arch
 | `wl_scan.py` | Wolfram Language scanner (string/comment stripping, brace counting) |
 | `constants.py` | Shared ExecutionPath labels and AttemptOutcome enum |
 | `session.py` | Kernel lifecycle, execution, raster cache |
-| `guidance.py` | Dynamic tool docstrings, prompts, session brief |
+| `guidance.py` | Shared LLM guidance primitives, dynamic tool docstrings, prompts, session brief; feeds server instructions, AGENTS.md, CLAUDE.md, and on-demand prompts |
 | `connection.py` | Socket-based communication with Mathematica addon |
 
 ## Pull Request Process

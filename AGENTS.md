@@ -1,35 +1,28 @@
 <!-- mathematica-mcp:start -->
 # Mathematica MCP — Agent Instructions
 
-This project has a **live Mathematica MCP server** connected. It gives you direct
+This project has a Mathematica MCP server connected. It gives you direct
 control of a running Mathematica instance through MCP tools.
 
-## Key concept: live notebook ≠ .nb file
+## Key concept
 
-A "notebook" here means a **live window inside the Mathematica frontend**, not a
-`.nb` file on disk. The MCP tools create and manipulate these live notebooks
-directly. You never need to touch the filesystem.
+A "notebook" here means a LIVE WINDOW inside the Mathematica frontend, not a `.nb` file on disk.
+You never need to touch the filesystem unless the user explicitly asks.
 
 ## Rules
 
-1. **ALWAYS use MCP tools** (`execute_code`, `create_notebook`, etc.) for ALL
-   Mathematica work.
-2. **NEVER** use `wolframscript` CLI, shell commands, `mkdir`, or manual `.nb`
-   file creation. The MCP tools replace all of that.
-3. **NEVER** search for `.nb` files, export notebooks, or save to disk unless
-   the user explicitly asks for it.
-4. When the user says **"new notebook"**, call `create_notebook(title="...")`
-   to open a live notebook window, then call
-   `execute_code(code, style="notebook")` to run code in it.
+1. **ALWAYS use MCP tools** for Mathematica work.
+2. **NEVER** use `wolframscript` CLI, shell commands, `mkdir`, or manual `.nb` file creation.
+3. For notebook files on disk, prefer `read_notebook()` first. Use `open_notebook_file()`, `save_notebook()`, or export only when the user explicitly wants a live window or disk output.
 
 ## Style keywords
 
-| User says                              | What to do                                                                 |
-|----------------------------------------|----------------------------------------------------------------------------|
-| "calculate", "compute", "what is"      | `execute_code(style="compute")` — answer inline in chat                   |
-| "plot", "show", "in notebook"          | `execute_code(style="notebook")` — in current live notebook              |
-| "new notebook", "fresh notebook"       | `create_notebook(title=...)` first, then `execute_code(style="notebook")` |
-| "interactive", "manipulate", "dynamic" | `execute_code(style="interactive")`                                      |
+| User says | What to do |
+|-----------|------------|
+| "calculate", "compute", "what is", "evaluate", "solve" | `execute_code(style="compute")` — answer inline in chat |
+| "plot", "show", "graph", "visualize", "in notebook" | `execute_code(style="notebook")` — in current live notebook |
+| "new notebook", "fresh notebook", "create notebook" | `create_notebook(title=...)` first, then `execute_code(style="notebook")` |
+| "interactive", "manipulate", "slider", "dynamic", "animate" | `execute_code(style="interactive")` |
 
 Default when ambiguous: `notebook`
 
@@ -45,11 +38,4 @@ Default when ambiguous: `notebook`
 ```
 
 That's it. No mkdir, no export, no file search.
-
-## Session tools
-
-- `get_session_brief()` — quick snapshot of connection status, recent errors, and routing advice
-- `get_computation_journal()` — recent computation history (survives context compaction)
-- Use `response_detail="compact"` on `execute_code` for shorter responses when full metadata is not needed
-- Use `response_detail="diagnostic"` to see cache epoch and, when available, routing hints
 <!-- mathematica-mcp:end -->

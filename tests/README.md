@@ -23,7 +23,7 @@ Core tests that validate individual modules and live Mathematica interactions.
 | `test_execution_style.py` | Execution style parameter resolution | No |
 | `test_async_blocking.py` | Async/await with asyncio.to_thread | No |
 | `test_derivation_verification.py` | Mathematical derivation verification | Yes |
-| `test_guidance.py` | Profile-aware docstrings and Claude guidance | No |
+| `test_guidance.py` | Profile-aware guidance, layering, word budgets, and cross-layer duplication guards | No |
 | `test_lazy_tool_imports.py` | Lazy importing of optional tool modules | No |
 | `test_raster_cache.py` | Raster graphics caching | No |
 | `test_routing_memory.py` | Routing memory, expression classification, hints, transport lifecycle, breaker | No |

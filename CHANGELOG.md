@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.1] - 2026-04-09
+
+### Changed
+
+- **Guidance system refactored for lean LLM context**: Shared primitive functions (`_style_keyword_table`, `_routing_lines`, `_quick_defaults`, `_recovery_defaults`, `_avoid_lines`) replace per-builder inline copies. Server instructions now carry universal defaults, recovery tools, and anti-patterns; client-specific files (AGENTS.md, CLAUDE.md hint) are additive-only. Always-on context dropped from ~880 to ~540 words (Codex) and ~760 to ~460 words (Claude Code).
+- **Profile-aware guidance conditioning**: Math profile no longer mentions live notebooks, `create_notebook`, `style="notebook"`, `style="interactive"`, or `sync`. Intro text adapts per profile. `build_server_instructions()` replaces the hardcoded `instructions` string in `server.py`.
+- **Expanded intent keywords**: Added "evaluate", "solve", "graph", "visualize", "slider", "dynamic", "animate", "fresh notebook", "create notebook" across all guidance layers, README, and docs.
+- **Restored lost guidance**: `sync="none"` anti-pattern, `save_notebook()`/`screenshot_notebook()`/`screenshot_cell()` routing, and `execute_code` notebook-reuse explanation re-added after earlier refactor dropped them.
+- **Word-budget tests**: Guidance tests now enforce per-layer and combined always-on word budgets to prevent future context bloat.
+
 ## [0.9.0] - 2026-04-09
 
 ### Added

@@ -88,9 +88,11 @@ The server includes a multi-layer guidance system that ensures agents use MCP to
 
 ### Layer 1: Server Instructions (all clients)
 
-The FastMCP `instructions` field is sent to every connected client. It establishes two critical rules:
+The FastMCP `instructions` field is sent to every connected client. It establishes the core operating model:
 1. **MCP-first**: Always use MCP tools, never `wolframscript`, shell commands, or manual `.nb` file creation.
-2. **Live notebook ≠ .nb file**: A "notebook" is a live window in the Mathematica frontend, not a file on disk.
+2. **Profile-aware notebook model**: Notebook guidance appears only when notebook tools are exposed; in notebook/full profiles, a "notebook" is a live frontend window, not a file on disk.
+3. **Quick defaults**: Prefer the right `style`, keep `sync="none"` unless frontend freshness is required, and consider `response_detail="compact"` for long multi-step flows.
+4. **Recovery defaults**: Reach for `get_session_brief()`, `get_computation_journal()`, and `get_messages()` before guessing about state or failures.
 
 ### Layer 2: Execution Style Keywords
 
@@ -98,10 +100,10 @@ Users can steer routing with natural language keywords, or tool callers can use 
 
 | Keyword | Style | Tool Call |
 |---------|-------|-----------|
-| "calculate", "compute", "what is" | `"compute"` | `execute_code(style="compute")` |
-| "plot", "show", "in notebook" | `"notebook"` | `execute_code(style="notebook")` |
-| "new notebook" | N/A | `create_notebook()` then `execute_code(style="notebook")` |
-| "interactive", "manipulate" | `"interactive"` | `execute_code(style="interactive")` |
+| "calculate", "compute", "what is", "evaluate", "solve" | `"compute"` | `execute_code(style="compute")` |
+| "plot", "show", "graph", "visualize", "in notebook" | `"notebook"` | `execute_code(style="notebook")` |
+| "new notebook", "fresh notebook", "create notebook" | N/A | `create_notebook()` then `execute_code(style="notebook")` |
+| "interactive", "manipulate", "slider", "dynamic", "animate" | `"interactive"` | `execute_code(style="interactive")` |
 
 > **Note:** There is no `style="new_notebook"`. Creating a fresh notebook is a two-step workflow: `create_notebook(title="...")` then `execute_code(style="notebook")`.
 
@@ -117,12 +119,14 @@ Six MCP prompts (`mathematica_expert`, `calculate`, `notebook`, `new_notebook`, 
 
 Client-specific project guidance is installed via `--project-dir`:
 - **Claude Code**: `.claude/commands/mathematica.md` + `CLAUDE.md` hint block
-- **Codex**: `AGENTS.md` with MCP-first rules, keyword table, and workflow examples
+- **Codex**: `AGENTS.md` with additive project guidance: MCP-first rules, keyword table, notebook-file routing, and workflow examples
 
 ```bash
 uvx mathematica-mcp-full setup claude-code --project-dir .
 uvx mathematica-mcp-full setup codex --project-dir .
 ```
+
+The layering is intentional: server instructions carry universal defaults and anti-patterns; project guidance files stay shorter and add only client-specific formatting, notebook-file routing, and examples.
 
 ---
 
@@ -262,14 +266,17 @@ uvx mathematica-mcp-full setup codex --project-dir .
 ```md
 ## Mathematica MCP
 
-**Key concept**: A "notebook" is a live window in Mathematica, NOT a .nb file.
 Use MCP tools directly. Never use wolframscript CLI or shell commands.
 
 **Style keywords**:
-- "calculate/compute" → execute_code(style="compute")
-- "plot/show/in notebook" → execute_code(style="notebook")
-- "new notebook" → create_notebook() then execute_code(style="notebook")
-- "interactive/manipulate" → execute_code(style="interactive")
+- "calculate/compute/evaluate/solve" → execute_code(style="compute")
+- "plot/show/graph/visualize/in notebook" → execute_code(style="notebook")
+- "new notebook/create notebook" → create_notebook() then execute_code(style="notebook")
+- "interactive/manipulate/slider/dynamic" → execute_code(style="interactive")
+
+**Notebook files**:
+- Prefer `read_notebook()` first
+- Open/save/export only when the user explicitly wants a live window or disk output
 ```
 
 ---
@@ -1247,7 +1254,7 @@ mathematica-mcp/
 ├── src/mathematica_mcp/
 │   ├── server.py              # 58 core tools (profile-gated)
 │   ├── config.py              # Profiles, feature flags, tool groups
-│   ├── guidance.py            # LLM routing guidance, mode keywords, Codex/Claude hints
+│   ├── guidance.py            # Shared LLM guidance primitives; feeds server instructions, AGENTS.md, CLAUDE.md, and prompts
 │   ├── notebook_backend.py    # Notebook extraction backend abstraction
 │   ├── notebook_parser.py     # Python-native .nb parser (offline)
 │   ├── connection.py          # Socket connection to addon
@@ -1277,7 +1284,7 @@ mathematica-mcp/
     ├── test_error_detection.py          # Error analysis and LLM formatting
     ├── test_readme_commands.py          # README examples validation
     ├── test_notebook_optimizations.py   # Kernel-mode fast path benchmarks
-    └── test_guidance.py                 # LLM tool profile tests
+    └── test_guidance.py                 # Guidance layering, profile conditioning, word budgets
 ```
 
 ---
@@ -1306,4 +1313,4 @@ MIT License
 
 ---
 
-*Last updated: April 2026 (v0.9.0: payload shaping, session brief, computation journal, smart caching, routing memory v2, adaptive routing)*
+*Last updated: April 2026 (v0.9.1: lean guidance layering, profile-aware conditioning, expanded intent keywords)*

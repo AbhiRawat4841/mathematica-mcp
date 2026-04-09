@@ -28,6 +28,7 @@ from .constants import ExecutionPath as _EP
 from .error_analyzer import analyze_messages, format_error_for_llm
 from .guidance import (
     build_mathematica_expert_prompt,
+    build_server_instructions,
     create_notebook_doc,
     evaluate_cell_doc,
     evaluate_selection_doc,
@@ -55,25 +56,7 @@ logger = logging.getLogger("mathematica_mcp")
 
 mcp = FastMCP(
     "mathematica-mcp",
-    instructions=(
-        "You have access to a live Mathematica instance through this MCP server. "
-        "ALWAYS use the provided MCP tools (execute_code, create_notebook, etc.) for "
-        "ALL Mathematica tasks. NEVER use wolframscript CLI, shell commands, or manual "
-        ".nb file creation — the MCP tools talk directly to the running Mathematica "
-        "frontend and kernel.\n\n"
-        "IMPORTANT: A 'notebook' here means a LIVE WINDOW inside the Mathematica "
-        "frontend, not a .nb file on disk. create_notebook() opens a live window. "
-        "execute_code(output_target='notebook') writes and evaluates code in that "
-        "live window. You do NOT need to search for files, create directories, or "
-        "save/export anything unless the user explicitly asks.\n\n"
-        "Workflow (use the style= parameter for easy mode selection):\n"
-        "- User says 'calculate/compute/what is' → execute_code(style='compute')\n"
-        "- User says 'plot/show/in notebook' → execute_code(style='notebook')\n"
-        "- User says 'new notebook' → create_notebook(title='...') first, then execute_code(style='notebook')\n"
-        "- User says 'interactive/manipulate/dynamic' → execute_code(style='interactive')\n\n"
-        "Do NOT search for .nb files, do NOT create directories, do NOT run wolframscript, "
-        "do NOT save or export unless asked. Just call the MCP tools directly."
-    ),
+    instructions=build_server_instructions(FEATURES),
 )
 _CORE_TOOL_REGISTRY: list[tuple[str, Callable[..., Any]]] = []
 

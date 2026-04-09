@@ -46,6 +46,9 @@ def test_notebook_prompt_includes_notebook_antipattern():
     assert "PROFILE: `notebook`" in prompt
     assert "NEVER: `create_notebook` -> `write_cell` -> `evaluate_cell`" in prompt
     assert 'execute_code(code, style="notebook")' in prompt
+    assert "reuses the active notebook" in prompt
+    assert 'sync="none"' in prompt
+    assert "screenshot_notebook()" in prompt
 
 
 def test_profile_aware_docstrings_are_applied():
@@ -85,6 +88,13 @@ def test_math_profile_codex_guidance_omits_notebook_flows():
     assert 'style="compute"' in codex
     assert 'style="notebook"' not in codex
     assert 'style="interactive"' not in codex
+    assert "create_notebook" not in codex
+    assert "read_notebook()" not in codex
+    assert "LIVE WINDOW" not in codex
+    assert "Notebook tools are not exposed" in codex
+    assert 'sync="none"' not in codex
+    assert "## Key concept" not in codex
+    assert "\n\nThis profile is compute-first." in codex
 
 
 def test_notebook_profile_codex_guidance_includes_all_styles():
@@ -95,6 +105,10 @@ def test_notebook_profile_codex_guidance_includes_all_styles():
     assert 'style="compute"' in codex
     assert 'style="notebook"' in codex
     assert 'style="interactive"' in codex
+    assert "read_notebook()" in codex
+    assert 'response_detail="compact"' not in codex
+    assert "get_session_brief()" not in codex
+    assert 'sync="none"' not in codex
 
 
 def test_math_profile_command_omits_notebook_flows():
@@ -105,6 +119,64 @@ def test_math_profile_command_omits_notebook_flows():
     assert 'style="compute"' in command
     assert 'style="notebook"' not in command
     assert 'style="interactive"' not in command
+    assert "create_notebook" not in command
+    assert 'sync="none"' not in command
+
+
+def test_server_instructions_include_quick_defaults_and_recovery_defaults():
+    guidance, features = _reload_guidance("full")
+
+    instructions = guidance.build_server_instructions(features)
+
+    assert 'response_detail="compact"' in instructions
+    assert "get_session_brief()" in instructions
+    assert "get_computation_journal()" in instructions
+    assert 'sync="none"' in instructions
+    assert "reuses the active notebook" in instructions
+
+
+def test_math_profile_server_instructions_omit_notebook_guidance():
+    guidance, features = _reload_guidance("math")
+
+    instructions = guidance.build_server_instructions(features)
+
+    assert "Notebook tools are not exposed" in instructions
+    assert "LIVE WINDOW" not in instructions
+    assert "create_notebook" not in instructions
+    assert 'style="notebook"' not in instructions
+    assert 'style="interactive"' not in instructions
+    assert 'sync="none"' not in instructions
+
+
+def test_claude_hint_is_additive_and_lean():
+    guidance, features = _reload_guidance("full")
+
+    hint = guidance.build_claude_hint(features)
+
+    assert 'response_detail="compact"' not in hint
+    assert "get_session_brief()" not in hint
+    assert 'sync="none"' not in hint
+    assert len(hint.split()) < 180
+
+
+def test_guidance_word_budgets_stay_reasonable():
+    guidance, full_features = _reload_guidance("full")
+    _, math_features = _reload_guidance("math")
+
+    assert len(guidance.build_server_instructions(full_features).split()) < 380
+    assert len(guidance.build_codex_guidance(full_features).split()) < 260
+    assert len(guidance.build_codex_guidance(math_features).split()) < 140
+
+
+def test_always_on_combined_budgets_stay_reasonable():
+    guidance, full_features = _reload_guidance("full")
+
+    server = guidance.build_server_instructions(full_features)
+    codex = guidance.build_codex_guidance(full_features)
+    hint = guidance.build_claude_hint(full_features)
+
+    assert len((server + "\n" + codex).split()) < 600
+    assert len((server + "\n" + hint).split()) < 500
 
 
 # ---------------------------------------------------------------------------

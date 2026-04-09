@@ -177,10 +177,10 @@ Control where results appear with natural language or the `style` parameter:
 
 | Say this... | `style=` | What happens |
 |-------------|----------|-------------|
-| "calculate ...", "compute ...", "what is ..." | `"compute"` | Result appears as text in chat |
-| "plot ...", "show ...", "in notebook ..." | `"notebook"` | Executes in the current Mathematica notebook |
-| "in new notebook: ..." | *two-step* | `create_notebook()` then `execute_code(style="notebook")` |
-| "interactive ...", "manipulate ..." | `"interactive"` | Live front-end evaluation (sliders, animations) |
+| "calculate", "compute", "evaluate", "solve", "what is" | `"compute"` | Result appears as text in chat |
+| "plot", "show", "graph", "visualize", "in notebook" | `"notebook"` | Executes in the current Mathematica notebook |
+| "new notebook", "fresh notebook", "create notebook" | *two-step* | `create_notebook()` then `execute_code(style="notebook")` |
+| "interactive", "manipulate", "slider", "dynamic", "animate" | `"interactive"` | Live front-end evaluation (sliders, animations) |
 
 If you don't include a keyword, the default depends on your [tool profile](#tool-profiles).
 
