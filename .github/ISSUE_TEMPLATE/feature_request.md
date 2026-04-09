@@ -13,9 +13,9 @@ A clear description of what the problem is. Ex. "I'm always frustrated when..."
 A clear description of what you want to happen.
 
 **Which profile would this belong to?**
-- [ ] math (~25 tools)
-- [ ] notebook (~45 tools)
-- [ ] full (~79 tools)
+- [ ] math (~28 tools)
+- [ ] notebook (~48 tools)
+- [ ] full (~82 tools)
 
 **Additional context**
 Any other context, examples, or screenshots.

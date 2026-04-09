@@ -24,7 +24,7 @@
 1. **Python MCP Server** - Exposes ~82 tools to LLMs via MCP protocol (varies by profile and feature flags)
 2. **Mathematica Addon** - Runs inside Mathematica with persistent session state
 
-**Performance:** Notebook execution uses an atomic command that combines notebook lookup, cell creation, and evaluation into a single round-trip (vs. 4 separate calls), resulting in 3-4x faster plot rendering.
+**Performance:** Notebook execution uses an atomic command that combines notebook lookup, cell creation, and evaluation into a single round-trip (vs. 4 separate calls), reducing latency from multiple socket round-trips to one.
 
 **Security:** See [SECURITY.md](../SECURITY.md) for the full threat model, permissions matrix, and vulnerability reporting process.
 
@@ -38,7 +38,7 @@ The server supports three profiles that control which tools are exposed. This le
 |---------|-------|----------|
 | `math` | ~28 | Pure computation, no notebook tools |
 | `notebook` | ~48 | Computation + notebook reading/management + `create_notebook` |
-| `full` (default) | ~79 | Everything including legacy, admin, and all optional tools |
+| `full` (default) | ~82 | Everything including legacy, admin, and all optional tools |
 
 ### Selecting a Profile
 
@@ -220,9 +220,9 @@ Config file (macOS): `~/Library/Application Support/Claude/claude_desktop_config
 
 Add the same JSON to your Cursor MCP config (typically `~/.cursor/mcp.json`).
 
-**VSCode**
+**VS Code**
 
-If you are using an MCP-capable extension (e.g., Continue), add the same MCP server definition in the extension settings.
+VS Code supports MCP natively via [GitHub Copilot Chat](https://marketplace.visualstudio.com/items?itemName=GitHub.copilot-chat). Add to `~/.vscode/mcp.json` (note: uses `"servers"` not `"mcpServers"`, and requires `"type": "stdio"`).
 
 **OpenCode**
 
@@ -723,7 +723,7 @@ create_animation(
 
 | Tool | Description |
 |------|-------------|
-| `get_mathematica_status` | Connection status, addon version, and system info |
+| `get_mathematica_status` | Connection status, kernel/frontend version, and system info |
 | `get_kernel_state` | Memory usage, uptime, version, loaded packages |
 | `get_feature_status` | Show active profile, enabled tool groups, and feature flags |
 | `get_session_brief` | Compact session state summary: connection mode, recent errors, routing advice |
@@ -1285,127 +1285,19 @@ mathematica-mcp/
 
 ## Known Issues & Technical Limitations
 
-### Notebook Output Mode Synchronization Bug
+### Notebook Frontend vs Kernel Timing
 
-**Status**: Known upstream issue with MCP server notebook operations
+Notebook operations (`style="notebook"`) use a kernel-mode fast path (`executeCodeNotebookKernel`) that combines notebook lookup, cell creation, and evaluation into a single atomic round-trip. This is the default and is reliable for standard use.
 
-**Symptom**: When using `execute_code` with `style="notebook"` or `style="interactive"`, users may encounter:
-- `StringLength::string` errors during cell creation
-- `KeyExistsQ::invrl` errors during notebook state queries
-- Cells appearing empty when queried via API immediately after creation
-- MCP server debug output unexpectedly visible in notebook windows
-- Notebook frontend showing stale/cached content while kernel state has updated
+However, when using **frontend mode** (`style="interactive"` or legacy frontend evaluation), or when performing rapid sequences of individual cell operations (`write_cell` followed immediately by `get_cells`), the Mathematica frontend may not have finished updating its internal state. This can cause:
 
-**Root Cause Analysis**:
+- Cells appearing empty when queried immediately after creation
+- Stale cell counts from `get_cells` after rapid mutations
 
-The issue stems from **asynchronous state synchronization** between Mathematica's frontend (FrontEnd) and computational kernel (Kernel):
-
-1. **Race Condition**: When cells are created or evaluated, the notebook frontend may cache and display content before the kernel has fully processed the operation
-2. **Incomplete Error Handling**: The MCP server's notebook output mode lacks proper synchronization checks, leading to undefined behavior when frontend and kernel states diverge
-3. **Internal API Bugs**: The server's use of `StringLength` and `KeyExistsQ` on potentially undefined or incorrectly typed values suggests incomplete null/type checking in the notebook manipulation code
-
-**Technical Details**:
-
-```
-Execution Flow (Broken):
-1. execute_code(style="notebook") called
-2. MCP server attempts to write cell to notebook
-3. Frontend receives cell creation request
-4. Frontend caches cell content locally
-5. Kernel processes cell (async)
-6. Query notebook state → Frontend returns stale cache
-7. Kernel state != Frontend state → StringLength/KeyExistsQ errors
-```
-
-**Affected Operations**:
-- `execute_code` with `style="notebook"` or `style="interactive"`
-- `write_cell` followed by immediate `evaluate_cell`
-- `get_cells` immediately after cell creation
-- Any rapid sequence of notebook mutations
-
-**Workarounds** (Recommended):
-
-1. **Use Compute Style** (Most Reliable)
-   ```python
-   # Instead of:
-   execute_code(code="Plot[Sin[x], {x, 0, 2Pi}]", style="notebook")
-
-   # Use:
-   execute_code(code="Plot[Sin[x], {x, 0, 2Pi}]", style="compute")
-   ```
-
-2. **Create Named Notebooks** (Better State Tracking)
-   ```python
-   # Instead of relying on untitled notebooks:
-   nb = create_notebook(title="My Analysis")
-   # Use the returned notebook ID explicitly
-   ```
-
-3. **Avoid Rapid Sequential Operations** (Add Delays if Needed)
-   ```python
-   # Don't:
-   write_cell(content=code, notebook=nb)
-   evaluate_cell(cell_id=cell_id)  # May fail
-   get_cells(notebook=nb)  # May return stale data
-
-   # Do:
-   execute_code(code=code, style="compute")  # One atomic operation
-   ```
-
-4. **Verify Cell State Before Proceeding**
-   ```python
-   # Before operations:
-   cell_count_before = len(get_cells(notebook=nb))
-
-   # Perform operation
-   write_cell(...)
-
-   # Verify:
-   cell_count_after = len(get_cells(notebook=nb))
-   assert cell_count_after == cell_count_before + 1
-   ```
-
-**What Works Reliably**:
-- `execute_code` with `style="compute"` ✅
-- `get_mathematica_status` ✅
-- `list_variables`, `get_variable`, `set_variable` ✅
-- All mathematical operations (`integrate`, `solve`, etc.) ✅
-- File operations (`open_notebook_file`, `run_script`) ✅
-- Natural language tools (`wolfram_alpha`, `interpret_natural_language`) ✅
-
-**Status**:
-
-This is a known limitation documented for awareness. Contributions and fixes are welcome via [GitHub Issues](https://github.com/AbhiRawat4841/mathematica-mcp/issues). A minimal reproduction case with error logs showing `StringLength::string` and `KeyExistsQ::invrl` patterns would help narrow down the synchronization fix.
-
-**Expected Fix** (Conceptual):
-
-```wolfram
-(* Current (broken): *)
-ExecuteInNotebook[code_] := (
-  cell = CreateCell[code];
-  EvaluateCell[cell];
-  Return[cell]  (* May return before evaluation completes *)
-)
-
-(* Proposed (fixed): *)
-ExecuteInNotebook[code_] := (
-  cell = CreateCell[code];
-  EvaluateCell[cell];
-  WaitForFrontEndUpdate[];  (* Block until frontend syncs *)
-  Return[cell]
-)
-```
-
-**Impact**:
-- **Severity**: Medium - Core functionality (`execute_code`) is affected but reliable workarounds exist
-- **Frequency**: High - Occurs on most notebook operations in rapid succession
-- **Workaround Difficulty**: Easy - CLI mode is fully functional and often preferable
-
-**Recommendations for Users**:
-1. Prefer CLI output mode for production workflows
-2. Use notebook mode only for visual presentation/exploration
-3. Always verify notebook state if notebook mode is required
-4. Report reproducible cases to help upstream maintainers
+**Mitigations:**
+- Prefer `execute_code(style="notebook")` (kernel mode, default) over individual `write_cell` + `evaluate_cell` sequences
+- For interactive/dynamic content (`Manipulate`, `Animate`), `style="interactive"` uses frontend evaluation by design — results appear in the Mathematica window
+- Use `style="compute"` when you only need the result as text, not a notebook artifact
 
 ---
 

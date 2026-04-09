@@ -4,6 +4,7 @@
 
 | Version | Supported          |
 |---------|--------------------|
+| 0.9.x   | :white_check_mark: |
 | 0.8.x   | :white_check_mark: |
 | 0.7.x   | :white_check_mark: |
 | < 0.7   | :x:                |
@@ -80,7 +81,7 @@ Wolfram Language has access to:
 
 ## Safe Defaults
 
-- The `math` profile exposes only ~25 computation tools (no file or notebook operations)
+- The `math` profile exposes only ~28 computation tools (no file or notebook operations)
 - Telemetry is disabled by default
 - Expression cache is memory-only
 - Raster cache: 50 entries max, cleaned on restart

@@ -29,7 +29,7 @@ LLMs can write Mathematica code, but they can't run it, verify it, or interact w
 - **Symbolic + numeric + visual in one MCP**: ~82 tools covering algebra, calculus, plotting, data import/export, Wolfram Alpha, and interactive UIs
 - **Agent-optimized**: compact response shaping, session state tools, and computation journaling designed for how LLM agents actually work
 - **Error-aware execution**: Mathematica errors and warnings are returned directly to the agent, so it can debug without you manually copying notebook output back into chat
-- **Local and private**: everything runs on your machine, no code leaves your environment
+- **Local and private**: core execution runs on your machine — optional tools like `wolfram_alpha` and repository search contact Wolfram's cloud services when invoked
 
 > Ask your agent for a derivation, a 3D plot, a notebook edit, or a verification step, and it can actually do it.
 
@@ -80,13 +80,15 @@ Beyond these: **data import/export** (hundreds of formats), **Wolfram Alpha quer
 |------------|:---------:|:-------------------------:|:------------:|
 | Write Mathematica code | Yes | Yes | Yes |
 | Execute and return results | No | Manual | **Automatic** |
-| Generate plots/images | No | Manual | **Inline in chat** |
+| Generate plots/images | No | Manual | **Automatic** |
 | Control live notebooks | No | No | **Yes** |
 | Verify derivations | No | Manual | **One tool call** |
-| Interactive UIs (sliders) | No | Manual | **Yes** |
+| Interactive UIs (sliders) | No | Manual | **Yes, in Mathematica** |
 | Error-aware debugging | No | Manual copy-paste | **Yes** |
 | Session state awareness | No | No | **Yes** |
-| Private / local execution | N/A | Yes | **Yes** |
+| Private / local execution | N/A | Yes | **Yes**\* |
+
+\*Core computation runs locally. Optional tools (`wolfram_alpha`, repository search) contact Wolfram cloud services when invoked.
 
 ---
 
@@ -192,7 +194,7 @@ Choose how many tools to expose:
 |---------|-------|----------|
 | `math` | ~28 | Pure computation, no notebook UI |
 | `notebook` | ~48 | + notebook read/write/screenshot |
-| `full` (default) | ~79 | + advanced notebook ops, repositories, admin |
+| `full` (default) | ~82 | + advanced notebook ops, repositories, admin |
 
 Pass `--profile` during setup or set `MATHEMATICA_PROFILE` env var.
 

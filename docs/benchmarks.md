@@ -89,9 +89,9 @@ Responses that previously hard-failed with "Response too large" at 20MB are now 
 
 | Profile | Tool Count | Use Case |
 |---------|-----------|----------|
-| `math` | 25 | Pure computation, no file/notebook ops |
-| `notebook` | 45 | Math + notebook reading + `create_notebook` |
-| `full` | 79 | Complete feature set |
+| `math` | 28 | Pure computation, no file/notebook ops |
+| `notebook` | 48 | Math + notebook reading + `create_notebook` |
+| `full` | 82 | Complete feature set |
 
 Fewer tools = smaller schema payload during MCP negotiation.
 

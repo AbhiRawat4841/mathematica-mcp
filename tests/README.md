@@ -37,6 +37,8 @@ Core tests that validate individual modules and live Mathematica interactions.
 | `test_telemetry_wiring.py` | Telemetry integration | No |
 | `test_cli.py` | CLI and addon installation | No |
 | `test_readme_commands.py` | README example validation | No |
+| `test_execute_code_metadata.py` | Response normalization, transport classification, error family extraction | No |
+| `test_image_validation.py` | Server-side PNG validation (`_is_valid_png`, `_attach_image_if_valid`) | No |
 
 ### 2. Corpus Test Runner (data-driven)
 

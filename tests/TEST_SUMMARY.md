@@ -1,5 +1,7 @@
 # Error Detection and Analysis System - Test Summary
 
+> **Note:** This is a historical snapshot from early development. Test counts and coverage details may not reflect the current state. See `tests/README.md` for the current test architecture.
+
 ## Overview
 
 Comprehensive testing of the error detection, analysis, and fixing mechanism for the Mathematica MCP server.
