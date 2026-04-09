@@ -2,18 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.3] - 2026-04-09
+
+### Fixed
+
+- **`get_messages` recency**: `get_messages` now returns the most recent N messages instead of the oldest N
+
+### Added
+
+- **Recency ordering test**: New test to verify `get_messages` returns the newest entries
+
 ## [0.9.2] - 2026-04-09
 
 ### Fixed
 
-- **Strict notebook transport**: Notebook requests no longer silently reroute through CLI fallback when notebook transport fails; the server returns a structured notebook error instead
+- **Strict notebook transport**: Notebook requests no longer silently reroute through CLI fallback when notebook transport fails -- the server returns a structured notebook error instead
 - **Message-bearing results preserved**: Valid Mathematica results with messages (e.g. `ComplexInfinity`) are no longer collapsed into evaluation failures
-- **`get_messages` recency and reporting**: `get_messages` now returns the most recent N messages instead of the oldest N; fixed counter and reporting issues
+- **`get_messages` counter/reporting**: Fixed counter and reporting issues in the `get_messages` tool
 
 ### Added
 
 - **`response_detail` aliases**: `short`, `medium`, and `long` accepted as aliases for compact, standard, and verbose detail levels
-- **Regression tests**: New coverage for schema exposure, transport behavior, warning-bearing evaluations, image validation, and message recency ordering
+- **Regression tests**: New coverage for schema exposure, transport behavior, warning-bearing evaluations, and image validation
 
 ### Changed
 
