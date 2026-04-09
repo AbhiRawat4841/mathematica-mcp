@@ -76,16 +76,16 @@ Beyond these: **data import/export** (hundreds of formats), **Wolfram Alpha quer
 
 ## How It Compares
 
-| Capability | Plain LLM | Copy-paste to Mathematica | Other Mathematica MCPs | **This MCP** |
-|------------|:---------:|:-------------------------:|:----------------------:|:------------:|
-| Structured results | No | No | Varies | **Yes, with metadata** |
-| Error feedback to agent | No | No | Varies | **Common errors + tips** |
-| Live notebook control | No | No | Varies | **Create/edit/eval/screenshot** |
-| Generate and view plots | No | Manual | Varies | **File or notebook** |
-| Interactive UIs (sliders) | No | Manual | Varies | **Yes, in Mathematica** |
-| Verify derivations | No | Manual | Varies | **Yes, one call** |
-| Read notebooks offline | No | No | Varies | **Yes, Python parser** |
-| Private / local execution | N/A | Yes | Varies | **Yes**\* |
+| Capability | Plain LLM | Copy-paste to Mathematica | **This MCP** |
+|------------|:---------:|:-------------------------:|:------------:|
+| Structured results | No | No | **Yes, with metadata** |
+| Error feedback to agent | No | No | **Common errors + tips** |
+| Live notebook control | No | No | **Create/edit/eval/screenshot** |
+| Generate and view plots | No | Manual | **File or notebook** |
+| Interactive UIs (sliders) | No | Manual | **Yes, in Mathematica** |
+| Verify derivations | No | Manual | **Yes, one call** |
+| Read notebooks offline | No | No | **Yes, Python parser** |
+| Private / local execution | N/A | Yes | **Yes**\* |
 
 \*Core computation runs locally. Optional tools (`wolfram_alpha`, repository search) contact Wolfram cloud services when invoked.
 
