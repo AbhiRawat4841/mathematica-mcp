@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+
 import pytest
 
 from mathematica_mcp.server import _normalize_response_detail, _resolve_execution_params
