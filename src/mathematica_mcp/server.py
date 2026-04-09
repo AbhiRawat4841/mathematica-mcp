@@ -936,8 +936,8 @@ async def execute_code(
                 from .constants import AttemptOutcome as _AO
 
                 _routing_mem.record_transport_attempt(
-                        FEATURES.profile, route_variant, _EP.ADDON_NOTEBOOK, _AO.INFRA_ERROR
-                    )
+                    FEATURES.profile, route_variant, _EP.ADDON_NOTEBOOK, _AO.INFRA_ERROR
+                )
 
             response = {
                 "success": False,
