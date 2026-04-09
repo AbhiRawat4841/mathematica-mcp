@@ -79,8 +79,8 @@ Beyond these: **data import/export** (hundreds of formats), **Wolfram Alpha quer
 | Capability | Plain LLM | Copy-paste to Mathematica | **This MCP** |
 |------------|:---------:|:-------------------------:|:------------:|
 | Write Mathematica code | Yes | Yes | Yes |
-| Verify math results | Best-effort | Manual | **One tool call** |
-| Iterate on errors | Blind rewrite | Manual loop | **Errors fed back with tips** |
+| Verify math results | May hallucinate | Manual | **One tool call** |
+| Iterate on errors | Guesses without running | Manual loop | **Errors fed back with tips** |
 | Structured results | No | No | **Yes, with metadata** |
 | Generate and view plots | No | Manual | **File or notebook** |
 | Live notebook control | No | No | **Create/edit/eval/screenshot** |
