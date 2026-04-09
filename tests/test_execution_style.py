@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import pytest
 
-from mathematica_mcp.server import _resolve_execution_params
+from mathematica_mcp.server import _normalize_response_detail, _resolve_execution_params
 
 
 class TestResolveExecutionParams:
@@ -93,6 +94,15 @@ class TestResolveExecutionParams:
 
 
 class TestResponseDetail:
+    def test_aliases_normalize(self):
+        assert _normalize_response_detail("short") == "compact"
+        assert _normalize_response_detail("medium") == "standard"
+        assert _normalize_response_detail("long") == "verbose"
+
+    def test_invalid_alias_raises(self):
+        with pytest.raises(ValueError, match="Unknown response_detail 'tiny'"):
+            _normalize_response_detail("tiny")
+
     def test_default_detail_is_standard(self):
         import inspect
 
@@ -100,6 +110,31 @@ class TestResponseDetail:
 
         sig = inspect.signature(execute_code)
         assert sig.parameters["response_detail"].default == "standard"
+
+    def test_execute_code_schema_exposes_style_and_response_detail_aliases(self):
+        from mathematica_mcp.server import mcp
+
+        async def _load_schema():
+            tools = await mcp.list_tools()
+            for tool in tools:
+                if tool.name == "execute_code":
+                    return tool.inputSchema
+            raise AssertionError("execute_code tool not found")
+
+        schema = asyncio.run(_load_schema())
+        properties = schema["properties"]
+
+        assert "style" in properties
+        assert "response_detail" in properties
+        assert set(properties["response_detail"]["enum"]) == {
+            "compact",
+            "standard",
+            "verbose",
+            "diagnostic",
+            "short",
+            "medium",
+            "long",
+        }
 
     def test_standard_does_not_modify_frozen_keys(self):
         """Verify that response_detail='standard' preserves all REQUIRED_SUCCESS_KEYS."""

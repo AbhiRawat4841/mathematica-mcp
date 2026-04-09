@@ -68,6 +68,13 @@ _STYLE_DEFAULTS: dict[str, dict[str, str]] = {
     "interactive": {"output_target": "notebook", "mode": "frontend"},
 }
 
+_VALID_RESPONSE_DETAILS = frozenset({"compact", "standard", "verbose", "diagnostic"})
+_RESPONSE_DETAIL_ALIASES = {
+    "short": "compact",
+    "medium": "standard",
+    "long": "verbose",
+}
+
 
 def _resolve_execution_params(
     style: str | None,
@@ -92,6 +99,15 @@ def _resolve_execution_params(
         eff_mode = "kernel"
 
     return eff_output_target, eff_mode
+
+
+def _normalize_response_detail(response_detail: str) -> str:
+    """Accept a few common aliases while keeping the internal detail set small."""
+    normalized = _RESPONSE_DETAIL_ALIASES.get(response_detail, response_detail)
+    if normalized not in _VALID_RESPONSE_DETAILS:
+        valid = ", ".join(sorted(_VALID_RESPONSE_DETAILS | set(_RESPONSE_DETAIL_ALIASES)))
+        raise ValueError(f"Unknown response_detail '{response_detail}'. Valid values: {valid}")
+    return normalized
 
 
 def _tool(group: str):
@@ -725,6 +741,8 @@ async def execute_code(
     format: Literal["text", "latex", "mathematica"] = "text",
     output_target: Literal["cli", "notebook"] | None = None,
     mode: Literal["kernel", "frontend"] | None = None,
+    style: Literal["compute", "notebook", "interactive"] | None = None,
+    response_detail: Literal["compact", "standard", "verbose", "diagnostic", "short", "medium", "long"] = "standard",
     render_graphics: bool = True,
     deterministic_seed: int | None = None,
     session_id: str | None = None,
@@ -733,14 +751,15 @@ async def execute_code(
     max_wait: int = 30,
     sync: Literal["none", "refresh", "strict"] = "none",
     sync_wait: float = 2,
-    *,
-    style: Literal["compute", "notebook", "interactive"] | None = None,
-    response_detail: Literal["compact", "standard", "verbose", "diagnostic"] = "standard",
 ) -> str:
     """Execute Wolfram Language code."""
     import time as _time
 
     _exec_start = _time.monotonic()
+    try:
+        response_detail = _normalize_response_detail(response_detail)
+    except ValueError as e:
+        return _json_response({"success": False, "error": str(e)})
     try:
         output_target, mode = _resolve_execution_params(style, output_target, mode, FEATURES.default_output_target)
     except ValueError as e:
@@ -910,92 +929,36 @@ async def execute_code(
                 raise RuntimeError(result.get("error", "Atomic notebook execution failed"))
 
         except Exception as e:
-            logger.warning(f"Notebook execution failed: {e}. Falling back to CLI.")
+            logger.warning(f"Notebook execution failed: {e}. Returning notebook transport failure.")
 
             # Record addon_notebook failure in attempt telemetry
             if _routing_mem is not None:
                 from .constants import AttemptOutcome as _AO
 
                 _routing_mem.record_transport_attempt(
-                    FEATURES.profile, route_variant, _EP.ADDON_NOTEBOOK, _AO.INFRA_ERROR
-                )
-
-            # Fallback to CLI execution with auto-rasterization for graphics
-            try:
-                params = {
-                    "code": code,
-                    "format": format,
-                    "render_graphics": render_graphics,
-                    "session_id": session_id,
-                    "isolate_context": isolate_context,
-                    "timeout": timeout,
-                }
-                if deterministic_seed is not None:
-                    params["deterministic_seed"] = deterministic_seed
-                socket_timeout = float(timeout) + 10.0
-                result = await _addon_result("execute_code", params, timeout=socket_timeout)
-
-                # Record addon_cli attempt telemetry for notebook fallback
-                if _routing_mem is not None:
-                    from .transport_classification import classify_attempt_outcome as _classify_att
-
-                    _routing_mem.record_transport_attempt(
-                        FEATURES.profile,
-                        route_variant,
-                        _EP.ADDON_CLI,
-                        _classify_att(result),
+                        FEATURES.profile, route_variant, _EP.ADDON_NOTEBOOK, _AO.INFRA_ERROR
                     )
 
-                if isinstance(result, dict):
-                    result["note"] = "Executed via CLI (notebook error)."
-                    result["executed_output_target"] = "cli"
-                    if style is not None:
-                        result["requested_style"] = style
-                    _attach_image_if_valid(result)
-                    return _finalize_execute_response(
-                        result,
-                        route_variant=route_variant,
-                        execution_path="addon_cli",
-                        fell_back=True,
-                        start_time=_exec_start,
-                        response_detail=response_detail,
-                        expression_type=_expr_type,
-                    )
-                return f"{result}\n(Note: Executed via CLI due to notebook error)"
-            except Exception:
-                # Record addon_cli infra error for notebook fallback
-                if _routing_mem is not None:
-                    from .constants import AttemptOutcome as _AO
-
-                    _routing_mem.record_transport_attempt(
-                        FEATURES.profile, route_variant, _EP.ADDON_CLI, _AO.INFRA_ERROR
-                    )
-
-                result = await _run_blocking(
-                    execute_in_kernel,
-                    code,
-                    format,
-                    render_graphics=render_graphics,
-                    deterministic_seed=deterministic_seed,
-                    session_id=session_id,
-                    isolate_context=isolate_context,
-                    timeout=timeout,
-                )
-                result["execution_mode"] = "kernel_fallback"
-                result["note"] = "Executed via CLI (notebook error). Run StartMCPServer[] in Mathematica."
-                result["executed_output_target"] = "cli"
-                if style is not None:
-                    result["requested_style"] = style
-                _attach_image_if_valid(result)
-                return _finalize_execute_response(
-                    result,
-                    route_variant=route_variant,
-                    execution_path="kernel_fallback",
-                    fell_back=True,
-                    start_time=_exec_start,
-                    response_detail=response_detail,
-                    expression_type=_expr_type,
-                )
+            response = {
+                "success": False,
+                "status": "notebook_error",
+                "code": code,
+                "message": "Notebook execution failed before a notebook result was produced.",
+                "error": str(e),
+                "executed_output_target": "notebook",
+                "executed_mode": mode,
+            }
+            if style is not None:
+                response["requested_style"] = style
+            return _finalize_execute_response(
+                response,
+                route_variant=route_variant,
+                execution_path=_EP.ADDON_NOTEBOOK,
+                fell_back=False,
+                start_time=_exec_start,
+                response_detail=response_detail,
+                expression_type=_expr_type,
+            )
 
     # Check breaker before attempting addon_cli
     _cli_lease = None
@@ -1430,6 +1393,7 @@ async def get_messages(count: int = 10) -> str:
     Get recent Mathematica messages/warnings from the session.
 
     Like Python's exception traceback - helps debug what went wrong.
+    Includes recently captured evaluation and dispatch-level messages.
 
     Args:
         count: Number of recent messages to retrieve (default 10)

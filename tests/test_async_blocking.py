@@ -277,3 +277,26 @@ def test_notebook_frontend_timeout_does_not_fall_through_to_cli(monkeypatch):
     assert call_log == ["execute_code_notebook"]
     # Frontend waited_seconds should be converted to timing_ms
     assert payload["timing_ms"] == 305000
+
+
+def test_notebook_transport_error_does_not_fall_through_to_cli(monkeypatch):
+    """Notebook transport failures should be surfaced as notebook errors, not rerun via CLI."""
+    call_log = []
+
+    async def fake_to_thread(func, *args, **kwargs):
+        return func(*args, **kwargs)
+
+    def fake_addon(command, params=None, timeout=None):
+        call_log.append(command)
+        raise RuntimeError("Command execution failed: Set::shape")
+
+    monkeypatch.setattr(server.asyncio, "to_thread", fake_to_thread)
+    monkeypatch.setattr(server, "_try_addon_command", fake_addon)
+
+    result = asyncio.run(server.execute_code(code="Plot[x, {x, 0, 1}]", output_target="notebook"))
+    payload = json.loads(result)
+
+    assert payload["status"] == "notebook_error"
+    assert payload["success"] is False
+    assert payload["executed_output_target"] == "notebook"
+    assert call_log == ["execute_code_notebook"]

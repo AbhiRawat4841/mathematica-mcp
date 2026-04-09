@@ -455,79 +455,104 @@ cellToAssoc[cell_CellObject, includeContent_: True] := Module[{content, style, c
 
 dispatchCommand[command_, params_] := Module[{result, capturedMsgs},
   Block[{$MessageList = {}},
-    result = Quiet @ Check[
-      Switch[command,
-        "ping", cmdPing[params],
-        "get_status", cmdGetStatus[params],
+    result = Quiet @ Switch[command,
+      "ping", cmdPing[params],
+      "get_status", cmdGetStatus[params],
 
-        "get_notebooks", cmdGetNotebooks[params],
-        "get_notebook_info", cmdGetNotebookInfo[params],
-        "create_notebook", cmdCreateNotebook[params],
-        "save_notebook", cmdSaveNotebook[params],
-        "close_notebook", cmdCloseNotebook[params],
+      "get_notebooks", cmdGetNotebooks[params],
+      "get_notebook_info", cmdGetNotebookInfo[params],
+      "create_notebook", cmdCreateNotebook[params],
+      "save_notebook", cmdSaveNotebook[params],
+      "close_notebook", cmdCloseNotebook[params],
 
-        "get_cells", cmdGetCells[params],
-        "get_cell_content", cmdGetCellContent[params],
-        "write_cell", cmdWriteCell[params],
-        "delete_cell", cmdDeleteCell[params],
-        "evaluate_cell", cmdEvaluateCell[params],
+      "get_cells", cmdGetCells[params],
+      "get_cell_content", cmdGetCellContent[params],
+      "write_cell", cmdWriteCell[params],
+      "delete_cell", cmdDeleteCell[params],
+      "evaluate_cell", cmdEvaluateCell[params],
 
-        "execute_code", cmdExecuteCode[params],
-        "execute_code_notebook", cmdExecuteCodeNotebook[params],
-        "execute_selection", cmdExecuteSelection[params],
-        "batch_commands", cmdBatchCommands[params],
+      "execute_code", cmdExecuteCode[params],
+      "execute_code_notebook", cmdExecuteCodeNotebook[params],
+      "execute_selection", cmdExecuteSelection[params],
+      "batch_commands", cmdBatchCommands[params],
 
-        "screenshot_notebook", cmdScreenshotNotebook[params],
-        "screenshot_cell", cmdScreenshotCell[params],
-        "rasterize_expression", cmdRasterizeExpression[params],
+      "screenshot_notebook", cmdScreenshotNotebook[params],
+      "screenshot_cell", cmdScreenshotCell[params],
+      "rasterize_expression", cmdRasterizeExpression[params],
 
-        "select_cell", cmdSelectCell[params],
-        "scroll_to_cell", cmdScrollToCell[params],
+      "select_cell", cmdSelectCell[params],
+      "scroll_to_cell", cmdScrollToCell[params],
 
-        "export_notebook", cmdExportNotebook[params],
+      "export_notebook", cmdExportNotebook[params],
 
-        (* TIER 1: Variable Introspection *)
-        "list_variables", cmdListVariables[params],
-        "get_variable", cmdGetVariable[params],
-        "set_variable", cmdSetVariable[params],
-        "clear_variables", cmdClearVariables[params],
-        "get_expression_info", cmdGetExpressionInfo[params],
+      (* TIER 1: Variable Introspection *)
+      "list_variables", cmdListVariables[params],
+      "get_variable", cmdGetVariable[params],
+      "set_variable", cmdSetVariable[params],
+      "clear_variables", cmdClearVariables[params],
+      "get_expression_info", cmdGetExpressionInfo[params],
 
-        (* TIER 1: Error Recovery *)
-        "get_messages", cmdGetMessages[params],
+      (* TIER 1: Error Recovery *)
+      "get_messages", cmdGetMessages[params],
 
-        (* TIER 2: File Handling *)
-        "open_notebook_file", cmdOpenNotebookFile[params],
-        "run_script", cmdRunScript[params],
+      (* TIER 2: File Handling *)
+      "open_notebook_file", cmdOpenNotebookFile[params],
+      "run_script", cmdRunScript[params],
 
-        (* TIER 4: Debugging *)
-        "trace_evaluation", cmdTraceEvaluation[params],
-        "time_expression", cmdTimeExpression[params],
-        "check_syntax", cmdCheckSyntax[params],
+      (* TIER 4: Debugging *)
+      "trace_evaluation", cmdTraceEvaluation[params],
+      "time_expression", cmdTimeExpression[params],
+      "check_syntax", cmdCheckSyntax[params],
 
-        (* TIER 5: Data I/O *)
-        "import_data", cmdImportData[params],
-        "export_data", cmdExportData[params],
-        "list_import_formats", cmdListImportFormats[params],
+      (* TIER 5: Data I/O *)
+      "import_data", cmdImportData[params],
+      "export_data", cmdExportData[params],
+      "list_import_formats", cmdListImportFormats[params],
 
-        (* TIER 6: Visualization *)
-        "export_graphics", cmdExportGraphics[params],
+      (* TIER 6: Visualization *)
+      "export_graphics", cmdExportGraphics[params],
 
-        _, <|"error" -> ("Unknown command: " <> command)|>
-      ],
-      (* Check caught a message — capture what went wrong *)
-      capturedMsgs = $MessageList;
-      $Failed
+      _, <|"error" -> ("Unknown command: " <> command)|>
     ];
+    capturedMsgs = $MessageList;
   ];
-  If[result === $Failed,
-    <|"error" -> ("Command execution failed: " <>
-      If[ListQ[capturedMsgs] && Length[capturedMsgs] > 0,
-        StringRiffle[ToString[#, OutputForm] & /@ Take[capturedMsgs, UpTo[3]], "; "],
-        "unknown error (no messages captured)"
+  If[ListQ[capturedMsgs] && Length[capturedMsgs] > 0,
+    appendCapturedMessages[
+      Map[
+        Function[msg,
+          Quiet @ Check[
+            <|
+              "tag" -> ToString[First[msg], OutputForm],
+              "text" -> ToString[Last[msg], OutputForm],
+              "type" -> If[StringContainsQ[ToString[First[msg]], "::"],
+                If[StringEndsQ[ToString[First[msg]], "::warning"], "warning", "error"],
+                "message"
+              ]
+            |>,
+            <|"tag" -> "Unknown", "text" -> ToString[msg, OutputForm], "type" -> "error"|>
+          ]
+        ],
+        capturedMsgs
       ]
-    )|>,
-    result
+    ]
+  ];
+  Which[
+    result === $Failed,
+      <|"error" -> ("Command execution failed: " <>
+        If[ListQ[capturedMsgs] && Length[capturedMsgs] > 0,
+          StringRiffle[ToString[#, OutputForm] & /@ Take[capturedMsgs, UpTo[3]], "; "],
+          "unknown error (no messages captured)"
+        ]
+      )|>,
+    AssociationQ[result],
+      result,
+    True,
+      <|"error" -> ("Command returned unexpected result head: " <> ToString[Head[result], InputForm] <>
+        If[ListQ[capturedMsgs] && Length[capturedMsgs] > 0,
+          " | messages: " <> StringRiffle[ToString[#, OutputForm] & /@ Take[capturedMsgs, UpTo[3]], "; "],
+          ""
+        ]
+      )|>
   ]
 ];
 
@@ -899,7 +924,7 @@ cmdExecuteCode[params_] := Module[
             evalBody = With[{b = evalBody},
               HoldComplete[TimeConstrained[ReleaseHold[b], timeout, $Aborted]]]
           ];
-          {Quiet @ Check[ReleaseHold[evalBody], $Failed], $MessageList}
+          {ReleaseHold[evalBody], $MessageList}
         ]
       ]
     ]
@@ -938,6 +963,7 @@ cmdExecuteCode[params_] := Module[
     Take[messages, UpTo[20]]
   ];
   formattedMessages = Select[formattedMessages, AssociationQ[#] && StringLength[#["text"]] > 0 &];
+  appendCapturedMessages[formattedMessages];
   hasErrors = Length[Select[formattedMessages, #"type" == "error" &]] > 0;
   hasWarnings = Length[Select[formattedMessages, #"type" == "warning" &]] > 0;
 
@@ -1121,7 +1147,7 @@ executeCodeNotebookKernel[nb_, code_, timeout_, syncMode_, createdNew_, sessionI
             evalBody = With[{b = evalBody},
               HoldComplete[TimeConstrained[ReleaseHold[b], timeout, $Aborted]]]
           ];
-          {Quiet @ Check[ReleaseHold[evalBody], $Failed], $MessageList}
+          {ReleaseHold[evalBody], $MessageList}
         ]
       ]
     ]
@@ -1191,6 +1217,7 @@ executeCodeNotebookKernel[nb_, code_, timeout_, syncMode_, createdNew_, sessionI
       Take[messages, UpTo[20]]
     ];
     formattedMessages = Select[formattedMessages, AssociationQ[#] && StringLength[#["text"]] > 0 &];
+    appendCapturedMessages[formattedMessages];
     hasErrors = Length[Select[formattedMessages, #["type"] == "error" &]] > 0;
     hasWarnings = Length[Select[formattedMessages, #["type"] == "warning" &]] > 0;
 
@@ -1300,6 +1327,7 @@ executeCodeNotebookFrontend[nb_, code_, maxWait_, timeout_, syncMode_, createdNe
       ];
       Select[formatted, AssociationQ[#] && StringLength[#["text"]] > 0 &]
     ];
+    appendCapturedMessages[messages];
 
     (* Only read output if a new cell actually appeared, avoiding stale reads *)
     outputContent = None;
@@ -1689,6 +1717,23 @@ cmdGetExpressionInfo[params_] := Module[{expr, exprStr, result, head, depth, lea
 $MCPMessageLog = {};
 $MCPMaxMessages = 50;
 
+appendCapturedMessages[messages_] := Module[{normalized, timestamp},
+  timestamp = DateString["ISODateTime"];
+  normalized = Select[messages, AssociationQ[#] && StringLength[Lookup[#, "text", ""]] > 0 &];
+  Scan[
+    (AppendTo[$MCPMessageLog, <|
+      "timestamp" -> timestamp,
+      "tag" -> Lookup[#, "tag", "Unknown"],
+      "type" -> Lookup[#, "type", "message"],
+      "message" -> Lookup[#, "text", ""]
+    |>]) &,
+    normalized
+  ];
+  If[Length[$MCPMessageLog] > $MCPMaxMessages,
+    $MCPMessageLog = Take[$MCPMessageLog, -$MCPMaxMessages]
+  ];
+];
+
 (* Hook into message system to capture messages *)
 captureMessage[msg_] := Module[{},
   AppendTo[$MCPMessageLog, <|
@@ -1703,13 +1748,14 @@ captureMessage[msg_] := Module[{},
 
 cmdGetMessages[params_] := Module[{count, messages},
   count = Lookup[params, "count", 10];
+  If[!IntegerQ[count] || count < 0, count = 10];
   
   messages = Take[$MCPMessageLog, UpTo[count]];
   
   <|
     "success" -> True,
-    "count" -> Length(messages),
-    "total_captured" -> Length($MCPMessageLog),
+    "count" -> Length[messages],
+    "total_captured" -> Length[$MCPMessageLog],
     "messages" -> Reverse[messages]
   |>
 ];

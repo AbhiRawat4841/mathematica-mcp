@@ -91,7 +91,7 @@ The server includes a multi-layer guidance system that ensures agents use MCP to
 The FastMCP `instructions` field is sent to every connected client. It establishes the core operating model:
 1. **MCP-first**: Always use MCP tools, never `wolframscript`, shell commands, or manual `.nb` file creation.
 2. **Profile-aware notebook model**: Notebook guidance appears only when notebook tools are exposed; in notebook/full profiles, a "notebook" is a live frontend window, not a file on disk.
-3. **Quick defaults**: Prefer the right `style`, keep `sync="none"` unless frontend freshness is required, and consider `response_detail="compact"` for long multi-step flows.
+3. **Quick defaults**: Prefer the right `style`, keep `sync="none"` unless frontend freshness is required, and consider `response_detail="compact"` (alias: `"short"`) for long multi-step flows.
 4. **Recovery defaults**: Reach for `get_session_brief()`, `get_computation_journal()`, and `get_messages()` before guessing about state or failures.
 
 ### Layer 2: Execution Style Keywords
@@ -294,7 +294,7 @@ Use MCP tools directly. Never use wolframscript CLI or shell commands.
 
 ### Execution Output Fields
 
-`execute_code` and kernel fallbacks return a structured payload with multiple output representations so clients can choose a stable format for parsing:
+`execute_code` compute-path responses return a structured payload with multiple output representations so clients can choose a stable format for parsing:
 
 - `output`: defaults to InputForm (stable, human-readable)
 - `output_inputform`: explicit InputForm string
@@ -909,13 +909,13 @@ The Mathematica MCP includes error analysis for notebook execution that pattern-
 
 When code is executed in notebook mode (`execute_code` with `style="notebook"` or `style="interactive"`):
 
-1. **Error Capture**: The addon captures messages from `$MessageList` after cell evaluation
+1. **Error Capture**: The addon captures messages from `$MessageList` after cell evaluation without discarding valid message-bearing results such as `ComplexInfinity`
 2. **Pattern Matching**: Captured errors are matched against a knowledge base of 10+ common error patterns
 3. **Confidence Scoring**: Matches are scored as high/medium/low confidence
 4. **Suggestion Generation**: Actionable fixes are suggested based on the error type
 5. **LLM Formatting**: Errors are formatted with analysis, causes, fixes, and examples
 
-**Note**: Error analysis is currently active for notebook execution only. Compute mode (`style="compute"`) returns raw errors without analysis.
+**Note**: Error analysis is currently active for notebook execution only. Compute mode (`style="compute"`) returns raw messages without notebook-side analysis. Notebook requests do not silently reroute to CLI when the notebook transport fails; they return a notebook-targeted error.
 
 ### Supported Error Types
 
@@ -1053,6 +1053,12 @@ The `execute_code` tool accepts a `response_detail` parameter to control respons
 | `"verbose"` | Full response + `detail_level` marker |
 | `"diagnostic"` | Full response + `detail_level`, `cache_epoch`, and `routing_hints` (if available) |
 
+Accepted aliases:
+
+- `"short"` → `"compact"`
+- `"medium"` → `"standard"`
+- `"long"` → `"verbose"`
+
 The filter is a pure function: `standard` is guaranteed to be byte-for-byte identical to the unfiltered response.
 
 ### Session Brief
@@ -1120,7 +1126,7 @@ Attempt-level transport telemetry per transport leg:
 |-----|:-:|:-:|-------|
 | addon_notebook | Yes | Yes | Primary notebook path |
 | addon_cli | Yes | Yes | Primary CLI path |
-| kernel_fallback | No | Yes | Last-resort fallback |
+| kernel_fallback | No | Yes | Last-resort compute fallback only |
 | kernel_direct_routing_skip | No | Yes | Routing decision, not transport |
 
 **Advisory hints** (advise mode only): Built from two sources: transport-path hints (per-path infra/timeout rates) and end-to-end hints (timeout/fallback rates). Structured with severity ordering, deduplication, and 5-hint cap. Available via `get_routing_memory_stats(include_hints=True)`.

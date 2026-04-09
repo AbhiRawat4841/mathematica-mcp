@@ -97,7 +97,7 @@ def _quick_defaults(features: FeatureFlags) -> list[str]:
     lines = [
         "Prefer one compound Wolfram expression over several sequential `execute_code` calls when only the final result matters.",
         "Reuse `session_id` for any multi-step workflow.",
-        'Consider `response_detail="compact"` in long or multi-step workflows to reduce token usage; use `"diagnostic"` only for debugging.',
+        'Consider `response_detail="compact"` in long or multi-step workflows to reduce token usage; `"short"` is accepted as an alias. Use `"diagnostic"` only for debugging.',
     ]
     if _has_notebook(features):
         lines.append(
@@ -112,7 +112,7 @@ def _recovery_defaults(features: FeatureFlags) -> list[str]:
     return [
         "Call `get_session_brief()` before resuming after failures or long context gaps.",
         "Use `get_computation_journal()` to recover recent code/output history after context compaction.",
-        'Use `get_messages()` or `response_detail="diagnostic"` when Mathematica errors are unclear.',
+        'Use `get_messages()` or `response_detail="diagnostic"` when Mathematica errors are unclear. `get_messages()` reflects recent captured evaluation and dispatch messages.',
     ]
 
 
@@ -220,9 +220,14 @@ work and override style. When `style` and `output_target` are both omitted,
 `output_target` defaults to the profile's default (`{default_output_target}`)
 and `mode` defaults to `kernel`.
 
+`response_detail` accepts the canonical levels `compact`, `standard`, `verbose`,
+and `diagnostic`, plus the aliases `short`, `medium`, and `long`.
+
 Prefer this over `write_cell` + `evaluate_cell` for running code.
 With `output_target="notebook"`, it reuses the active notebook (or creates one
 if none exists), writes the code, and evaluates it in one call.
+If notebook transport fails, the request returns a notebook-targeted error
+instead of silently rerunning through CLI fallback.
 NOTE: if the user asks for a NEW notebook, call `create_notebook` first.
 """
 

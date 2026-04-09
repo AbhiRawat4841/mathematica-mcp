@@ -206,11 +206,13 @@ The server is designed for how LLM agents actually work: long conversations with
 
 | Feature | What it does | How to use |
 |---------|-------------|------------|
-| **Compact Responses** | Strip verbose metadata, keep essentials. Saves tokens. | `response_detail="compact"` on `execute_code` |
+| **Compact Responses** | Strip verbose metadata, keep essentials. Saves tokens. | `response_detail="compact"` on `execute_code` (`"short"` is accepted as an alias) |
 | **Session Brief** | One-call snapshot: connection status, recent errors, routing advice | `get_session_brief()` |
 | **Computation Journal** | Ring buffer of recent computations that helps agents recover context across long conversations | `get_computation_journal()` |
 | **Smart Caching** | Pure expressions (`Sin[Pi]`) survive variable mutations without re-evaluation | Always on |
-| **Diagnostic Mode** | Full response + cache epoch + routing hints for debugging | `response_detail="diagnostic"` |
+| **Diagnostic Mode** | Full response + cache epoch + routing hints for debugging | `response_detail="diagnostic"` (`"long"` and `"medium"` map to verbose/standard aliases) |
+
+Notebook execution is strict about the requested target: if notebook transport fails, the server returns a notebook error instead of silently rerunning the work through CLI fallback.
 
 ### Routing Intelligence (opt-in)
 

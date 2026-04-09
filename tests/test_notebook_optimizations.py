@@ -210,6 +210,21 @@ class TestStatusReporting:
         assert isinstance(result.get("frontend_version"), str)
         assert "$FrontEndVersion" not in result.get("frontend_version", "")
 
+    def test_get_messages_reports_integer_counts_and_recent_message(self, mcp_client):
+        """get_messages should return numeric counters and surface recent execute_code messages."""
+        exec_result = mcp_client.send_command("execute_code_notebook", {"code": "1/0", "mode": "kernel"})
+
+        assert "messages" in exec_result
+
+        result = mcp_client.send_command("get_messages", {"count": 5})
+
+        assert isinstance(result.get("count"), int)
+        assert isinstance(result.get("total_captured"), int)
+        assert isinstance(result.get("messages"), list)
+        assert result["count"] >= 1
+        assert result["total_captured"] >= result["count"]
+        assert any("infy" in msg.get("message", "") or "infy" in msg.get("tag", "") for msg in result["messages"])
+
 
 class TestScreenshotOptimization:
     """Tests for screenshot using ExportPacket."""
@@ -258,6 +273,28 @@ class TestPerformanceComparison:
 
 class TestKernelModeErrorSemantics:
     """Verify notebook-kernel error reporting aligns with cmdExecuteCode."""
+
+    def test_warning_result_preserves_value_in_cli_dispatch(self, mcp_client):
+        """Message-bearing multi-line code through dispatchCommand must not collapse to $Failed."""
+        result = mcp_client.send_command(
+            "execute_code",
+            {"code": "Module[{x = 0},\n  1/x\n]"},
+        )
+
+        assert result.get("success") is True, f"Warning-bearing result should still succeed, got: {result}"
+        assert "ComplexInfinity" in result.get("output_inputform", "")
+        assert any("Power::infy" in msg.get("tag", "") for msg in result.get("messages", []))
+
+    def test_warning_result_preserves_value_in_notebook_kernel(self, mcp_client):
+        """Notebook kernel execution should keep the computed result even when messages are emitted."""
+        result = mcp_client.send_command(
+            "execute_code_notebook",
+            {"code": "Module[{x = 0},\n  1/x\n]", "mode": "kernel"},
+        )
+
+        assert result.get("success") is True, f"Warning-bearing notebook result should still succeed, got: {result}"
+        assert "ComplexInfinity" in result.get("output_preview", "")
+        assert any("Power::infy" in msg.get("tag", "") for msg in result.get("messages", []))
 
     def test_syntax_error_returns_failure(self, mcp_client):
         """Syntax errors must report success=False and error_type=syntax_error."""
