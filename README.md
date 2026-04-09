@@ -78,12 +78,13 @@ Beyond these: **data import/export** (hundreds of formats), **Wolfram Alpha quer
 
 | Capability | Plain LLM | Copy-paste to Mathematica | **This MCP** |
 |------------|:---------:|:-------------------------:|:------------:|
+| Write Mathematica code | Yes | Yes | Yes |
+| Verify math results | Best-effort | Manual | **One tool call** |
+| Iterate on errors | Blind rewrite | Manual loop | **Errors fed back with tips** |
 | Structured results | No | No | **Yes, with metadata** |
-| Error feedback to agent | No | No | **Common errors + tips** |
-| Live notebook control | No | No | **Create/edit/eval/screenshot** |
 | Generate and view plots | No | Manual | **File or notebook** |
+| Live notebook control | No | No | **Create/edit/eval/screenshot** |
 | Interactive UIs (sliders) | No | Manual | **Yes, in Mathematica** |
-| Verify derivations | No | Manual | **Yes, one call** |
 | Read notebooks offline | No | No | **Yes, Python parser** |
 | Private / local execution | N/A | Yes | **Yes**\* |
 
