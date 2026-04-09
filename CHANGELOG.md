@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.2] - 2026-04-09
+
+### Fixed
+
+- **Strict notebook transport**: Notebook requests no longer silently reroute through CLI fallback when notebook transport fails — the server returns a structured notebook error instead
+- **Message-bearing results preserved**: Valid Mathematica results with messages (e.g. `ComplexInfinity`) are no longer collapsed into evaluation failures
+- **`get_messages` counter/reporting**: Fixed counter and reporting issues in the `get_messages` tool
+
+### Added
+
+- **`response_detail` aliases**: `short`, `medium`, and `long` accepted as aliases for compact, standard, and verbose detail levels
+- **Regression tests**: New coverage for schema exposure, transport behavior, warning-bearing evaluations, and image validation
+
+### Changed
+
+- Improved dispatch and message logging in the Mathematica addon
+- Updated README, technical reference, and generated guidance to match current behavior
+
 ## [0.9.1] - 2026-04-09
 
 ### Changed
