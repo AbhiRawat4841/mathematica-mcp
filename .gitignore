@@ -83,6 +83,10 @@ benchmarks/benchmark_results_*.json
 TEST_RESULTS_DETAILED.md
 VERIFICATION_REPORT.md
 
+# Draft documents (not for repo)
+blog_post_draft.md
+submissions_draft.md
+
 # Debug/test scripts at root
 test_mcp_connection.py
 CLIENT_CONFIG.json

@@ -116,7 +116,19 @@ Response:
 
 ### Execution
 - `execute_code` - Run code, return result
+- `execute_code_notebook` - Run code via notebook evaluation
 - `execute_selection` - Evaluate current selection
+- `batch_commands` - Execute multiple commands in one request
+
+### Variable Introspection
+- `list_variables` - List defined variables
+- `get_variable` - Get a variable's value
+- `set_variable` - Set a variable's value
+- `clear_variables` - Clear variables
+- `get_expression_info` - Inspect expression structure
+
+### Error Recovery
+- `get_messages` - Retrieve kernel messages
 
 ### Screenshots
 - `screenshot_notebook` - Rasterize entire notebook
@@ -126,6 +138,23 @@ Response:
 ### Navigation
 - `select_cell` - Select a cell
 - `scroll_to_cell` - Scroll to cell
+
+### File Handling
+- `open_notebook_file` - Open a notebook file
+- `run_script` - Run a Wolfram script
+
+### Debugging
+- `trace_evaluation` - Trace expression evaluation
+- `time_expression` - Time expression evaluation
+- `check_syntax` - Check code syntax
+
+### Data I/O
+- `import_data` - Import data from file
+- `export_data` - Export data to file
+- `list_import_formats` - List supported import formats
+
+### Visualization
+- `export_graphics` - Export graphics to file
 
 ### Export
 - `export_notebook` - Export to PDF/HTML/TeX/Markdown

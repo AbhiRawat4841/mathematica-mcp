@@ -42,7 +42,7 @@ See [docs/technical-reference.md](docs/technical-reference.md) for the full arch
 ## Adding a New Tool
 
 1. **Define the function** in `src/mathematica_mcp/server.py` (for core tools) or the relevant `optional_*.py` module (e.g., `optional_repository_tools.py`, `optional_symbol_tools.py`)
-2. **Register with a tool group** using the `@_tool("group_name")` decorator
+2. **Register the tool** — core tools in `server.py` use `@_tool("group_name")`; optional modules use `@mcp.tool()` inside their `register_*` helper functions
 3. **Gate via profile** — ensure the tool group is included in the appropriate profiles in `src/mathematica_mcp/config.py` (`PROFILE_TOOL_GROUPS`)
 4. **Add tests** — prefer offline tests where possible (mock kernel interactions)
 5. **Update registration tests** — add the tool name to the expected sets in `tests/test_tool_registration.py`

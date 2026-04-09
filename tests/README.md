@@ -13,10 +13,10 @@ Core tests that validate individual modules and live Mathematica interactions.
 | File | Purpose | Requires Runtime |
 |------|---------|-----------------|
 | `test_session.py` | Calculus, algebra, linear algebra, special functions, JSON parsing | Yes |
-| `test_error_detection.py` | Error analyzer, message analysis, LLM formatting (33 tests) | No |
+| `test_error_detection.py` | Error analyzer, message analysis, LLM formatting (33 tests) | Partial (2 classes need runtime) |
 | `test_notebook_backend.py` | Notebook abstraction layer, cell models, serialization | No |
 | `test_notebook_tools_offline.py` | Offline notebook parsing and conversion | No |
-| `test_notebook_optimizations.py` | Kernel-mode fast path (378x perf improvement) | Yes (addon) |
+| `test_notebook_optimizations.py` | Kernel-mode fast path (~152x perf improvement) | Yes (addon) |
 | `test_tool_registration.py` | Profile-based tool sets (math/notebook/full) | No |
 | `test_connection.py` | Socket connection management, backoff/retry | No |
 | `test_cache_epoch.py` | Cache invalidation via kernel epoch | No |

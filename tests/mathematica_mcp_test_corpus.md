@@ -39,10 +39,10 @@
 
 | Profile | Tool Group | Tools |
 |---------|-----------|-------|
-| `math` | core | `execute_code`, `check_syntax`, `get_mathematica_status`, `get_feature_status`, `get_kernel_state`, `get_messages`, `restart_kernel` |
+| `math` | core | `execute_code`, `check_syntax`, `get_mathematica_status`, `get_feature_status`, `get_kernel_state`, `get_messages`, `get_session_brief`, `restart_kernel` |
 | `math` | session | `set_variable`, `get_variable`, `list_variables`, `clear_variables`, `get_expression_info` |
 | `math` | knowledge | `convert_units`, `entity_lookup`, `get_constant`, `interpret_natural_language`, `wolfram_alpha` |
-| `math` | debug | `time_expression`, `trace_evaluation`, `verify_derivation` |
+| `math` | debug | `time_expression`, `trace_evaluation`, `verify_derivation`, `get_computation_journal`, `clear_computation_journal` |
 | `math` | kernel_tools | `load_package`, `list_loaded_packages` |
 | `math` | symbol_lookup | `resolve_function`, `get_symbol_info`, `suggest_similar_functions` |
 | `notebook` | notebook_primary | `create_notebook`, `open_notebook_file`, `save_notebook`, `close_notebook`, `export_notebook`, `get_cell_content`, `get_cells`, `get_notebook_info`, `get_notebooks`, `rasterize_expression`, `read_notebook`, `screenshot_cell`, `screenshot_notebook` |

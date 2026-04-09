@@ -1,5 +1,7 @@
 # Example: Symbolic Calculus
 
+> **Note:** The `raw_data` field shown below is illustrative. The current parser may return `parse_error: true` with raw association text for some results.
+
 ## Scenario
 
 A researcher asks their AI agent to integrate a function, differentiate the result, and verify the derivation step-by-step.

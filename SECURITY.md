@@ -27,15 +27,15 @@ A **local development tool** that bridges MCP-compatible AI agents to a user's o
 LLM Client  ──(MCP stdio)──>  Python Server  ──(TCP localhost:9881)──>  Mathematica Kernel
 ```
 
-1. **LLM Client → Python Server**: MCP stdio protocol. Optional auth token via `MATHEMATICA_MCP_TOKEN` environment variable.
-2. **Python Server → Mathematica Addon**: TCP socket on `127.0.0.1:9881` (local-only binding). Not accessible from the network.
+1. **LLM Client → Python Server**: MCP stdio protocol. No authentication on this boundary.
+2. **Python Server → Mathematica Addon**: TCP socket on `127.0.0.1:9881` (local-only binding). Not accessible from the network. Optional auth token via `MATHEMATICA_MCP_TOKEN` — set in the Python server's environment, injected into each TCP request, and validated by the addon.
 3. **Mathematica Kernel**: Full Wolfram Language execution with the user's privileges. No kernel-level sandboxing.
 
 ## Security Controls
 
 ### Network Binding
 
-The Mathematica addon binds to `127.0.0.1` only — not `0.0.0.0`. The server is not accessible from other machines on the network by default. The port is configurable via `MATHEMATICA_PORT`.
+The Mathematica addon binds to `127.0.0.1` only — not `0.0.0.0`. The server is not accessible from other machines on the network by default. The addon port is controlled by the `$MCPPort` variable in Wolfram Language (default `9881`). The Python client reads `MATHEMATICA_PORT` to know which port to connect to — both must agree.
 
 ### Authentication
 

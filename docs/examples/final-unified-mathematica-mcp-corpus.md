@@ -1,5 +1,7 @@
 # Mathematica MCP Evaluation Corpus
 
+> **Note:** This is documentation only. The executable source of truth is `tests/corpus/mathematica_mcp_corpus.json`. See `tests/README.md` for the corpus test architecture.
+
 A comprehensive test corpus for validating Mathematica MCP server tools and Wolfram Language coverage. Optimized for AI-agent use:
 
 - every test has a stable ID,
@@ -10,7 +12,7 @@ A comprehensive test corpus for validating Mathematica MCP server tools and Wolf
 
 ## Profile Definitions
 
-- `math`: kernel-only deterministic computation
+- `math`: core computation, session state, knowledge (some network-backed), debug, and symbol tools
 - `notebook`: graphics, notebook, and data workflows
 - `full`: repository, knowledge, frontend, ML, admin, and environment-dependent workflows
 
@@ -54,7 +56,7 @@ These tests are intentionally tool-first. They should run before the larger Wolf
 | TOOL-SYS-02 | math | offline | `check_syntax` | `code="Plot[Sin[x], {x, 0, 2 Pi}]"` | Exact: `valid=true` |
 | TOOL-SYS-03 | math | offline | `check_syntax` | `code="Plot[Sin[x], {x, 0, 2 Pi"` | Exact: `valid=false` |
 | TOOL-SYS-04 | math | offline | `get_kernel_state` | no args | Structural/raw: returns version and memory metadata; accept either parsed fields or `raw` containing `kernel_version ->` |
-| TOOL-SYS-05 | math | offline | `get_mathematica_status` | no args | Structural: returns connection/addon metadata; mark `skip_unavailable` only if the status endpoint itself times out |
+| TOOL-SYS-05 | math | offline | `get_mathematica_status` | no args | Structural: returns connection status with frontend/kernel version, system id, notebook count, port, and connection mode; mark `skip_unavailable` only if the status endpoint itself times out |
 | TOOL-SYS-06 | math | offline | `execute_code` then `get_messages` | first run `1/0`, then `get_messages(count=5)` | Regression probe: stronger success is a non-empty warning list containing `Power::infy`; empty or malformed message payload after an induced error should be flagged |
 | TOOL-SYS-07 | math | offline | `restart_kernel` then `execute_code` | restart, then compute `2+2` | Structural: restart returns success and follow-up execution still works |
 | TOOL-SYS-08 | math | offline | `restart_kernel` state probe | set sentinel variable before restart, then inspect variable list after restart | Regression probe: sentinel variable should be gone after restart |

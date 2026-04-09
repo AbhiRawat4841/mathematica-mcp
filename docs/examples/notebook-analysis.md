@@ -1,5 +1,7 @@
 # Example: Notebook Analysis
 
+> **Note:** Output below is illustrative. Actual cell counts and content depend on the notebook file and parsing backend used.
+
 ## Scenario
 
 A user wants to understand the structure and content of an existing Mathematica notebook without opening the Mathematica GUI.

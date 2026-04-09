@@ -186,7 +186,7 @@ StartMCPServer[]
 
 ### Step 3: Configure Your LLM Client
 
-Use the same MCP server definition across clients; only the config file location differs.
+Each client uses its own config format and key structure. Examples for each supported client:
 
 **Claude app (Claude Desktop)**
 
@@ -203,7 +203,7 @@ Config file (macOS): `~/Library/Application Support/Claude/claude_desktop_config
 }
 ```
 
-**Claude Code (`.mcp.json` in project root)**
+**Claude Code (`~/.claude.json`)**
 
 ```json
 {
@@ -1021,8 +1021,8 @@ Control features via environment variables. Defaults shown are for the `full` pr
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `MATHEMATICA_HOST` | `localhost` | Addon host |
-| `MATHEMATICA_PORT` | `9881` | Addon port |
+| `MATHEMATICA_HOST` | `localhost` | Host the Python client connects to (addon binds via `$MCPHost`) |
+| `MATHEMATICA_PORT` | `9881` | Port the Python client connects to (addon binds via `$MCPPort`) |
 | `MATHEMATICA_PROFILE` | `full` | Tool profile: `math`, `notebook`, or `full` |
 | `MATHEMATICA_MCP_TOKEN` | *(none)* | Authentication token for secure connections |
 | `MATHEMATICA_MCP_CACHE_DIR` | `~/.cache/mathematica-mcp/notebooks` | Disk cache directory for notebook extraction |
@@ -1142,11 +1142,10 @@ When the breaker skips addon_cli, execution goes directly to kernel with a truth
 
 ### Privacy
 
-- No full Mathematica code or notebook content is persisted to disk
 - The in-memory journal stores 100-char code/output previews (not persisted)
-- Only aggregate counters and known system error families are persisted
-- User-defined error tags are mapped to `"other"`
-- Storage: `~/.cache/mathematica-mcp/routing_memory.json` (~2-5 KB)
+- Routing memory persists only aggregate counters and known system error families; user-defined error tags are mapped to `"other"`
+- Routing storage: `~/.cache/mathematica-mcp/routing_memory.json` (~2-5 KB)
+- Notebook extraction results are cached to `~/.cache/mathematica-mcp/notebooks/` with mtime-based invalidation
 
 ### Tools
 
@@ -1246,7 +1245,7 @@ The MCP server uses `ExportString[..., "RawJSON"]` for reliable JSON output from
 ```
 mathematica-mcp/
 ├── src/mathematica_mcp/
-│   ├── server.py              # 55 core tools (profile-gated)
+│   ├── server.py              # 58 core tools (profile-gated)
 │   ├── config.py              # Profiles, feature flags, tool groups
 │   ├── guidance.py            # LLM routing guidance, mode keywords, Codex/Claude hints
 │   ├── notebook_backend.py    # Notebook extraction backend abstraction

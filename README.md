@@ -76,17 +76,16 @@ Beyond these: **data import/export** (hundreds of formats), **Wolfram Alpha quer
 
 ## How It Compares
 
-| Capability | Plain LLM | Copy-paste to Mathematica | **This MCP** |
-|------------|:---------:|:-------------------------:|:------------:|
-| Write Mathematica code | Yes | Yes | Yes |
-| Execute and return results | No | Manual | **Automatic** |
-| Generate plots/images | No | Manual | **Automatic** |
-| Control live notebooks | No | No | **Yes** |
-| Verify derivations | No | Manual | **One tool call** |
-| Interactive UIs (sliders) | No | Manual | **Yes, in Mathematica** |
-| Error-aware debugging | No | Manual copy-paste | **Yes** |
-| Session state awareness | No | No | **Yes** |
-| Private / local execution | N/A | Yes | **Yes**\* |
+| Capability | Plain LLM | Copy-paste to Mathematica | Other Mathematica MCPs | **This MCP** |
+|------------|:---------:|:-------------------------:|:----------------------:|:------------:|
+| Structured results | No | No | Varies | **Yes, with metadata** |
+| Error feedback to agent | No | No | Varies | **Common errors + tips** |
+| Live notebook control | No | No | Varies | **Create/edit/eval/screenshot** |
+| Generate and view plots | No | Manual | Varies | **File or notebook** |
+| Interactive UIs (sliders) | No | Manual | Varies | **Yes, in Mathematica** |
+| Verify derivations | No | Manual | Varies | **Yes, one call** |
+| Read notebooks offline | No | No | Varies | **Yes, Python parser** |
+| Private / local execution | N/A | Yes | Varies | **Yes**\* |
 
 \*Core computation runs locally. Optional tools (`wolfram_alpha`, repository search) contact Wolfram cloud services when invoked.
 
@@ -227,7 +226,7 @@ export MATHEMATICA_ROUTING_ACTION=compute_cli_skip  # optional: skip failing tra
 
 The adaptive routing circuit-breaker automatically skips persistently failing compute CLI transport with half-open probe recovery. See the [Technical Reference](docs/technical-reference.md#intelligent-routing--observability) for details.
 
-> **Privacy:** No full Mathematica code or notebook content is persisted to disk. Routing memory stores only aggregate counters; the in-memory journal stores short code/output previews (not persisted).
+> **Privacy:** Routing memory stores only aggregate counters; the in-memory journal stores short code/output previews (not persisted). Notebook extraction results are cached to `~/.cache/mathematica-mcp/notebooks/` with mtime-based invalidation; delete the directory to clear the cache.
 
 ---
 
