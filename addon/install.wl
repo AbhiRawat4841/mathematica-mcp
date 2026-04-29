@@ -14,9 +14,10 @@ If[!FileExistsQ[$MCPPackageFile],
 
 initContent = If[FileExistsQ[$InitPath], Import[$InitPath, "Text"], ""];
 
+$MCPPackageFileNormalized = StringReplace[$MCPPackageFile, "\\" -> "/"];
 loadCode = StringJoin[
   "\n\n(* MathematicaMCP - Auto-load for LLM control *)\n",
-  "Quiet @ Get[\"", $MCPPackageFile, "\"];\n",
+  "Quiet @ Get[\"", $MCPPackageFileNormalized, "\"];\n",
   "MathematicaMCP`StartMCPServer[];\n"
 ];
 
@@ -39,7 +40,7 @@ If[StringContainsQ[initContent, "MathematicaMCP"],
   Print["The MCP server will now auto-start when Mathematica launches."];
   Print[""];
   Print["To start manually in a running session:"];
-  Print["  Get[\"", $MCPPackageFile, "\"];"];
+  Print["  Get[\"", $MCPPackageFileNormalized, "\"];"];
   Print["  StartMCPServer[]"];
   Print[""];
   Print["To uninstall, remove the MathematicaMCP section from init.m"];
