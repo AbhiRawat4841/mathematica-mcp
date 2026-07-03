@@ -15,7 +15,10 @@ If[!ValueQ[$MCPPort], $MCPPort = 9881];
 If[!ValueQ[$MCPListener], $MCPListener = None];
 If[!ValueQ[$MCPDebug], $MCPDebug = False];
 If[!ValueQ[$MCPHost], $MCPHost = "127.0.0.1"];
-If[!ValueQ[$MCPAuthToken], $MCPAuthToken = Quiet[Check[Environment["MATHEMATICA_MCP_TOKEN"], ""]]];
+If[!ValueQ[$MCPAuthToken],
+  $MCPAuthToken = Quiet[Check[Environment["MATHEMATICA_MCP_TOKEN"], ""]]
+];
+If[!StringQ[$MCPAuthToken], $MCPAuthToken = ""];
 If[!ValueQ[$MCPMaxMessageBytes], $MCPMaxMessageBytes = 5*1024*1024]; (* 5MB max request *)
 If[!ValueQ[$MCPMaxResponseBytes], $MCPMaxResponseBytes = 20*1024*1024]; (* 20MB max response *)
 If[!ValueQ[$MCPMaxFieldChars], $MCPMaxFieldChars = 5*1024*1024]; (* 5M chars per string field *)
@@ -205,7 +208,7 @@ processCommand[request_Association] := Module[
 
   debugLog["Processing command: " <> command];
 
-  If[StringLength[$MCPAuthToken] > 0 && token =!= $MCPAuthToken,
+  If[StringQ[$MCPAuthToken] && StringLength[$MCPAuthToken] > 0 && token =!= $MCPAuthToken,
     Return[<|"id" -> id, "status" -> "error", "message" -> "Unauthorized"|>]
   ];
 
@@ -594,19 +597,23 @@ cmdPing[_] := <|
   "version" -> "0.1.0"
 |>;
 
-cmdGetStatus[_] := <|
-  "frontend_version" -> Quiet[
-    Check[
-      Lookup[SystemInformation["FrontEnd"], "Version", "Unavailable"],
-      "Unavailable"
-    ]
-  ],
-  "kernel_version" -> $VersionNumber,
-  "system_id" -> $SystemID,
-  "notebooks_open" -> Length[Notebooks[]],
-  "mcp_server_running" -> ($MCPListener =!= None),
-  "mcp_port" -> $MCPPort
-|>;
+cmdGetStatus[_] := Module[{frontEndInfo, frontEndVersion, nbs},
+  frontEndInfo = Quiet[Check[SystemInformation["FrontEnd"], $Failed]];
+  frontEndVersion = If[AssociationQ[frontEndInfo],
+    Lookup[frontEndInfo, "Version", "Unavailable"],
+    "Unavailable"
+  ];
+  nbs = Quiet[Check[Notebooks[], {}]];
+  If[!ListQ[nbs], nbs = {}];
+  <|
+    "frontend_version" -> frontEndVersion,
+    "kernel_version" -> $VersionNumber,
+    "system_id" -> $SystemID,
+    "notebooks_open" -> Length[nbs],
+    "mcp_server_running" -> ($MCPListener =!= None),
+    "mcp_port" -> $MCPPort
+  |>
+];
 
 (* ============================================================================ *)
 (* NOTEBOOK COMMANDS                                                            *)
@@ -617,7 +624,7 @@ cmdGetNotebooks[_] := Module[{nbs},
   If[!ListQ[nbs], Return[<|"error" -> "Failed to get notebooks"|>]];
   (* Filter to only NotebookObjects *)
   nbs = Select[nbs, MatchQ[#, _NotebookObject] &];
-  Map[notebookToAssoc, nbs]
+  <|"success" -> True, "notebooks" -> Map[notebookToAssoc, nbs], "count" -> Length[nbs]|>
 ];
 
 cmdGetNotebookInfo[params_] := Module[{nb, cells, sessionId, cellStyles, titleVal},
@@ -667,7 +674,10 @@ cmdGetNotebookInfo[params_] := Module[{nb, cells, sessionId, cellStyles, titleVa
 cmdCreateNotebook[params_] := Module[{nb, title, sessionId},
   title = Lookup[params, "title", "Untitled"];
   sessionId = Lookup[params, "session_id", None];
-  nb = CreateDocument[{}, WindowTitle -> title];
+  nb = Quiet[Check[CreateDocument[{}, WindowTitle -> title], $Failed]];
+  If[!validNotebookQ[nb],
+    Return[<|"error" -> "Failed to create notebook. Mathematica front end may not be active."|>]
+  ];
   If[StringQ[sessionId] && StringLength[sessionId] > 0,
     $MCPSessionNotebooks[sessionId] = nb;
   ];
@@ -832,7 +842,9 @@ cmdDeleteCell[params_] := Module[{cell, nb, sessionId},
   <|"deleted" -> True|>
 ];
 
-cmdEvaluateCell[params_] := Module[{cell, nb, maxWait, waitInterval, elapsed, syncMode, sessionId, evaluating, syncWait},
+cmdEvaluateCell[params_] := Module[
+  {cell, nb, maxWait, waitInterval, elapsed, syncMode, sessionId, evaluating,
+   syncWait, cellsBefore, cellsAfter, observedEvaluation},
   sessionId = Lookup[params, "session_id", None];
   nb = resolveNotebook[Lookup[params, "notebook", None], sessionId];
   cell = resolveCellObject[Lookup[params, "cell_id", None], nb];
@@ -845,15 +857,21 @@ cmdEvaluateCell[params_] := Module[{cell, nb, maxWait, waitInterval, elapsed, sy
   syncMode = resolveSyncMode[params];
   syncWait = Lookup[params, "sync_wait", 2];
 
+  cellsBefore = Quiet[Check[Length[Cells[nb]], 0]];
+  cellsAfter = cellsBefore;
+  observedEvaluation = False;
   SelectionMove[cell, All, Cell];
-  FrontEndTokenExecute["EvaluateCells"];
+  FrontEndTokenExecute[nb, "EvaluateCells"];
 
   elapsed = 0;
   While[elapsed < maxWait,
     Pause[waitInterval];
     elapsed += waitInterval;
     evaluating = Quiet[Check[CurrentValue[nb, Evaluating], False]];
-    If[!TrueQ[evaluating], Break[]];
+    cellsAfter = Quiet[Check[Length[Cells[nb]], cellsBefore]];
+    If[TrueQ[evaluating] || cellsAfter > cellsBefore, observedEvaluation = True];
+    If[observedEvaluation && !TrueQ[evaluating], Break[]];
+    If[!observedEvaluation && elapsed >= Min[0.5, maxWait], Break[]];
   ];
 
   If[syncMode =!= "none",
@@ -866,12 +884,18 @@ cmdEvaluateCell[params_] := Module[{cell, nb, maxWait, waitInterval, elapsed, sy
         Pause[interval];
         elapsedSync += interval;
         evaluating = Quiet[Check[CurrentValue[nb, Evaluating], False]];
-        If[!TrueQ[evaluating], Break[]];
+        cellsAfter = Quiet[Check[Length[Cells[nb]], cellsAfter]];
+        If[TrueQ[evaluating] || cellsAfter > cellsBefore, observedEvaluation = True];
+        If[observedEvaluation && !TrueQ[evaluating], Break[]];
       ];
     ]
   ];
 
-  <|"evaluated" -> True, "cell" -> ToString[cell, InputForm], "waited_seconds" -> elapsed|>
+  <|
+    "evaluated" -> True,
+    "cell" -> ToString[cell, InputForm],
+    "waited_seconds" -> elapsed
+  |>
 ];
 
 (* ============================================================================ *)
@@ -879,6 +903,11 @@ cmdEvaluateCell[params_] := Module[{cell, nb, maxWait, waitInterval, elapsed, sy
 (* ============================================================================ *)
 
 graphicsHeadQ[expr_] := MatchQ[Head[expr], Graphics|Graphics3D|Legended|Image] || MatchQ[expr, _Show];
+
+parseHeldCode[code_String] := Quiet[Check[
+  ToExpression["(" <> code <> ")", InputForm, HoldComplete],
+  $Failed
+]];
 
 cmdExecuteCode[params_] := Module[
   {code, format, result, outputInput, outputFull = "", outputTex = "", messages,
@@ -907,7 +936,7 @@ cmdExecuteCode[params_] := Module[
   {timing, {result, messages}} = AbsoluteTiming[
     Block[{$MessageList = {}},
       Module[{heldExpr, evalBody},
-        heldExpr = Quiet[Check[ToExpression[code, InputForm, HoldComplete], $Failed]];
+        heldExpr = parseHeldCode[code];
         If[heldExpr === $Failed,
           parseFailed = True;
           {$Failed, $MessageList},
@@ -932,6 +961,7 @@ cmdExecuteCode[params_] := Module[
 
   failed = (result === $Failed || result === $Aborted);
   errorType = Which[result === $Aborted, "timeout", parseFailed, "syntax_error", True, "evaluation_error"];
+  messages = If[ListQ[messages], messages, {}];
 
   (* Command-level truncation: compute primary representation, skip
      redundant FullForm/TeXForm if primary is already large. *)
@@ -1097,7 +1127,10 @@ cmdExecuteCodeNotebook[params_] := Module[
   nb = resolveNotebook[nbSpec, sessionId];
   If[nb === None || !validNotebookQ[nb],
     createdNew = True;
-    nb = CreateDocument[{}, WindowTitle -> "Analysis"]
+    nb = Quiet[Check[CreateDocument[{}, WindowTitle -> "Analysis"], $Failed]]
+  ];
+  If[nb === None || !validNotebookQ[nb],
+    Return[<|"error" -> "No valid notebook available. Mathematica front end may not be active."|>]
   ];
   $MCPActiveNotebook = nb;
   If[StringQ[sessionId] && StringLength[sessionId] > 0,
@@ -1130,7 +1163,7 @@ executeCodeNotebookKernel[nb_, code_, timeout_, syncMode_, createdNew_, sessionI
     Block[{$MessageList = {},
            Print = (AppendTo[printCapture, StringJoin[ToString /@ {##}]] &)},
       Module[{heldExpr, evalBody},
-        heldExpr = Quiet[Check[ToExpression[code, InputForm, HoldComplete], $Failed]];
+        heldExpr = parseHeldCode[code];
         If[heldExpr === $Failed,
           parseFailed = True;
           {$Failed, $MessageList},
@@ -1161,6 +1194,7 @@ executeCodeNotebookKernel[nb_, code_, timeout_, syncMode_, createdNew_, sessionI
   ];
 
   isGraphics = MatchQ[result, _Graphics | _Graphics3D | _Image | _Legended | _Graph];
+  messages = If[ListQ[messages], messages, {}];
 
   (* Compute outputInput once; reuse for cell, preview, and response.
      Truncate if too large — the notebook cell will show truncated output,
@@ -1249,7 +1283,8 @@ executeCodeNotebookKernel[nb_, code_, timeout_, syncMode_, createdNew_, sessionI
 ];
 
 executeCodeNotebookFrontend[nb_, code_, maxWait_, timeout_, syncMode_, createdNew_, sessionId_, deterministicSeed_, isolateContext_, syncWait_] := Module[
-  {cell, cellsBefore, cellsAfter, waitInterval, elapsed, inputCellId, inputCellObj, execCode, ctx, effectiveWait, gotNewCell, evaluating},
+  {cell, cellsBefore, cellsAfter, waitInterval, elapsed, inputCellId, inputCellObj, execCode,
+   ctx, effectiveWait, gotNewCell, evaluating, observedEvaluation},
 
   cellsBefore = Length[Cells[nb]];
 
@@ -1277,18 +1312,19 @@ executeCodeNotebookFrontend[nb_, code_, maxWait_, timeout_, syncMode_, createdNe
 
   waitInterval = 0.05;
   SelectionMove[cell, All, Cell];
-  FrontEndTokenExecute["EvaluateCells"];
+  FrontEndTokenExecute[nb, "EvaluateCells"];
 
   elapsed = 0;
   gotNewCell = False;
+  observedEvaluation = False;
   While[elapsed < effectiveWait,
     Pause[waitInterval];
     elapsed += waitInterval;
-    (* Primary signal: notebook finished evaluating (proven reliable from preemptive link) *)
     evaluating = Quiet[Check[CurrentValue[nb, Evaluating], False]];
-    If[!TrueQ[evaluating],
-      Break[];
-    ];
+    cellsAfter = Quiet[Check[Length[Cells[nb]], cellsBefore + 1]];
+    If[TrueQ[evaluating] || cellsAfter > cellsBefore + 1, observedEvaluation = True];
+    If[observedEvaluation && !TrueQ[evaluating], Break[]];
+    If[!observedEvaluation && elapsed >= Min[0.5, effectiveWait], Break[]];
   ];
   (* After evaluation completes, give FrontEnd a moment to finalize output cell *)
   Pause[0.05];

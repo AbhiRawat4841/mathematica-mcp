@@ -14,7 +14,11 @@ def test_get_notebooks_uses_to_thread(monkeypatch):
         return func(*args, **kwargs)
 
     monkeypatch.setattr(server.asyncio, "to_thread", fake_to_thread)
-    monkeypatch.setattr(server, "_try_addon_command", lambda command, params=None, timeout=None: [])
+    monkeypatch.setattr(
+        server,
+        "_try_addon_command",
+        lambda command, params=None, timeout=None: {"success": True, "notebooks": [], "count": 0},
+    )
 
     result = asyncio.run(server.get_notebooks())
 

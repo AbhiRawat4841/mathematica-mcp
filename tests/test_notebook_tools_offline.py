@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 
+from mathematica_mcp import server
 from mathematica_mcp.notebook_parser import (
     NotebookParser,
     _parse_notebook_cached,
@@ -60,6 +63,27 @@ def test_convert_notebook_markdown_avoids_subprocess(monkeypatch):
     assert result["success"] is True
     assert "```wolfram" in result["content"]
     assert "Integrate[1/(x^2 + x^3), x]" in result["content"]
+
+
+def test_convert_notebook_latex_normalizes_windows_path(monkeypatch):
+    captured = {}
+
+    monkeypatch.setattr(server, "_expand_path", lambda path: r"C:\tmp\issue.nb")
+    monkeypatch.setattr(server.os.path, "exists", lambda path: True)
+    monkeypatch.setattr(server, "_load_cached_notebook", lambda *args, **kwargs: object())
+    monkeypatch.setattr("mathematica_mcp.lazy_wolfram_tools._find_wolframscript", lambda: "wolframscript")
+
+    def fake_run(args, **kwargs):
+        captured["code"] = args[2]
+        return SimpleNamespace(stdout='<|"success" -> True, "format" -> "latex", "content" -> ""|>')
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    result = json.loads(asyncio.run(convert_notebook("ignored.nb", "latex")))
+
+    assert result["success"]
+    assert 'Import["C:/tmp/issue.nb"]' in captured["code"]
+    assert r'Import["C:\tmp\issue.nb"]' not in captured["code"]
 
 
 def test_get_notebook_outline_uses_parser_for_sections(tmp_path: Path):

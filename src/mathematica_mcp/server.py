@@ -581,7 +581,10 @@ async def get_session_brief() -> str:
 @_tool("notebook_primary")
 async def get_notebooks() -> str:
     """List all open Mathematica notebooks. Returns ID, filename, title."""
-    return await _addon_json("get_notebooks")
+    result = await _addon_result("get_notebooks")
+    if isinstance(result, dict) and result.get("success") is True and isinstance(result.get("notebooks"), list):
+        return _json_response(result["notebooks"])
+    return _json_response(result)
 
 
 @_tool("notebook_primary")
@@ -1714,9 +1717,10 @@ async def convert_notebook(
             if not wolframscript:
                 return _json_response({"success": False, "error": "wolframscript not found"})
 
+            wl_path = expanded.replace("\\", "/")
             code = f'''
 Module[{{nb, content}},
-  nb = Import["{expanded}"];
+  nb = Import["{wl_path}"];
   content = ExportString[nb, "TeX"];
   <|"success" -> True, "format" -> "{output_format}", "content" -> content|>
 ]
