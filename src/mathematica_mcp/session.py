@@ -466,6 +466,7 @@ def _rasterize_via_wolframscript(code: str, image_size: int = 500) -> str | None
 
     # Create temp file for the image
     fd, temp_path = tempfile.mkstemp(suffix=".png")
+    temp_path = temp_path.replace("\\", "/")
     os.close(fd)
 
     rasterize_code = f'''
