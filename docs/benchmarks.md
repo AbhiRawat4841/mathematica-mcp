@@ -1,8 +1,49 @@
 # Performance Benchmarks
 
-Historical benchmark snapshots, each dated at its source. All numbers are median unless noted.
+Benchmark snapshots, each dated at its source. All numbers are median unless noted.
 
-> **Current architecture (v1.0):** the warm persistent-kernel funnel (`evaluate_wl` routes through a persistent wolframclient session with cold `wolframscript` fallback) and `state_delta` response gating landed **after** all measurements below were taken. The tables reflect the pre-1.0 architecture at their stated dates and have not been re-measured; treat them as historical context, not current numbers.
+> The **v1.0.1 section below** reflects the current architecture (warm persistent-kernel funnel + `state_delta` response gating). Sections after it are historical pre-1.0 snapshots kept for comparison.
+
+---
+
+## v1.0.1 (2026-07-06)
+
+**Sources:** `benchmarks/results/phase_v101.json`, `benchmark_notebook_ops.py`, warm-funnel probe
+**Environment:** macOS ARM64 (same dev machine as prior snapshots) | Mathematica 15.0 | Python 3.11
+
+### Warm funnel (new in 1.0: these tools previously spawned a cold `wolframscript` subprocess per call)
+
+| Tool (warm persistent session) | v1.0.1 median | Pre-1.0 (cold subprocess per call) |
+|--------------------------------|---------------|-------------------------------------|
+| `verify_derivation` (2 steps) | **2.3ms** | ~12,500ms |
+| `get_constant("Pi")` | **1.7ms** | ~12,500ms |
+| `list_loaded_packages` | 29.1ms | ~12,500ms |
+| `get_kernel_state` | 47.0ms | ~12,500ms |
+
+One-time cost: the persistent kernel session starts on first use (~12.9s, includes Wolfram kernel boot). Cold-execution counter after the probe: **0** - no `wolframscript` subprocess was spawned on any warm path.
+
+### Live addon operations (after `state_delta` gating)
+
+| Operation | v1.0.1 median | 2026-01 baseline |
+|-----------|---------------|------------------|
+| `execute_code` (trivial, pure-kernel: no `state_delta`) | 32.7ms | 28.6ms |
+| `get_notebook_info` | 34.6ms | 21ms |
+| `write_cell` | 47.9ms | 39ms |
+| `get_cells` | 68.0ms | 122ms |
+| `screenshot_notebook` | 403.5ms | 529ms |
+
+Wire transport dominates these round trips, so per-operation deltas vs the January baseline are mostly session/notebook-state noise. The `state_delta` gating change is about *what* pure-kernel responses depend on, not raw latency: they no longer touch the front end at all (previously every response computed `SelectedNotebook[]`/`Cells[]`, ~80% of in-kernel processing, and stalled whenever the front end was busy).
+
+### Offline operations
+
+| Operation | v1.0.1 | v0.8.0 (2026-04) |
+|-----------|--------|------------------|
+| `cold_import` | 318ms | 515ms |
+| `lookup_end_to_end` (hot index) | 0.7ms | 0.7ms |
+| `notebook_python_parse` (cold / warm) | 4.7ms / 0.5ms | 5.2ms / 0.6ms |
+| `symbol_index_build` (raw, from cold process) | 12.4s | 12.3s |
+
+The symbol-index build now runs through the warm funnel; from a cold process its time is dominated by the one-time kernel startup (~13s). Within an already-warm server process the build is a single in-kernel `Names[]` call.
 
 ---
 
@@ -94,15 +135,16 @@ The benchmark also confirmed these architectural properties:
 
 ## Addon Timing Accuracy
 
-The addon's reported `timing_ms` now correctly measures evaluation time. Previously, `ToExpression[code]` was called before `AbsoluteTiming`, causing all reported timings to be ~0ms. The fix uses `HoldComplete` to defer evaluation into the timed block, which also corrects context isolation and timeout behavior.
+The addon's reported `timing_ms` now correctly measures evaluation time. Previously, `ToExpression[code]` evaluated the expression *before* `AbsoluteTiming` ran, so every reported timing was ~0ms no matter how long the computation actually took. The fix uses `HoldComplete` to defer evaluation into the timed block, which also makes context isolation and timeouts actually apply.
 
-| Aspect | Before | After |
-|--------|--------|-------|
-| `timing_ms` for `1+1` | 0 | 0 (correct: sub-ms rounds to 0) |
-| `timing_ms` for `Integrate[Sin[x]^10, x]` | 0 | Actual ms (e.g., 15-50ms) |
+| Aspect | Before (broken) | After (fixed) |
+|--------|-----------------|---------------|
+| `timing_ms` for an expensive evaluation (e.g. `Integrate[Sin[x]^10, x]`) | ~0ms regardless of real cost | actual duration (e.g. 15-50ms) |
 | Context isolation | No-op (code already evaluated) | Correctly applied |
 | Timeout (`TimeConstrained`) | No-op (code already evaluated) | Correctly enforced |
 | Syntax error detection | Not distinguished | `error_type: "syntax_error"` |
+
+Trivial expressions like `1+1` still report `0ms` - they genuinely complete in under a millisecond and round down. The bug was that *everything* reported ~0, making expensive and trivial evaluations indistinguishable.
 
 ---
 
