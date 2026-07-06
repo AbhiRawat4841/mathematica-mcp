@@ -1,5 +1,5 @@
 <!-- mathematica-mcp:start -->
-# Mathematica MCP — Agent Instructions
+# Mathematica MCP - Agent Instructions
 
 This project has a Mathematica MCP server connected. It gives you direct
 control of a running Mathematica instance through MCP tools.
@@ -13,14 +13,14 @@ The default `lean` profile exposes 12 consolidated tools.
 
 1. **ALWAYS use MCP tools** for Mathematica work.
 2. **NEVER** use `wolframscript` CLI, shell commands, `mkdir`, or manual `.nb` file creation.
-3. For notebook files on disk, prefer `read_notebook_file(path)` — no kernel needed. Use `notebooks(action="open"/"save"/"export")` only when the user explicitly wants a live window or disk output.
+3. For notebook files on disk, prefer `read_notebook_file(path)` - no kernel needed. Use `notebooks(action="open"/"save"/"export")` only when the user explicitly wants a live window or disk output.
 
 ## Routing (lean profile, default)
 
 | User says | What to do |
 |-----------|------------|
-| "calculate", "compute", "solve", "evaluate" | `evaluate(code)` — kernel, result in chat |
-| "plot", "show", "in notebook" | `evaluate(code, target="notebook")` — in the live notebook |
+| "calculate", "compute", "solve", "evaluate" | `evaluate(code)` - kernel, result in chat |
+| "plot", "show", "in notebook" | `evaluate(code, target="notebook")` - in the live notebook |
 | "new notebook" | `notebooks(action="create", title=...)` then `evaluate(code, target="notebook")` |
 | "screenshot", "what does it look like" | `screenshot(scope="notebook")` (or `scope="cell"` / `"expression"`) |
 | "verify", "check derivation" | `verify_derivation(steps)` |

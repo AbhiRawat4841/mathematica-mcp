@@ -22,7 +22,7 @@ Then restart the kernel / front-end so the addon re-reads the environment. Unset
 
 - [ ] **`ShowChatbar->False` suppression** (`addon/MathematicaMCP.wl`, `mcpNotebookOptions`)
   - ≥15: agent-created notebooks (`notebooks(action="create")`) omit the chat sidebar; `show_chatbar=True` re-enables it.
-  - <15: `ShowChatbar` option is **not** added at all — verify created notebooks open normally with no error about an unknown option.
+  - <15: `ShowChatbar` option is **not** added at all - verify created notebooks open normally with no error about an unknown option.
 
 - [ ] **`mcpVersionAtLeast15[]` gate honors `MMCP_FORCE_V14`**
   - With `MMCP_FORCE_V14=1` on a 15 machine, `mcpVersionAtLeast15[]` returns `False` and the notebook is created **without** `ShowChatbar`.
@@ -41,4 +41,4 @@ Then restart the kernel / front-end so the addon re-reads the environment. Unset
 
 ## Coverage note
 
-`guide('v15')` describes exactly the three version-sensitive behaviors that exist: `ShowChatbar` suppression on agent-created notebooks (override with `show_chatbar=True` on `notebooks(action="create")` / `create_notebook`), the `$VersionNumber >= 15.` guards, and the addon `protocol_version` handshake — all covered by the checklist above. Theme-pinned screenshots and chat-cell filtering are **not implemented** (no `theme` param on `screenshot`, no chat-cell filter in `cells`) and are intentionally not mentioned in the guide; they remain roadmap items (plan §4 in `docs/roadmaps/v1.0-lean-plan-v2.md`).
+`guide('v15')` describes exactly the three version-sensitive behaviors that exist: `ShowChatbar` suppression on agent-created notebooks (override with `show_chatbar=True` on `notebooks(action="create")` / `create_notebook`), the `$VersionNumber >= 15.` guards, and the addon `protocol_version` handshake - all covered by the checklist above. Theme-pinned screenshots and chat-cell filtering are **not implemented** (no `theme` param on `screenshot`, no chat-cell filter in `cells`) and are intentionally not mentioned in the guide; they remain roadmap items (plan §4 in `docs/roadmaps/v1.0-lean-plan-v2.md`).

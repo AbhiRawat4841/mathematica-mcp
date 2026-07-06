@@ -27,14 +27,14 @@ LLM Client  ──(MCP stdio)──>  Python Server  ──(TCP localhost:9881)�
 ```
 
 1. **LLM Client → Python Server**: MCP stdio protocol. No authentication on this boundary.
-2. **Python Server → Mathematica Addon**: TCP socket on `127.0.0.1:9881` (local-only binding). Not accessible from the network. Optional auth token via `MATHEMATICA_MCP_TOKEN` — set in the Python server's environment, injected into each TCP request, and validated by the addon.
+2. **Python Server → Mathematica Addon**: TCP socket on `127.0.0.1:9881` (local-only binding). Not accessible from the network. Optional auth token via `MATHEMATICA_MCP_TOKEN` - set in the Python server's environment, injected into each TCP request, and validated by the addon.
 3. **Mathematica Kernel**: Full Wolfram Language execution with the user's privileges. No kernel-level sandboxing.
 
 ## Security Controls
 
 ### Network Binding
 
-The Mathematica addon binds to `127.0.0.1` only — not `0.0.0.0`. The server is not accessible from other machines on the network by default. The addon port is controlled by the `$MCPPort` variable in Wolfram Language (default `9881`). The Python client reads `MATHEMATICA_PORT` to know which port to connect to — both must agree.
+The Mathematica addon binds to `127.0.0.1` only - not `0.0.0.0`. The server is not accessible from other machines on the network by default. The addon port is controlled by the `$MCPPort` variable in Wolfram Language (default `9881`). The Python client reads `MATHEMATICA_PORT` to know which port to connect to - both must agree.
 
 ### Authentication
 
@@ -57,7 +57,7 @@ These prevent hung connections and runaway computations.
 
 ## Input Handling
 
-User-provided text that the server interpolates into Wolfram Language code (e.g., the symbol lookup query in `_lookup_symbols_in_kernel`) is escaped via `_wl_string` before interpolation, so it is embedded as a WL string literal rather than executable code. This does not apply to tools whose *purpose* is code execution (`evaluate`, `execute_code`, etc.) — those run whatever code they are given, by design (see Dangerous Operations below).
+User-provided text that the server interpolates into Wolfram Language code (e.g., the symbol lookup query in `_lookup_symbols_in_kernel`) is escaped via `_wl_string` before interpolation, so it is embedded as a WL string literal rather than executable code. This does not apply to tools whose *purpose* is code execution (`evaluate`, `execute_code`, etc.) - those run whatever code they are given, by design (see Dangerous Operations below).
 
 **Defense in depth**: the server binds to localhost only and is not network-exposed by default, limiting the attack surface to the local machine.
 
@@ -65,8 +65,8 @@ User-provided text that the server interpolates into Wolfram Language code (e.g.
 
 The following tools execute arbitrary Wolfram Language code with the **user's full OS privileges**:
 
-- `evaluate` (default lean profile) — runs any Wolfram expression, `.wl` script (`file=`), or notebook cell (`target="cell"`/`"selection"`)
-- `execute_code`, `run_script`, `evaluate_cell` / `evaluate_selection` (classic profile) — same capabilities under the legacy names
+- `evaluate` (default lean profile) - runs any Wolfram expression, `.wl` script (`file=`), or notebook cell (`target="cell"`/`"selection"`)
+- `execute_code`, `run_script`, `evaluate_cell` / `evaluate_selection` (classic profile) - same capabilities under the legacy names
 
 Wolfram Language has access to:
 

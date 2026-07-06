@@ -23,9 +23,9 @@
 | Code | Strategy | How to Apply |
 |------|----------|--------------|
 | `exact` | Direct equality (`===`) | Output must match expected value character-for-character (modulo whitespace/ordering for sets of rules) |
-| `symbolic` | Algebraic equivalence | `Simplify[result - expected] === 0` or `FullSimplify` — accounts for different but equivalent forms |
-| `numeric` | Tolerance-based | `Abs[result - expected] < tolerance` — for all `N`/`NIntegrate`/`FindRoot`/`NMinimize` outputs |
-| `structural` | Head/Length/MatchQ check | Check `Head`, `Length`, `Dimensions`, `MatchQ`, or `FreeQ[$Failed]` — for Graphics, InterpolatingFunction, Image, Association |
+| `symbolic` | Algebraic equivalence | `Simplify[result - expected] === 0` or `FullSimplify` - accounts for different but equivalent forms |
+| `numeric` | Tolerance-based | `Abs[result - expected] < tolerance` - for all `N`/`NIntegrate`/`FindRoot`/`NMinimize` outputs |
+| `structural` | Head/Length/MatchQ check | Check `Head`, `Length`, `Dimensions`, `MatchQ`, or `FreeQ[$Failed]` - for Graphics, InterpolatingFunction, Image, Association |
 | `contains` | Subset/membership check | Output contains specific elements (e.g., solution rules contain `x -> value`) |
 | `error` | Expected error/message | Output includes specific message name or returns `$Failed`/`$Aborted` |
 | `boolean` | True/False match | Output is exactly `True` or `False` |
@@ -109,10 +109,10 @@ Tests that the MCP server itself is operational and its meta-tools work correctl
 | ID | MCP Tool | Profile | Input | Expected Output | Verification | Success Criteria |
 |----|----------|---------|-------|-----------------|--------------|------------------|
 | ARITH-01 | `execute_code` | math | `2 + 3` | `5` | exact | Integer addition |
-| ARITH-02 | `execute_code` | math | `2^100` | `1267650600228229401496703205376` | exact | Big-integer arithmetic — no overflow |
+| ARITH-02 | `execute_code` | math | `2^100` | `1267650600228229401496703205376` | exact | Big-integer arithmetic - no overflow |
 | ARITH-03 | `execute_code` | math | `1/3 + 1/7` | `10/21` | exact | Exact rational arithmetic |
 | ARITH-04 | `execute_code` | math | `N[Pi, 50]` | `3.14159265358979323846264338327950288419716939937510` | numeric | 50-digit Pi; tolerance `< 10^-49` |
-| ARITH-05 | `execute_code` | math | `Sqrt[2] + Sqrt[3]` | `Sqrt[2] + Sqrt[3]` (stays symbolic) | exact | Does NOT return a decimal — remains symbolic |
+| ARITH-05 | `execute_code` | math | `Sqrt[2] + Sqrt[3]` | `Sqrt[2] + Sqrt[3]` (stays symbolic) | exact | Does NOT return a decimal - remains symbolic |
 | ARITH-06 | `execute_code` | math | `Sqrt[-1]` | `I` | exact | Returns imaginary unit |
 | ARITH-07 | `execute_code` | math | `1/0` | `ComplexInfinity` | exact | Returns `ComplexInfinity` with `Power::infy` message |
 | ARITH-08 | `execute_code` | math | `0/0` | `Indeterminate` | exact | Returns `Indeterminate` with message |
@@ -125,7 +125,7 @@ Tests that the MCP server itself is operational and its meta-tools work correctl
 | ARITH-15 | `execute_code` | math | `Binomial[10, 3]` | `120` | exact | Binomial coefficient C(10,3) |
 | ARITH-16 | `execute_code` | math | `PartitionsP[10]` | `42` | exact | Integer partition count |
 | ARITH-17 | `execute_code` | math | `CatalanNumber[5]` | `42` | exact | 5th Catalan number |
-| ARITH-18 | `execute_code` | math | `IntegerLength[2^100000]` | `30103` | exact | Big-integer precision — no floating error |
+| ARITH-18 | `execute_code` | math | `IntegerLength[2^100000]` | `30103` | exact | Big-integer precision - no floating error |
 
 ---
 
@@ -139,7 +139,7 @@ Tests that the MCP server itself is operational and its meta-tools work correctl
 | ALG-04 | `execute_code` | math | `Apart[1/(x^2 - 1)]` | `1/(2*(-1 + x)) - 1/(2*(1 + x))` | symbolic | Partial fraction decomposition; verify via `Together` returning original |
 | ALG-05 | `execute_code` | math | `Together[1/x + 1/(x + 1)]` | `(1 + 2*x)/(x*(1 + x))` | symbolic | Combined fraction correct |
 | ALG-06 | `execute_code` | math | `PolynomialQuotientRemainder[x^3 + 2*x + 1, x - 1, x]` | `{1 + x + x^2, 4}` | exact | Quotient and remainder |
-| ALG-07 | `mathematica_factor` | full | `expression: "x^2 + 1"` | `1 + x^2` | exact | Unchanged — irreducible over rationals |
+| ALG-07 | `mathematica_factor` | full | `expression: "x^2 + 1"` | `1 + x^2` | exact | Unchanged - irreducible over rationals |
 | ALG-08 | `execute_code` | math | `Factor[x^2 + 1, GaussianIntegers -> True]` | `(x - I)(x + I)` | symbolic | Factors over Gaussian integers |
 | ALG-09 | `mathematica_simplify` | full | `expression: "Sin[x]^2 + Cos[x]^2"` | `1` | exact | Pythagorean identity |
 | ALG-10 | `execute_code` | math | `FullSimplify[Gamma[z + 1]/Gamma[z]]` | `z` | symbolic | Gamma function recurrence |
@@ -154,7 +154,7 @@ Tests that the MCP server itself is operational and its meta-tools work correctl
 |----|----------|---------|-------|-----------------|--------------|------------------|
 | SOLVE-01 | `mathematica_solve` | full | `equation: "x^2 - 5*x + 6 == 0", variable: "x"` | `{{x -> 2}, {x -> 3}}` | contains | Solutions contain `x -> 2` and `x -> 3` |
 | SOLVE-02 | `mathematica_solve` | full | `equation: "x^2 + 1 == 0", variable: "x"` | `{{x -> -I}, {x -> I}}` | contains | Complex roots found |
-| SOLVE-03 | `execute_code` | math | `Solve[x^2 + 1 == 0, x, Reals]` | `{}` | exact | No real solutions — empty list |
+| SOLVE-03 | `execute_code` | math | `Solve[x^2 + 1 == 0, x, Reals]` | `{}` | exact | No real solutions - empty list |
 | SOLVE-04 | `execute_code` | math | `Solve[{x + y == 3, 2*x - y == 0}, {x, y}]` | `{{x -> 1, y -> 2}}` | contains | System of linear equations |
 | SOLVE-05 | `execute_code` | math | `Solve[x^3 - 6x^2 + 11x - 6 == 0, x]` | `{{x -> 1}, {x -> 2}, {x -> 3}}` | contains | Cubic with 3 real roots |
 | SOLVE-06 | `execute_code` | math | `Reduce[x^2 - 4 < 0, x, Reals]` | `-2 < x < 2` | symbolic | Inequality reduction to interval |
@@ -177,7 +177,7 @@ Tests that the MCP server itself is operational and its meta-tools work correctl
 | CALC-04 | `execute_code` | math | `D[Exp[-x^2], x]` | `-2 E^(-x^2) x` | symbolic | Gaussian derivative (chain rule) |
 | CALC-05 | `mathematica_integrate` | full | `expression: "Sin[x]", variable: "x"` | `-Cos[x]` | symbolic | Basic indefinite integral |
 | CALC-06 | `mathematica_integrate` | full | `expression: "x * Log[x]", variable: "x"` | `-x^2/4 + (1/2) x^2 Log[x]` | symbolic | Integration by parts |
-| CALC-07 | `execute_code` | math | `Integrate[x^2, {x, 0, 1}]` | `1/3` | exact | Definite integral — exact rational |
+| CALC-07 | `execute_code` | math | `Integrate[x^2, {x, 0, 1}]` | `1/3` | exact | Definite integral - exact rational |
 | CALC-08 | `execute_code` | math | `Integrate[1/(1 + x^2), {x, 0, Infinity}]` | `Pi/2` | exact | Improper integral |
 | CALC-09 | `execute_code` | math | `Integrate[Exp[-x^2], {x, -Infinity, Infinity}]` | `Sqrt[Pi]` | exact | Gaussian integral |
 | CALC-10 | `execute_code` | math | `NIntegrate[Exp[-x^2], {x, 0, 1}]` | `0.746824` | numeric | Numerical quadrature; tolerance `< 1e-5` |
@@ -196,7 +196,7 @@ Tests that the MCP server itself is operational and its meta-tools work correctl
 |----|----------|---------|-------|-----------------|--------------|------------------|
 | DE-01 | `execute_code` | math | `DSolve[y'[x] == y[x], y[x], x]` | `{{y[x] -> C[1]*E^x}}` | structural | General solution with constant C[1] |
 | DE-02 | `execute_code` | math | `DSolve[{y'[x] == -2*y[x], y[0] == 3}, y[x], x]` | `{{y[x] -> 3*E^(-2*x)}}` | symbolic | IVP particular solution |
-| DE-03 | `execute_code` | math | `DSolve[{y''[x] + y[x] == 0, y[0] == 1, y'[0] == 0}, y[x], x]` | `{{y[x] -> Cos[x]}}` | symbolic | Second-order IVP — harmonic oscillator |
+| DE-03 | `execute_code` | math | `DSolve[{y''[x] + y[x] == 0, y[0] == 1, y'[0] == 0}, y[x], x]` | `{{y[x] -> Cos[x]}}` | symbolic | Second-order IVP - harmonic oscillator |
 | DE-04 | `execute_code` | math | `NDSolve[{y'[x] == -y[x]^2, y[0] == 1}, y, {x, 0, 5}]` | `{{y -> InterpolatingFunction[...]}}` | structural | Head is InterpolatingFunction; `y[1]/.%[[1]]` ~ 0.5 |
 | DE-05 | `execute_code` | math | `sol = NDSolveValue[{y'[t] == y[t] (1 - y[t]), y[0] == 0.1}, y, {t, 0, 10}]; sol[10]` | `~0.9999` | numeric | Logistic equation saturates; tolerance `< 1e-3` |
 | DE-06 | `execute_code` | math | `NDSolveValue[{y'[t] == t, y[0] == 0}, y[3], {t, 0, 3}]` | `4.5` | numeric | Simple ODE: y = t^2/2, y(3) = 4.5; tolerance `< 0.01` |
@@ -220,7 +220,7 @@ Tests that the MCP server itself is operational and its meta-tools work correctl
 | LA-09 | `execute_code` | math | `IdentityMatrix[3]` | `{{1,0,0},{0,1,0},{0,0,1}}` | exact | Identity matrix generation |
 | LA-10 | `execute_code` | math | `MatrixPower[{{1, 1}, {0, 1}}, n]` | `{{1, n}, {0, 1}}` | symbolic | Symbolic matrix exponentiation |
 | LA-11 | `execute_code` | math | `Normal[SparseArray[{{1,1}->1, {2,3}->5}, {2,3}]]` | `{{1,0,0},{0,0,5}}` | exact | Sparse to dense conversion |
-| LA-12 | `execute_code` | math | `SingularValueList[{{1, 0}, {0, 2}}]` | `{2, 1}` | exact | SVD — descending order |
+| LA-12 | `execute_code` | math | `SingularValueList[{{1, 0}, {0, 2}}]` | `{2, 1}` | exact | SVD - descending order |
 
 ---
 
@@ -279,7 +279,7 @@ Tests that the MCP server itself is operational and its meta-tools work correctl
 
 ---
 
-## Section 13: Data Structures — Associations & Datasets (6 tests)
+## Section 13: Data Structures - Associations & Datasets (6 tests)
 
 | ID | MCP Tool | Profile | Input | Expected Output | Verification | Success Criteria |
 |----|----------|---------|-------|-----------------|--------------|------------------|
@@ -453,7 +453,7 @@ Tests that the MCP server itself is operational and its meta-tools work correctl
 
 ---
 
-## Section 25: Domain-Specific — Physics & Engineering (8 tests)
+## Section 25: Domain-Specific - Physics & Engineering (8 tests)
 
 | ID | MCP Tool | Profile | Input | Expected Output | Verification | Success Criteria |
 |----|----------|---------|-------|-----------------|--------------|------------------|
@@ -642,21 +642,21 @@ These tricky expressions expose common MCP server failures around assumptions, p
 
 ## Recommended Execution Order
 
-1. **System checks** (SYS-*) — verify MCP server is alive
-2. **State management** (VAR-*) — verify kernel persistence
-3. **Arithmetic** (ARITH-*) — validate basic computation
-4. **Core language** (LANG-*) — validate scoping/evaluation
-5. **Algebra + Calculus + Solving** (ALG-*, CALC-*, SOLVE-*) — core math
-6. **Linear algebra + DE + Optimization** (LA-*, DE-*, OPT-*) — advanced math
-7. **Lists + Patterns + Strings** (LIST-*, PAT-*, STR-*) — data manipulation
-8. **Statistics + ML** (STAT-*, ML-*) — data science
-9. **Visualization** (VIZ-*) — graphics pipeline
-10. **Import/Export** (IO-*) — data I/O
-11. **Domain-specific** (PHYS-*, SPEC-*, DS-*, GRAPH-*, GEO-*, UNIT-*, ENT-*) — specialized
-12. **Notebooks** (NB-*) — frontend integration
-13. **Repository + Async + Cache** (REPO-*, ASYNC-*) — full-profile features
-14. **Debugging** (DBG-*) — performance
-15. **Edge cases** (EDGE-*) — stress and error handling (run last)
+1. **System checks** (SYS-*) - verify MCP server is alive
+2. **State management** (VAR-*) - verify kernel persistence
+3. **Arithmetic** (ARITH-*) - validate basic computation
+4. **Core language** (LANG-*) - validate scoping/evaluation
+5. **Algebra + Calculus + Solving** (ALG-*, CALC-*, SOLVE-*) - core math
+6. **Linear algebra + DE + Optimization** (LA-*, DE-*, OPT-*) - advanced math
+7. **Lists + Patterns + Strings** (LIST-*, PAT-*, STR-*) - data manipulation
+8. **Statistics + ML** (STAT-*, ML-*) - data science
+9. **Visualization** (VIZ-*) - graphics pipeline
+10. **Import/Export** (IO-*) - data I/O
+11. **Domain-specific** (PHYS-*, SPEC-*, DS-*, GRAPH-*, GEO-*, UNIT-*, ENT-*) - specialized
+12. **Notebooks** (NB-*) - frontend integration
+13. **Repository + Async + Cache** (REPO-*, ASYNC-*) - full-profile features
+14. **Debugging** (DBG-*) - performance
+15. **Edge cases** (EDGE-*) - stress and error handling (run last)
 
 ---
 

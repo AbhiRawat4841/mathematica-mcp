@@ -1,6 +1,6 @@
 # Example: Notebook Analysis
 
-> **Profile note:** This example uses the **classic-profile** tool name `read_notebook` (`MATHEMATICA_PROFILE=classic`). Under the default `lean` profile the equivalent is `read_notebook_file(path, mode="outline"/"json"/"wolfram")` — same parser, same output formats.
+> **Profile note:** This example uses the **classic-profile** tool name `read_notebook` (`MATHEMATICA_PROFILE=classic`). Under the default `lean` profile the equivalent is `read_notebook_file(path, mode="outline"/"json"/"wolfram")` - same parser, same output formats.
 
 > **Note:** Output below is illustrative. Actual cell counts and content depend on the notebook file and parsing backend used.
 
@@ -31,7 +31,7 @@ Result:
 }
 ```
 
-**Agent:** The outline shows no named sections — it's a flat notebook without section headings. Let me extract the cells directly.
+**Agent:** The outline shows no named sections - it's a flat notebook without section headings. Let me extract the cells directly.
 
 ```
 Tool: read_notebook
@@ -63,7 +63,7 @@ Result:
 
 **Agent:** The notebook contains a single computation:
 
-- **Input cell:** `Plot[Sin[x], {x, 0, 2 Pi}]` — plots the sine function from 0 to 2pi
+- **Input cell:** `Plot[Sin[x], {x, 0, 2 Pi}]` - plots the sine function from 0 to 2pi
 - **Output cell:** The rendered plot (graphics output)
 
 **User:** Can I see it as plain Wolfram code?
@@ -106,7 +106,7 @@ Classic name as shown: `notebook` (or `classic`/`full`). Lean (default): `read_n
 ## Notes
 
 - `read_notebook` is the consolidated reading tool that supports multiple output formats: `markdown`, `wolfram`, `outline`, `json`, `plain`
-- The `outline` format returns only section/subsection headings — flat notebooks with no headings will have `section_count: 0`
+- The `outline` format returns only section/subsection headings - flat notebooks with no headings will have `section_count: 0`
 - The `wolfram` format extracts only Input/Code cells, not Output cells
 - This works **offline** (no running Mathematica needed) when using the Python parsing backend
 - For notebooks requiring full semantic fidelity, the kernel backend can be used instead

@@ -17,7 +17,7 @@ uv run pytest tests/ -v
 # With coverage
 uv run pytest tests/ --cov=src/mathematica_mcp --cov-report=term-missing
 
-# Corpus meta-tests only (no Mathematica needed — validates test infrastructure)
+# Corpus meta-tests only (no Mathematica needed - validates test infrastructure)
 uv run pytest tests/test_corpus_normalize.py tests/test_corpus_verifiers.py tests/test_corpus_infra.py -v
 
 # Corpus smoke tier (needs wolframscript)
@@ -45,12 +45,12 @@ See [docs/technical-reference.md](docs/technical-reference.md) for the full arch
 ## Adding a New Tool
 
 1. **Define the function** in `src/mathematica_mcp/server.py` (for core tools) or the relevant `optional_*.py` module (e.g., `optional_repository_tools.py`, `optional_symbol_tools.py`)
-2. **Register the tool** — core tools in `server.py` use `@_tool("group_name")`; optional modules use `@mcp.tool()` inside their `register_*` helper functions
-3. **Gate via profile** — ensure the tool group is included in the appropriate profiles in `src/mathematica_mcp/config.py` (`PROFILE_TOOL_GROUPS`)
-4. **Add tests** — prefer offline tests where possible (mock kernel interactions)
-5. **Update registration tests** — add the tool name to the expected sets in `tests/test_tool_registration.py`; profile/group parity is verified by `tests/test_profiles_parity.py`
-6. **Add corpus coverage** — add test cases to `tests/corpus/mathematica_mcp_corpus.json` with the appropriate tier, backend, oracle, and required capabilities (see `tests/README.md` for details)
-7. **Mind the schema budget** — CI gates per-profile tool-schema size via `tests/test_schema_budget.py` (lean profile capped at 16 KB / 18 tools); adding to the lean surface must stay within budget
+2. **Register the tool** - core tools in `server.py` use `@_tool("group_name")`; optional modules use `@mcp.tool()` inside their `register_*` helper functions
+3. **Gate via profile** - ensure the tool group is included in the appropriate profiles in `src/mathematica_mcp/config.py` (`PROFILE_TOOL_GROUPS`)
+4. **Add tests** - prefer offline tests where possible (mock kernel interactions)
+5. **Update registration tests** - add the tool name to the expected sets in `tests/test_tool_registration.py`; profile/group parity is verified by `tests/test_profiles_parity.py`
+6. **Add corpus coverage** - add test cases to `tests/corpus/mathematica_mcp_corpus.json` with the appropriate tier, backend, oracle, and required capabilities (see `tests/README.md` for details)
+7. **Mind the schema budget** - CI gates per-profile tool-schema size via `tests/test_schema_budget.py` (lean profile capped at 16 KB / 18 tools); adding to the lean surface must stay within budget
 
 ### Key Modules
 
@@ -78,13 +78,13 @@ See [docs/technical-reference.md](docs/technical-reference.md) for the full arch
 
 ## Commit Conventions
 
-- `feat:` — new features
-- `fix:` — bug fixes
-- `perf:` — performance improvements
-- `chore:` — maintenance (version bumps, CI, dependencies)
-- `docs:` — documentation changes
-- `style:` — formatting, no logic change
-- `refactor:` — code restructuring without behavior change
+- `feat:` - new features
+- `fix:` - bug fixes
+- `perf:` - performance improvements
+- `chore:` - maintenance (version bumps, CI, dependencies)
+- `docs:` - documentation changes
+- `style:` - formatting, no logic change
+- `refactor:` - code restructuring without behavior change
 
 ## Branch Protection
 

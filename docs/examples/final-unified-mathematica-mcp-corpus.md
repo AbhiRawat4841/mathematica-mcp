@@ -247,7 +247,7 @@ These tests are intentionally tool-first. They should run before the larger Wolf
 | 12 | Algebra | math | `Apart[1/(x^2 - 1)]` | `1/(2*(-1 + x)) - 1/(2*(1 + x))` | Verify via `Together` returning original |
 | 13 | Algebra | math | `Together[1/x + 1/(x + 1)]` | `(1 + 2*x)/(x*(1 + x))` | Combined fraction correct |
 | 14 | Algebra | math | `PolynomialQuotientRemainder[x^3 + 2*x + 1, x - 1, x]` | `{1 + x + x^2, 4}` | Quotient `x^2+x+1`, remainder `4` |
-| 15 | Algebra | math | `Factor[x^2 + 1]` | `1 + x^2` | Unchanged — irreducible over rationals |
+| 15 | Algebra | math | `Factor[x^2 + 1]` | `1 + x^2` | Unchanged - irreducible over rationals |
 | 16 | Algebra | math | `Factor[x^2 + 1, GaussianIntegers -> True]` | `(x - I)(x + I)` | Factors over Gaussian integers |
 | 17 | Algebra | math | `FullSimplify[Sin[x]^2 + Cos[x]^2]` | `1` | Pythagorean identity simplifies to 1 |
 | 18 | Number Theory | math | `PrimeQ[104729]` | `True` | 104729 is the 10000th prime |
@@ -535,7 +535,7 @@ These tricky expressions are specifically chosen to expose common MCP server fai
 | E2 | Edge | notebook | `Integrate[Sin[Sin[x]], {x, 0, Pi}]` | Unevaluated (no closed form) | Handling expressions without closed forms |
 | E3 | Edge | notebook | `Assuming[x > 0, Simplify[Sqrt[x^2]]]` | `x` | Assumption-dependent simplification |
 | E4 | Edge | notebook | `Solve[x^2 + 1 == 0, x, Reals]` | `{}` | Empty solution set handling |
-| E5 | Edge | notebook | `NMinimize[{x, x > 1 && x < 0}, x]` | Infeasible — returns `Infinity` | Contradictory constraints |
+| E5 | Edge | notebook | `NMinimize[{x, x > 1 && x < 0}, x]` | Infeasible - returns `Infinity` | Contradictory constraints |
 | E6 | Edge | math | `$MachinePrecision` | ≈ `15.9546` | Machine precision query |
 | E7 | Edge | math | `N[1/3, 100]` | 100-digit decimal | Arbitrary precision arithmetic |
 | E8 | Edge | notebook | `Plot[{}, {x, 0, 1}]` | Empty Graphics (axes only) | Empty plot handling |

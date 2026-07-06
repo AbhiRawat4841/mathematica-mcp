@@ -55,7 +55,7 @@ A parametrized test harness that runs Wolfram Language expressions against the a
 | File | Purpose | Requires Runtime |
 |------|---------|-----------------|
 | `test_corpus_runner.py` | Two parametrized entry points: `test_corpus_case` + `test_corpus_workflow` | Yes (for live cases) |
-| `corpus/mathematica_mcp_corpus.json` | Executable manifest — the source of truth for all corpus tests | N/A (data) |
+| `corpus/mathematica_mcp_corpus.json` | Executable manifest - the source of truth for all corpus tests | N/A (data) |
 | `corpus/models.py` | Pydantic schema: `CorpusCase`, `CorpusWorkflow`, `Oracle`, `PollCondition` | N/A |
 | `corpus/normalize.py` | Normalizes all MCP tool responses (JSON, dict, Image, parse_error) into one shape | N/A |
 | `corpus/verifiers.py` | 11 verification strategies (exact, symbolic, numeric, structural, artifact, etc.) | Partial (symbolic needs kernel) |
@@ -63,13 +63,13 @@ A parametrized test harness that runs Wolfram Language expressions against the a
 | `corpus/capabilities.py` | Session-scoped capability probes (runtime, addon, frontend, network) | N/A |
 
 **Key design decisions:**
-- MCP server tools are the primary execution path — `execute_in_kernel()` is only the oracle engine for symbolic/numeric equivalence
+- MCP server tools are the primary execution path - `execute_in_kernel()` is only the oracle engine for symbolic/numeric equivalence
 - Stateful tests (variable lifecycle, notebook lifecycle) are self-contained workflows, not cross-test dependencies
-- Corpus manifest is JSON — the markdown corpus files are documentation only, never read at runtime
+- Corpus manifest is JSON - the markdown corpus files are documentation only, never read at runtime
 
 ### 3. Corpus Meta-Tests (test the test infrastructure)
 
-These verify the corpus harness itself is correct — no Mathematica needed.
+These verify the corpus harness itself is correct - no Mathematica needed.
 
 | File | Purpose | Tests |
 |------|---------|-------|
@@ -152,7 +152,7 @@ Two CI workflows:
 When adding new tests:
 
 1. **Unit/integration tests**: Follow existing patterns in the relevant `test_*.py` file
-2. **Corpus test cases**: Add entries to `corpus/mathematica_mcp_corpus.json` with the correct tier, backend, oracle, and required capabilities. For `execute_code` cases, always include `"output_target": "cli"` in params — the default output target is profile-dependent (`cli` for lean/math, `notebook` for classic/notebook/full), and notebook mode returns no `output_inputform`. Use camelCase for Wolfram variable names (underscores are reserved for patterns).
+2. **Corpus test cases**: Add entries to `corpus/mathematica_mcp_corpus.json` with the correct tier, backend, oracle, and required capabilities. For `execute_code` cases, always include `"output_target": "cli"` in params - the default output target is profile-dependent (`cli` for lean/math, `notebook` for classic/notebook/full), and notebook mode returns no `output_inputform`. Use camelCase for Wolfram variable names (underscores are reserved for patterns).
 3. **Corpus workflows**: Use self-contained workflow items with per-step assertions and cleanup
 4. **Tool registration**: Update expected tool sets in `test_tool_registration.py`
 5. **Always run meta-tests** after modifying corpus infrastructure: `uv run pytest tests/test_corpus_normalize.py tests/test_corpus_verifiers.py tests/test_corpus_infra.py -v`

@@ -180,8 +180,8 @@ Export[$initPath, newContent, "Text"];
 
 The addon uses two distinct kernel links for evaluation:
 
-- **Preemptive link** — All `SocketListen` handlers (including `execute_code`, `ping`, and MCP commands) run here. Can interrupt the main link. Fast and independent.
-- **Main link** — `evaluate_cell` and `execute_code_notebook` in frontend mode dispatch to this link via `FrontEndTokenExecute["EvaluateCells"]`. Queued and single-threaded. Also used by Shift+Enter in the notebook UI.
+- **Preemptive link** - All `SocketListen` handlers (including `execute_code`, `ping`, and MCP commands) run here. Can interrupt the main link. Fast and independent.
+- **Main link** - `evaluate_cell` and `execute_code_notebook` in frontend mode dispatch to this link via `FrontEndTokenExecute["EvaluateCells"]`. Queued and single-threaded. Also used by Shift+Enter in the notebook UI.
 
 `execute_code_notebook` supports two modes:
 - **`mode="kernel"`** (default): Evaluates code directly on the preemptive link using `AbsoluteTiming`, writes the output cell manually. No polling. Fastest path (~50ms).
@@ -213,8 +213,8 @@ Then watch the Mathematica Messages window for debug output.
 
 ### Notebook Cells Stuck at "Running..."
 
-This means the main link is blocked by a previous computation. The preemptive link (used by `execute_code` and MCP commands) remains fast — this is why `Manipulate` sliders can still respond while cells show "Running...".
+This means the main link is blocked by a previous computation. The preemptive link (used by `execute_code` and MCP commands) remains fast - this is why `Manipulate` sliders can still respond while cells show "Running...".
 
 **Fix:** Restart the kernel (Evaluation > Quit Kernel > Local), then re-run `StartMCPServer[]`.
 
-**Note:** `RestartMCPServer[]` only restarts the TCP socket listener — it does **not** clear the main link queue. Use it only when the MCP connection itself is broken (timeouts with no response).
+**Note:** `RestartMCPServer[]` only restarts the TCP socket listener - it does **not** clear the main link queue. Use it only when the MCP connection itself is broken (timeouts with no response).

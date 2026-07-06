@@ -71,7 +71,7 @@ Then **restart Mathematica** and **restart your editor**. Done!
 
 1. Press `Cmd+Shift+P` (Mac) / `Ctrl+Shift+P` (Windows)
 2. Type "MCP" → Select **"MCP: Add Server"**
-3. Choose **"Command (stdio)"** — *not "pip"*
+3. Choose **"Command (stdio)"** - *not "pip"*
 4. Enter command: `uvx`
 5. Enter args: `mathematica-mcp-full`
 6. Name it: `mathematica`
@@ -96,10 +96,10 @@ Use this method if you want to:
 
 ### Prerequisites
 
-- **Mathematica 14.0+** — [Download](https://www.wolfram.com/mathematica/)
-- **Python 3.10+** — [Download](https://www.python.org/downloads/)
-- **wolframscript in your PATH** — See [below](#add-wolframscript-to-path)
-- **uv package manager** — [Docs](https://docs.astral.sh/uv/)
+- **Mathematica 14.0+** - [Download](https://www.wolfram.com/mathematica/)
+- **Python 3.10+** - [Download](https://www.python.org/downloads/)
+- **wolframscript in your PATH** - See [below](#add-wolframscript-to-path)
+- **uv package manager** - [Docs](https://docs.astral.sh/uv/)
 
 #### Install uv
 
@@ -117,17 +117,17 @@ powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
 
 After installing Mathematica, ensure `wolframscript` is accessible from your terminal.
 
-**macOS** — add to `~/.zshrc` or `~/.bashrc`:
+**macOS** - add to `~/.zshrc` or `~/.bashrc`:
 ```bash
 export PATH="/Applications/Mathematica.app/Contents/MacOS:$PATH"
 ```
 
-**Linux** — The installer typically creates symlinks in `/usr/local/bin`. If not:
+**Linux** - The installer typically creates symlinks in `/usr/local/bin`. If not:
 ```bash
 export PATH="/usr/local/Wolfram/Mathematica/14.0/Executables:$PATH"
 ```
 
-**Windows** — Mathematica usually adds it automatically. If not, add to your system PATH:
+**Windows** - Mathematica usually adds it automatically. If not, add to your system PATH:
 ```
 C:\Program Files\Wolfram Research\Mathematica\14.0\
 ```
@@ -301,10 +301,10 @@ claude mcp add mathematica --scope user -- uv --directory /YOUR/PATH/TO/mathemat
 For Claude Code or Codex, install agent-specific guidance files so the AI knows to use MCP tools directly:
 
 ```bash
-# Claude Code — installs CLAUDE.md + .claude/commands/mathematica.md
+# Claude Code - installs CLAUDE.md + .claude/commands/mathematica.md
 uvx mathematica-mcp-full setup claude-code --project-dir .
 
-# Codex — installs AGENTS.md
+# Codex - installs AGENTS.md
 uvx mathematica-mcp-full setup codex --project-dir .
 ```
 
@@ -390,7 +390,7 @@ export MATHEMATICA_PROFILE=notebook
 
 See the [Technical Reference](technical-reference.md#tool-profiles) for details on what each profile includes.
 
-**Opt-in extras for `lean`** — add tool groups without switching to `classic` (comma-separated; can only add tools, never remove the 12 core ones):
+**Opt-in extras for `lean`** - add tool groups without switching to `classic` (comma-separated; can only add tools, never remove the 12 core ones):
 ```bash
 export MATHEMATICA_TOOLSETS=data_io,graphics_plus,cloud,debug,notebook_files,notebook_edit,symbols,math_aliases,repository,async_jobs,cache
 ```
@@ -404,7 +404,7 @@ export MATHEMATICA_TOOLSETS=data_io,graphics_plus,cloud,debug,notebook_files,not
 
 ### Routing Memory
 
-Opt-in aggregate routing statistics for code evaluation (`evaluate` on lean, `execute_code` on classic). No code or expressions are stored — only transport success rates, latency histograms, and error family frequencies.
+Opt-in aggregate routing statistics for code evaluation (`evaluate` on lean, `execute_code` on classic). No code or expressions are stored - only transport success rates, latency histograms, and error family frequencies.
 
 ```bash
 export MATHEMATICA_ROUTING_MEMORY=observe   # aggregate stats only

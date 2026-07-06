@@ -30,7 +30,7 @@ It is designed to run **beside** the official [Wolfram Local MCP](https://www.wo
 LLMs can write Mathematica code, but they can't run it, control a live notebook, or verify their own results. This MCP server bridges that gap:
 
 - **Live notebook control**: create, edit, evaluate, and screenshot Mathematica notebooks directly from your AI agent.
-- **License-free notebook reading**: `read_notebook_file` parses `.nb` / `.wl` files with a Python-native parser — no kernel and no Mathematica license needed.
+- **License-free notebook reading**: `read_notebook_file` parses `.nb` / `.wl` files with a Python-native parser - no kernel and no Mathematica license needed.
 - **Warm execution**: computation runs on a persistent headless kernel session, so the agent's calls return in sub-second time instead of paying a cold `wolframscript` start-up on every request.
 - **Error-aware execution**: Mathematica messages are fed back to the agent with a `suggested_fix` and, where a correction can be derived, a concrete `retry_with` call, so it can debug without you copying notebook output into chat.
 - **Local and private**: core execution runs on your machine. Optional tools like `wolfram_alpha` and repository search contact Wolfram's cloud services only when invoked.
@@ -39,7 +39,7 @@ LLMs can write Mathematica code, but they can't run it, control a live notebook,
 
 ## The lean default (12 tools)
 
-v1.0 ships a consolidated **12-tool** surface as the default profile. It exposes ~11.5 KB of tool schema (~2.9k tokens) versus ~61 KB / ~15k tokens for the old 82-tool surface — roughly a 5x cut in the context the agent pays before it does any work.
+v1.0 ships a consolidated **12-tool** surface as the default profile. It exposes ~11.5 KB of tool schema (~2.9k tokens) versus ~61 KB / ~15k tokens for the old 82-tool surface - roughly a 5x cut in the context the agent pays before it does any work.
 
 | Tool | What it does |
 |------|--------------|
@@ -56,7 +56,7 @@ v1.0 ships a consolidated **12-tool** surface as the default profile. It exposes
 | `guide(topic)` | On-demand help: `workflow \| errors \| notebook_hygiene \| screenshots \| v15 \| profiles \| toolsets \| batch`. |
 | `batch(ops)` | Run multiple addon ops in a single round trip. |
 
-Each consolidated tool is a thin wrapper over the exact internals the classic surface uses — the same code, just fewer schemas in the agent's context.
+Each consolidated tool is a thin wrapper over the exact internals the classic surface uses - the same code, just fewer schemas in the agent's context.
 
 ---
 
@@ -64,12 +64,12 @@ Each consolidated tool is a thin wrapper over the exact internals the classic su
 
 Set the profile with `--profile` at setup time or the `MATHEMATICA_PROFILE` env var.
 
-| Profile | Tools | Best for |
-|---------|-------|----------|
-| `lean` **(default)** | 12 | Consolidated surface for everyday agent use; extras opt-in via `MATHEMATICA_TOOLSETS`. |
-| `classic` (alias `full`) | 82 | The complete legacy surface, byte-identical to pre-1.0. |
-| `math` | ~28 | Pure computation, no notebook UI. |
-| `notebook` | ~48 | Notebook read/write/screenshot. |
+| Profile                  | Tools | Best for                                                 |
+|:-------------------------|:------|:---------------------------------------------------------|
+| `lean` **(default)**     | 12    | Everyday agent use; extras via `MATHEMATICA_TOOLSETS`.   |
+| `classic` (alias `full`) | 82    | The complete legacy surface, byte-identical to pre-1.0.  |
+| `math`                   | ~28   | Pure computation, no notebook UI.                        |
+| `notebook`               | ~48   | Notebook read/write/screenshot.                          |
 
 ### Opt-in extras for `lean`
 
@@ -97,27 +97,27 @@ export MATHEMATICA_TOOLSETS=data_io,graphics_plus,cloud,debug
 
 ## Warm execution, guidance, and V15
 
-- **Warm funnel.** The 12 tools that used to spawn a cold `wolframscript` subprocess (including `verify_derivation`) — plus the symbol-index build — now run on the persistent `WolframLanguageSession`, returning warm in sub-second time; the cold subprocess remains as a flagged fallback. Every response carries an `execution_method`, and `status()` surfaces a **cold-execution counter** (0 on the lean happy path), kernel-session liveness, and the idle-shutdown timeout (env `MATHEMATICA_KERNEL_IDLE_TIMEOUT`, default `1800`s; `0` disables).
-- **Guidance v2.** Failed evaluations carry `error_analysis` with a `suggested_fix`, a `next_step`, and — when a corrected call can actually be derived from context — a concrete `retry_with` you can rerun, on **all** evaluate paths. Oversized output is capped (env `MATHEMATICA_MAX_OUTPUT_CHARS`, default `4000`) and the remainder is stashed behind a continuation `cursor` you pass back to the same tool. Notebook-touching addon responses carry a `state_delta` (`notebook` / `cell_count` / `kernel_busy`; pure-kernel calls skip it for speed), `guide(topic)` gives targeted help on demand, and the server ships profile-aware instructions plus 6 MCP prompts.
+- **Warm funnel.** The 12 tools that used to spawn a cold `wolframscript` subprocess (including `verify_derivation`) - plus the symbol-index build - now run on the persistent `WolframLanguageSession`, returning warm in sub-second time; the cold subprocess remains as a flagged fallback. Every response carries an `execution_method`, and `status()` surfaces a **cold-execution counter** (0 on the lean happy path), kernel-session liveness, and the idle-shutdown timeout (env `MATHEMATICA_KERNEL_IDLE_TIMEOUT`, default `1800`s; `0` disables).
+- **Guidance v2.** Failed evaluations carry `error_analysis` with a `suggested_fix`, a `next_step`, and - when a corrected call can actually be derived from context - a concrete `retry_with` you can rerun, on **all** evaluate paths. Oversized output is capped (env `MATHEMATICA_MAX_OUTPUT_CHARS`, default `4000`) and the remainder is stashed behind a continuation `cursor` you pass back to the same tool. Notebook-touching addon responses carry a `state_delta` (`notebook` / `cell_count` / `kernel_busy`; pure-kernel calls skip it for speed), `guide(topic)` gives targeted help on demand, and the server ships profile-aware instructions plus 6 MCP prompts.
 - **Mathematica 15 first-class.** On Mathematica ≥15, agent-created notebooks set `ShowChatbar->False` (pass `show_chatbar=True` to override). 14.x stays supported behind `$VersionNumber >= 15.` guards. The Python client and addon share a `protocol_version` handshake (currently `3`): because the addon lives in `$UserBaseDirectory/Kernel/init.m` and does **not** update with `pip`, a version skew is detected and `status()` tells you to reinstall.
 
 ---
 
 ## How it compares
 
-This server runs **alongside** the official Wolfram Local MCP — `setup <client> --with-official` writes the official server's config next to this one so they run side by side. Overlap is deliberate where it helps agents; the differentiator is notebook / front-end automation that runs without a license round trip.
+This server runs **alongside** the official Wolfram Local MCP - `setup <client> --with-official` writes the official server's config next to this one so they run side by side. Overlap is deliberate where it helps agents; the differentiator is notebook / front-end automation that runs without a license round trip.
 
 | Capability | Official Wolfram Local MCP | **This MCP** |
 |------------|:--------------------------:|:------------:|
 | Wolfram-Language evaluation | `WolframLanguageEvaluator` | `evaluate` (warm persistent kernel) |
 | Wolfram Alpha | `WolframAlpha` | `wolfram_alpha` (opt-in `cloud`) |
 | Symbol docs / definitions | `SymbolDefinition`, `CreateSymbolDoc` | `kernel(action="inspect")`, `symbols` extra |
-| Read a notebook file | `ReadNotebook` (needs kernel) | **`read_notebook_file` — Python-native, no kernel / license** |
+| Read a notebook file | `ReadNotebook` (needs kernel) | **`read_notebook_file` - Python-native, no kernel / license** |
 | Write a notebook file | `WriteNotebook` | `notebooks`, `edit_cells` (live front-end) |
 | Live notebook control (create/edit/eval/screenshot) | No | **Yes** |
 | Interactive UIs (sliders, `Manipulate`) | No | **Yes, in the live front-end** |
 | Derivation verification | No | **`verify_derivation`** |
-| Doc search / code inspection / test reports | `CodeInspector`, `TestReport` | Deliberately **not duplicated** — use the official server |
+| Doc search / code inspection / test reports | `CodeInspector`, `TestReport` | Deliberately **not duplicated** - use the official server |
 
 `ReadNotebook` / `WriteNotebook` overlap the notebook tools here, but the official `ReadNotebook` runs through a kernel; `read_notebook_file` parses the `.nb` directly in Python, so an agent can read notebooks with no license consumed and no kernel start-up.
 
@@ -140,7 +140,7 @@ From install to first working notebook plot in under 2 minutes.
 
 ### One-Command Setup
 
-> The PyPI package and CLI are named **`mathematica-mcp-full`** (unchanged in 1.0 — the name predates the lean default).
+> The PyPI package and CLI are named **`mathematica-mcp-full`** (unchanged in 1.0 - the name predates the lean default).
 
 ```bash
 # For Claude Desktop

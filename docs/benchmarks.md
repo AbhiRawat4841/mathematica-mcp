@@ -86,7 +86,7 @@ The benchmark also confirmed these architectural properties:
 |----------|---------|
 | Main link blocked (Pause[15]) | Preemptive path unaffected (11ms); evaluate_cell returns at max_wait |
 | Preemptive link blocked (Pause[8]) | ALL MCP commands stall (ping: 7,015ms queued behind blocker) |
-| Socket health | Cold connect: 5ms; reconnect cycle: 6ms — negligible overhead |
+| Socket health | Cold connect: 5ms; reconnect cycle: 6ms - negligible overhead |
 | Memory pressure (100MB loaded) | No degradation (3ms before and after) |
 | RestartMCPServer[] | Performance identical before/after (only fixes broken TCP state) |
 
@@ -140,9 +140,9 @@ PYTHONPATH=src python benchmarks/benchmark_perf_phases.py my_run
 Results are written to `benchmarks/results/phase_<run_name>.json`.
 
 The offline suite includes:
-- `symbol_index_build` — raw wolframscript build cost (no cache)
-- `ensure_index_cold` — full cold start with disk cache cleared
-- `ensure_index_warm` — disk cache load (in-memory invalidated each iteration)
+- `symbol_index_build` - raw wolframscript build cost (no cache)
+- `ensure_index_cold` - full cold start with disk cache cleared
+- `ensure_index_warm` - disk cache load (in-memory invalidated each iteration)
 - Symbol search, raster cache, notebook parse, cache epoch, telemetry overhead
 
 ### Live addon benchmarks (Mathematica + addon required)

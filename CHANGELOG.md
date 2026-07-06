@@ -6,10 +6,10 @@ All notable changes to this project will be documented in this file.
 
 ### ⚠ BREAKING
 
-- **Default profile is now `lean` (12 tools), not `full` (82 tools).** If you do nothing, agents see the 12 consolidated lean tools. Set `MATHEMATICA_PROFILE=classic` (alias `full`) to keep the complete pre-1.0 surface. `classic` is byte-identical to the old `full` — same tools, same implementations, no shims. See [docs/MIGRATION.md](docs/MIGRATION.md).
+- **Default profile is now `lean` (12 tools), not `full` (82 tools).** If you do nothing, agents see the 12 consolidated lean tools. Set `MATHEMATICA_PROFILE=classic` (alias `full`) to keep the complete pre-1.0 surface. `classic` is byte-identical to the old `full` - same tools, same implementations, no shims. See [docs/MIGRATION.md](docs/MIGRATION.md).
 - **Reinstall the Mathematica addon.** 1.0 adds a Python↔addon `protocol_version` handshake, now at `3`. The addon lives in `$UserBaseDirectory/Kernel/init.m` and does **not** update with `pip`/`uvx`; run `setup` (or `wolframscript -file addon/install.wl`) again. A stale addon is detected and surfaced by `status()`.
 - **`state_delta` is no longer attached to every addon response** (protocol 2→3, a response-contract change). It now appears only on notebook-touching commands (`create_notebook`, `write_cell`, `evaluate_cell`, `get_cells`, ... plus `batch_commands`); pure-kernel responses omit it. `kernel_busy` inside it reports the focused notebook's actual `Evaluating` state.
-- **`vars(action='clear')` requires `name=` or `pattern=`.** A bare `clear` no longer wipes the session — it errors and points at `vars(action='clear_all')`, which is now the explicit way to clear everything. Anyone scripting a bare `clear` must switch to `clear_all`.
+- **`vars(action='clear')` requires `name=` or `pattern=`.** A bare `clear` no longer wipes the session - it errors and points at `vars(action='clear_all')`, which is now the explicit way to clear everything. Anyone scripting a bare `clear` must switch to `clear_all`.
 
 ### Added
 
@@ -31,7 +31,7 @@ All notable changes to this project will be documented in this file.
 - `verify_derivation` now runs warm on the persistent session (moat tool, shared by `lean` and `classic`). No API change.
 - `error_analysis` is now attached and preserved in compact responses across every evaluate path, not just the notebook path.
 - Kernel lifecycle hardening: the health-check ping runs under the session lock, and its interval was raised from 5s to 30s.
-- Performance: `mcpStateDelta[]` was ~80% of in-kernel processing time on trivial addon calls — now gated to notebook-touching commands (see BREAKING); cold `wolframscript` spawns (~12.5s each) eliminated from ~14 call paths via the warm funnel.
+- Performance: `mcpStateDelta[]` was ~80% of in-kernel processing time on trivial addon calls - now gated to notebook-touching commands (see BREAKING); cold `wolframscript` spawns (~12.5s each) eliminated from ~14 call paths via the warm funnel.
 - Repo hygiene: draft docs moved out of the repo root to `docs/drafts/` (untracked); removed two tracked test fossils (`tests/TEST_SUMMARY.md`, `tests/demo_error_detection.py`).
 - `__init__.__version__` synced with `pyproject.toml` (0.9.5 → 1.0.0); enforced by a version-sync test.
 
