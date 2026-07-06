@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import contextvars
 import difflib
 import json
 import logging
@@ -119,6 +120,29 @@ def _normalize_response_detail(response_detail: str) -> str:
         valid = ", ".join(sorted(_VALID_RESPONSE_DETAILS | set(_RESPONSE_DETAIL_ALIASES)))
         raise ValueError(f"Unknown response_detail '{response_detail}'. Valid values: {valid}")
     return normalized
+
+
+def _resolve_lean_response_detail() -> str:
+    """Default response_detail for the lean evaluate tool. Compact unless
+    MATHEMATICA_RESPONSE_DETAIL overrides it (set it to "standard" for the old
+    full-shape behaviour); an invalid value warns and stays compact so a typo
+    never silently disables slimming."""
+    raw = os.getenv("MATHEMATICA_RESPONSE_DETAIL")
+    if not raw:
+        return "compact"
+    try:
+        return _normalize_response_detail(raw.strip())
+    except ValueError as e:
+        logger.warning("%s Using 'compact'.", e)
+        return "compact"
+
+
+_LEAN_RESPONSE_DETAIL = _resolve_lean_response_detail()
+
+# Set by the lean evaluate wrapper around its execute_code call: its output is
+# routed through _lean_paginate (cursor pagination), so compact filtering must
+# NOT pre-summarise the large output and drop what the paginator would serve.
+_lean_paginated = contextvars.ContextVar("lean_paginated", default=False)
 
 
 def _tool(group: str):
@@ -278,6 +302,7 @@ def _finalize_execute_response(
         response_detail,
         cache_epoch=get_kernel_epoch() if response_detail == "diagnostic" else None,
         routing_hints=_diag_hints,
+        summarize_large=not _lean_paginated.get(),
     )
     return _json_response(filtered)
 
@@ -1962,9 +1987,23 @@ async def evaluate(
     if code is None:
         return _json_response({"success": False, "error": "evaluate requires code (or file, or target=cell/selection)"})
     output_target = "notebook" if target == "notebook" else "cli"
-    return _lean_paginate(
-        await execute_code(code, format, output_target=output_target, session_id=session_id, timeout=timeout)
-    )
+    # Flag compact filtering to skip large-output summarisation: _lean_paginate
+    # below serves the full output via cursor, so summarising here would drop it.
+    _token = _lean_paginated.set(True)
+    try:
+        out = await execute_code(
+            code,
+            format,
+            output_target=output_target,
+            # _LEAN_RESPONSE_DETAIL is always a valid detail level (resolver
+            # normalizes/falls back); execute_code re-normalizes it regardless.
+            response_detail=_LEAN_RESPONSE_DETAIL,  # type: ignore[arg-type]
+            session_id=session_id,
+            timeout=timeout,
+        )
+    finally:
+        _lean_paginated.reset(_token)
+    return _lean_paginate(out)
 
 
 @_tool("lean")

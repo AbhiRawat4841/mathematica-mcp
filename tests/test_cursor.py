@@ -160,3 +160,77 @@ async def test_kernel_small_output_passes_through(monkeypatch):
     monkeypatch.setattr(srv, "list_loaded_packages", fake_pkgs)
     out = json.loads(await srv.kernel(action="packages"))
     assert out == {"success": True, "count": 2}
+
+
+# ---- lean evaluate <-> compact filtering <-> cursor pagination wiring -------
+# These drive the REAL execute_code/_finalize_execute_response/_filter_response
+# path by mocking only the innermost addon call, so the contextvar that disables
+# large-output summarisation on the lean path is exercised end to end.
+
+
+async def test_lean_evaluate_returns_compact_shape(monkeypatch):
+    """Lean evaluate under compact slims the response: verbose fields dropped,
+    empty fields stripped (the real wiring, not just _filter_response in isolation)."""
+    monkeypatch.setattr(srv, "_LEAN_RESPONSE_DETAIL", "compact")
+
+    async def fake_addon(command, params=None, timeout=None):
+        return {
+            "success": True,
+            "output": "42",
+            "output_fullform": "42",
+            "output_inputform": "42",
+            "warnings": [],
+            "message": "",
+            "timing_ms": 5,
+        }
+
+    monkeypatch.setattr(srv, "_addon_result", fake_addon)
+
+    out = json.loads(await srv.evaluate(code="6*7"))
+    assert out["success"] is True
+    assert out["output"] == "42"
+    assert "output_fullform" not in out  # non-keep field slimmed by compact
+    assert "message" not in out  # empty field stripped
+    assert "error_families" not in out  # _finalize adds [], empty-strip removes it
+
+
+async def test_lean_evaluate_large_output_paginates_not_summarized(monkeypatch):
+    """>16K output on the lean path must flow whole to the cursor paginator, NOT
+    get summarised to a 500-char preview that the paginator can never recover."""
+    monkeypatch.setattr(srv, "_LEAN_RESPONSE_DETAIL", "compact")
+    monkeypatch.setenv("MATHEMATICA_MAX_OUTPUT_CHARS", "4000")
+    big = "R" * 16_000
+
+    async def fake_addon(command, params=None, timeout=None):
+        return {"success": True, "output": big, "output_fullform": big, "warnings": [], "timing_ms": 5}
+
+    monkeypatch.setattr(srv, "_addon_result", fake_addon)
+
+    out = json.loads(await srv.evaluate(code="x"))
+    assert out["truncated"] is True
+    assert out["next_cursor"]
+
+    full = out["preview"]
+    cursor = out["next_cursor"]
+    while cursor:
+        page = json.loads(await srv.evaluate(cursor=cursor))
+        full += page["chunk"]
+        cursor = page["next_cursor"]
+    assert big in full  # full 16K output recoverable page by page
+    assert "output_summary" not in full  # no summarisation on the lean path
+
+
+async def test_direct_execute_code_compact_still_summarizes(monkeypatch):
+    """Classic/direct execute_code(response_detail="compact") has no paginator, so
+    it keeps today's summarisation (500-char preview + output_summary)."""
+    big = "R" * 16_000
+
+    async def fake_addon(command, params=None, timeout=None):
+        return {"success": True, "output": big, "output_fullform": big, "warnings": [], "timing_ms": 5}
+
+    monkeypatch.setattr(srv, "_addon_result", fake_addon)
+
+    out = json.loads(await srv.execute_code("x", output_target="cli", response_detail="compact"))
+    assert "output_summary" in out
+    assert len(out["output"]) == 500
+    assert out["output_summary"]["original_length"] == 16_000
