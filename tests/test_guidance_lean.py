@@ -134,6 +134,9 @@ class TestPromptBuilders:
         classic = build_prompt_interactive(CLASSIC, "Manipulate a slider")
         _assert_lean_clean(lean)
         assert "target='notebook'" in lean
+        # Lean describes reality: auto-detected front-end render, pending re-check.
+        assert "auto-detected" in lean
+        assert "evaluation_pending" in lean
         assert "style='interactive'" in classic
 
     def test_quickstart(self):

@@ -90,6 +90,18 @@ def test_addon_state_delta_kernel_busy_is_honest():
     assert source.count('"kernel_busy" -> False') == 2
 
 
+def test_addon_kernel_writer_renders_interactive_heads_as_boxes():
+    """kernel-mode writer must render Manipulate/DynamicModule/Dynamic/Animate as
+    boxes (live panel), not InputForm text. is_graphics stays graphics-only."""
+    source = _addon_source()
+
+    assert "renderAsBoxes = isGraphics || MatchQ[result, _Manipulate | _DynamicModule | _Dynamic | _Animate]" in source
+    # The output-cell boxes branch keys off renderAsBoxes, not isGraphics.
+    assert "renderAsBoxes,\n      Cell[BoxData[ToBoxes[result]]" in source
+    # is_graphics response field is unchanged (graphics predicate only).
+    assert '"is_graphics" -> isGraphics' in source
+
+
 def test_protocol_version_in_lockstep():
     assert "$MCPProtocolVersion = 4" in _addon_source()
     assert "ADDON_PROTOCOL_VERSION = 4" in CONNECTION_SOURCE.read_text(encoding="utf-8")

@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Fixed
+
+- **Interactive content now renders as live panels regardless of client or profile**: `Manipulate`/`Dynamic`/`DynamicModule`/`Animate`/`ListAnimate` code sent to a notebook without an explicit mode is auto-detected and routed through front-end evaluation (the lean `evaluate` tool has no mode parameter, and clients that ignore MCP server instructions could not be steered by prose). As a belt, kernel-mode execution now writes interactive results as rendered boxes (a working slider panel) instead of plain `InputForm` text. Lean and classic guidance describe the auto-detection.
+
 ## [1.1.1] - 2026-07-06
 
 ### ⚠ BREAKING

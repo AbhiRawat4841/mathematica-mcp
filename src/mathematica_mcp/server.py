@@ -83,6 +83,33 @@ _STYLE_DEFAULTS: dict[str, dict[str, str]] = {
     "interactive": {"output_target": "notebook", "mode": "frontend"},
 }
 
+# --- Interactive content auto-routing ---
+# A guidance-blind client (Codex does not read MCP server instructions) or the
+# lean `evaluate` tool (which has no style/mode param) can send Manipulate/Dynamic
+# to a notebook and land in kernel mode, whose output writer renders these heads as
+# dead InputForm text instead of a live panel: the user sees frozen text where a
+# slider should be. When the caller pinned neither style nor mode, execute_code
+# detects these heads and forces frontend mode so the panel actually renders.
+# Explicit style/mode always wins. The lookbehind is word-anchored so symbol names
+# like "ManipulateData"/"ManipulatePlot" do NOT match; false positives (the word
+# inside a string) merely get frontend's pending contract, and false negatives keep
+# today's kernel behaviour.
+_INTERACTIVE_HEADS = ("Manipulate", "DynamicModule", "Dynamic", "Animate", "ListAnimate")
+_INTERACTIVE_CODE_RE = re.compile(r"(?<![A-Za-z0-9$`])(?:" + "|".join(_INTERACTIVE_HEADS) + r")\s*\[")
+
+
+def _is_interactive_code(code: str) -> bool:
+    """True if *code* calls an interactive head (Manipulate/Dynamic/...) at word boundary."""
+    return bool(_INTERACTIVE_CODE_RE.search(code))
+
+
+_INTERACTIVE_AUTO_ROUTE_NOTE = (
+    "Interactive content (Manipulate/Dynamic/Animate) was detected and auto-routed to "
+    "frontend mode so it renders as a live panel; kernel mode would have written it as "
+    "dead InputForm text. Pass style/mode explicitly to override."
+)
+
+
 _VALID_RESPONSE_DETAILS = frozenset({"compact", "standard", "verbose", "diagnostic"})
 _RESPONSE_DETAIL_ALIASES = {
     "short": "compact",
@@ -906,10 +933,17 @@ async def execute_code(
         response_detail = _normalize_response_detail(response_detail)
     except ValueError as e:
         return _json_response({"success": False, "error": str(e)})
+    # Interactive auto-routing: decide BEFORE resolution overwrites `mode`, since
+    # the trigger is the caller pinning neither style nor mode (see _is_interactive_code).
+    _auto_route_interactive = style is None and mode is None and _is_interactive_code(code)
     try:
         output_target, mode = _resolve_execution_params(style, output_target, mode, FEATURES.default_output_target)
     except ValueError as e:
         return _json_response({"success": False, "error": str(e)})
+    # Only meaningful for a notebook target; frontend mode is what renders a live panel.
+    auto_routed_interactive = _auto_route_interactive and output_target == "notebook"
+    if auto_routed_interactive:
+        mode = "frontend"
 
     # Route variant for routing memory (agent-controlled dimensions only)
     if output_target == "cli":
@@ -1009,6 +1043,9 @@ async def execute_code(
                     }
                     if style is not None:
                         response["requested_style"] = style
+                    if auto_routed_interactive:
+                        response["auto_routed"] = _INTERACTIVE_AUTO_ROUTE_NOTE
+                        response["next_step"] += " (Interactive content was auto-routed to frontend mode.)"
                     return _finalize_execute_response(
                         response,
                         route_variant=route_variant,
@@ -1100,6 +1137,8 @@ async def execute_code(
                 response["executed_mode"] = mode
                 if style is not None:
                     response["requested_style"] = style
+                if auto_routed_interactive:
+                    response["auto_routed"] = _INTERACTIVE_AUTO_ROUTE_NOTE
                 return _finalize_execute_response(
                     response,
                     route_variant=route_variant,
@@ -1741,7 +1780,10 @@ def _register_optional_tools() -> None:
 _GUIDE_CONTENT: dict[str, str] = {
     "workflow": (
         "Compute: evaluate(code, target='kernel'). Show in a notebook: notebooks(action='create') "
-        "then evaluate(code, target='notebook'). Inspect: cells(action='list'), screenshot(scope='cell'). "
+        "then evaluate(code, target='notebook'). Interactive content (Manipulate/Dynamic/Animate) via "
+        "target='notebook' is auto-rendered as a live panel by the front end; the response may be "
+        "evaluation_pending, so re-check with cells(action='read') once the output cell lands. "
+        "Inspect: cells(action='list'), screenshot(scope='cell'). "
         "Verify algebra: verify_derivation(steps). Read a .nb without a kernel: read_notebook_file(path)."
     ),
     "errors": (

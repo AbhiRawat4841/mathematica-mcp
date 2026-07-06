@@ -289,7 +289,10 @@ Choose a style:
 `style` is a high-level preset for `output_target` + `mode`. Individual params still
 work and override style. When `style` and `output_target` are both omitted,
 `output_target` defaults to the profile's default (`{default_output_target}`)
-and `mode` defaults to `kernel`.
+and `mode` defaults to `kernel`. When neither `style` nor `mode` is set and the code
+calls an interactive head (Manipulate/Dynamic/Animate) into a notebook, it is
+auto-routed to frontend mode so it renders as a live panel; the response may then be
+`evaluation_pending` (re-read the notebook once the output cell lands).
 
 `response_detail` accepts the canonical levels `compact`, `standard`, `verbose`,
 and `diagnostic`, plus the aliases `short`, `medium`, and `long`.
@@ -546,13 +549,15 @@ def build_prompt_new_notebook(features: FeatureFlags, task: str, title: str = "A
 def build_prompt_interactive(features: FeatureFlags, task: str) -> str:
     if features.profile == "lean":
         return (
-            f"Execute the following in the live notebook (use evaluate(code, target='notebook')); "
-            f"dynamic content such as Manipulate renders in the notebook window:\n\n"
+            f"Execute the following in the live notebook (use evaluate(code, target='notebook')). "
+            f"Interactive content (Manipulate/Dynamic/Animate) is auto-detected and rendered as a "
+            f"live panel via the front end; the response may be evaluation_pending, so re-check "
+            f"with cells(action='read') once the output cell lands:\n\n"
             f"{task}"
         )
     return (
         f"Execute the following in the notebook using frontend mode for dynamic interaction "
-        f"(use style='interactive'):\n\n"
+        f"(use style='interactive'; interactive heads also auto-route to frontend without it):\n\n"
         f"{task}"
     )
 

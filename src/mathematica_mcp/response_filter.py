@@ -63,6 +63,7 @@ _COMPACT_KEEP = frozenset(
         "timed_out",
         "from_cache",
         "error",
+        "auto_routed",  # interactive auto-route note; its audience is compact-mode lean clients
         "error_analysis",  # keep guidance + retry_with even in compact
         "available_followups",
         "state_delta",

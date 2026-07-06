@@ -1227,7 +1227,7 @@ cmdExecuteCodeNotebook[params_] := Module[
 ];
 
 executeCodeNotebookKernel[nb_, code_, timeout_, syncMode_, createdNew_, sessionId_, deterministicSeed_, isolateContext_, syncWait_] := Module[
-  {result, messages, timing, isGraphics, outputCell, inputCellId, inputCellObj, ctx,
+  {result, messages, timing, isGraphics, renderAsBoxes, outputCell, inputCellId, inputCellObj, ctx,
    parseFailed = False, outputInput, truncatedOutput = False, printCapture = {}},
 
   inputCellId = newCellId[];
@@ -1277,6 +1277,9 @@ executeCodeNotebookKernel[nb_, code_, timeout_, syncMode_, createdNew_, sessionI
   ];
 
   isGraphics = MatchQ[result, _Graphics | _Graphics3D | _Image | _Legended | _Graph];
+  (* Interactive/typeset heads must be written as boxes to render as a live panel;
+     as InputForm text they show as dead code. is_graphics stays graphics-only. *)
+  renderAsBoxes = isGraphics || MatchQ[result, _Manipulate | _DynamicModule | _Dynamic | _Animate];
   messages = If[ListQ[messages], messages, {}];
 
   (* Compute outputInput once; reuse for cell, preview, and response.
@@ -1293,7 +1296,7 @@ executeCodeNotebookKernel[nb_, code_, timeout_, syncMode_, createdNew_, sessionI
       Cell["$Aborted (* computation exceeded timeout *)", "Output", GeneratedCell -> True],
     result === $Failed,
       Cell["$Failed", "Output", GeneratedCell -> True],
-    isGraphics,
+    renderAsBoxes,
       Cell[BoxData[ToBoxes[result]], "Output", GeneratedCell -> True],
     True,
       Cell[outputInput, "Output", GeneratedCell -> True]

@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import json
 
 import pytest
 
-from mathematica_mcp.server import _normalize_response_detail, _resolve_execution_params
+from mathematica_mcp import server as srv
+from mathematica_mcp.server import _is_interactive_code, _normalize_response_detail, _resolve_execution_params
 
 
 class TestResolveExecutionParams:
@@ -137,6 +139,99 @@ class TestResponseDetail:
             "long",
         }
 
+
+class TestInteractiveDetection:
+    """Word-anchored detection of interactive heads for auto-routing."""
+
+    @pytest.mark.parametrize(
+        "code",
+        [
+            "Manipulate[Plot[Sin[n x], {x, 0, 10}], {n, 1, 5}]",
+            "Column[{Slider[Dynamic[x]], Dynamic[x]}]",  # Dynamic nested in code
+            "DynamicModule [{x = 0}, Slider[Dynamic[x]]]",  # whitespace before [
+            "Animate[Plot[Sin[a x], {x, 0, 6}], {a, 1, 5}]",
+            "ListAnimate[Table[Plot[Sin[k x], {x, 0, 6}], {k, 1, 5}]]",
+        ],
+    )
+    def test_positives(self, code):
+        assert _is_interactive_code(code) is True
+
+    @pytest.mark.parametrize(
+        "code",
+        [
+            "1 + 1",
+            "Integrate[x^2, x]",
+            "ManipulateData[foo]",  # symbol name, not a call to Manipulate
+            "ManipulatePlot[Sin[x], {x, 0, 1}]",  # ManipulatePlot-like name must NOT match
+            "myDynamicVar + 1",  # Dynamic mid-identifier must NOT match
+        ],
+    )
+    def test_negatives(self, code):
+        assert _is_interactive_code(code) is False
+
+    def test_string_literal_is_acceptable_false_positive(self):
+        # A head name inside a string matches the regex; frontend's pending
+        # contract makes this harmless (documented tradeoff).
+        assert _is_interactive_code('Print["Manipulate[x]"]') is True
+
+
+def _fake_addon_pending(captured: dict):
+    async def fake_addon_result(command, params=None, timeout=None):
+        captured["command"] = command
+        captured["params"] = params
+        return {
+            "success": True,
+            "status": "evaluation_pending",
+            "notebook_id": "nb-1",
+            "cell_id": "c-1",
+            "waited_seconds": 0.2,
+        }
+
+    return fake_addon_result
+
+
+_MANIP = "Manipulate[Plot[Sin[n x], {x, 0, 10}], {n, 1, 5}]"
+
+
+class TestInteractiveAutoRouting:
+    """execute_code routes interactive code to frontend when style/mode unset."""
+
+    async def test_manipulate_no_style_routes_frontend(self, monkeypatch):
+        captured: dict = {}
+        monkeypatch.setattr(srv, "_addon_result", _fake_addon_pending(captured))
+        out = await srv.execute_code(_MANIP, output_target="notebook")
+        assert captured["command"] == "execute_code_notebook"
+        assert captured["params"]["mode"] == "frontend"
+        data = json.loads(out)
+        assert data.get("auto_routed")
+
+    async def test_explicit_kernel_mode_wins(self, monkeypatch):
+        captured: dict = {}
+        monkeypatch.setattr(srv, "_addon_result", _fake_addon_pending(captured))
+        out = await srv.execute_code(_MANIP, output_target="notebook", mode="kernel")
+        assert captured["params"]["mode"] == "kernel"
+        assert "auto_routed" not in json.loads(out)
+
+    async def test_explicit_style_notebook_wins(self, monkeypatch):
+        captured: dict = {}
+        monkeypatch.setattr(srv, "_addon_result", _fake_addon_pending(captured))
+        await srv.execute_code(_MANIP, style="notebook")
+        assert captured["params"]["mode"] == "kernel"
+
+    async def test_plain_code_stays_kernel(self, monkeypatch):
+        captured: dict = {}
+        monkeypatch.setattr(srv, "_addon_result", _fake_addon_pending(captured))
+        await srv.execute_code("1 + 1", output_target="notebook")
+        assert captured["params"]["mode"] == "kernel"
+
+    async def test_lean_evaluate_inherits_routing(self, monkeypatch):
+        captured: dict = {}
+        monkeypatch.setattr(srv, "_addon_result", _fake_addon_pending(captured))
+        await srv.evaluate(code=_MANIP, target="notebook")
+        assert captured["params"]["mode"] == "frontend"
+
+
+class TestResponseDetailFrozenKeys:
     def test_standard_does_not_modify_frozen_keys(self):
         """Verify that response_detail='standard' preserves all REQUIRED_SUCCESS_KEYS."""
         import json

@@ -1328,7 +1328,7 @@ Pending is **not** a failure and is the **expected** outcome on current Mathemat
 
 > **Warning:** Closing a notebook with a pending evaluation does **not** cancel it. The evaluation still finishes, but with the notebook gone its output is dumped into the system Messages window instead of a cell. Re-check pending work (via `get_cells`/`get_cell_content`) and let the `Out` cell land before closing the notebook.
 
-`evaluate_cell` and `evaluate_selection` carry the **same** honest contract: a 0.2s-capped poll, then `evaluated: false` + `status: "evaluation_pending"` + `evaluation_complete: false` + `waited_seconds` and a re-check message when no output cell is observed (the normal case). Re-read the notebook after calling them, or use frontend-mode `execute_code` which carries the identical contract.
+`evaluate_cell` and `evaluate_selection` carry the **same** honest contract: a 0.2s-capped poll, then `evaluated: false` + `status: "evaluation_pending"` + `evaluation_complete: false` + `waited_seconds` and a re-check message when no output cell is observed (the normal case). Re-read the notebook after calling them, or use frontend-mode `execute_code` which carries the identical contract. One operational caveat: creating several live `Manipulate`/`Dynamic` panels in rapid succession while also issuing frequent addon commands can briefly stall the front end (it self-recovers within seconds); pace interactive-content creation one panel at a time.
 
 ---
 
