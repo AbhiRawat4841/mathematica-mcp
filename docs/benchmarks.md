@@ -2,11 +2,11 @@
 
 Benchmark snapshots, each dated at its source. All numbers are median unless noted.
 
-> The **v1.1.0 section below** covers the optimization round (prewarm, compact responses, screenshot cache, addon rung, transport-floor attribution). The **v1.0.1 section** reflects the prior architecture snapshot (warm persistent-kernel funnel + `state_delta` response gating). Sections after it are historical pre-1.0 snapshots kept for comparison.
+> The **v1.1.1 section below** covers the optimization round (prewarm, compact responses, screenshot cache, addon rung, transport-floor attribution). The **v1.0.1 section** reflects the prior architecture snapshot (warm persistent-kernel funnel + `state_delta` response gating). Sections after it are historical pre-1.0 snapshots kept for comparison.
 
 ---
 
-## v1.1.0 (2026-07-06)
+## v1.1.1 (2026-07-06)
 
 **Sources:** `benchmarks/results/transport_floor.json` + `.md`, `benchmarks/results/channel_split.json`, feature-level measurements from the optimization round. Same environment as v1.0.1.
 
@@ -45,6 +45,10 @@ Failure responses are exempt from compact slimming by design (an agent recoverin
 ### Read-only second socket: measured no-go
 
 `benchmarks/measure_channel_split.py` tested whether a second socket could unblock status calls during long evaluations. Result: no. During a long `execute_code` or a kernel-mode notebook evaluation, the kernel's single command queue blocks a second socket exactly as long as the first (measured 2.9s block on both connections during a 3s kernel-mode eval; 3.7s during a preemptive-link eval). The only case a second channel could serve (frontend-mode evaluation) is one where the existing single connection already answers in ~13ms. No product code was added.
+
+---
+
+## v1.0.1 (2026-07-06)
 
 **Sources:** `benchmarks/results/phase_v101.json`, `benchmark_notebook_ops.py`, warm-funnel probe
 **Environment:** macOS ARM64 (same dev machine as prior snapshots) | Mathematica 15.0 | Python 3.11
