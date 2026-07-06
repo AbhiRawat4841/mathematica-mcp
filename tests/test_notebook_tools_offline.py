@@ -2,9 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-import subprocess
 from pathlib import Path
-from types import SimpleNamespace
 
 from mathematica_mcp import server
 from mathematica_mcp.notebook_parser import (
@@ -71,13 +69,21 @@ def test_convert_notebook_latex_normalizes_windows_path(monkeypatch):
     monkeypatch.setattr(server, "_expand_path", lambda path: r"C:\tmp\issue.nb")
     monkeypatch.setattr(server.os.path, "exists", lambda path: True)
     monkeypatch.setattr(server, "_load_cached_notebook", lambda *args, **kwargs: object())
-    monkeypatch.setattr("mathematica_mcp.lazy_wolfram_tools._find_wolframscript", lambda: "wolframscript")
 
-    def fake_run(args, **kwargs):
-        captured["code"] = args[2]
-        return SimpleNamespace(stdout='<|"success" -> True, "format" -> "latex", "content" -> ""|>')
+    # The latex branch now goes through the warm funnel (_run_wl_parsed ->
+    # session.evaluate_wl); patch that seam so no kernel is spawned in the
+    # offline suite and the generated WL can be captured.
+    from mathematica_mcp.session import WLResult
 
-    monkeypatch.setattr(subprocess, "run", fake_run)
+    def fake_evaluate_wl(code, timeout=60):
+        captured["code"] = code
+        return WLResult(
+            text='{"success": true, "format": "latex", "content": ""}',
+            success=True,
+            execution_method="wolframclient",
+        )
+
+    monkeypatch.setattr("mathematica_mcp.session.evaluate_wl", fake_evaluate_wl)
 
     result = json.loads(asyncio.run(convert_notebook("ignored.nb", "latex")))
 

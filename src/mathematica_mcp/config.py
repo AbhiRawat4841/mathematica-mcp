@@ -5,15 +5,39 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
-VALID_PROFILES = ("math", "notebook", "full")
+VALID_PROFILES = ("lean", "classic", "math", "notebook", "full")
+
+# Groups reused by both classic and full (classic is the byte-identical current
+# surface; full aliases to it at 1.0).
+_FULL_GROUPS = frozenset(
+    {
+        "core",
+        "session",
+        "knowledge",
+        "debug",
+        "moat",  # verify_derivation — shared by lean and classic
+        "kernel_tools",
+        "notebook_primary",
+        "notebook_advanced",
+        "file_legacy",
+        "data",
+        "graphics",
+        "admin",
+    }
+)
 
 PROFILE_TOOL_GROUPS: dict[str, frozenset[str]] = {
+    # New default at 1.0: the 12 consolidated lean tools tagged @_tool("lean").
+    # Extra tool groups are opt-in via MATHEMATICA_TOOLSETS (see _resolve_toolsets).
+    "lean": frozenset({"lean", "moat"}),
+    "classic": _FULL_GROUPS,
     "math": frozenset(
         {
             "core",
             "session",
             "knowledge",
             "debug",
+            "moat",
             "kernel_tools",
         }
     ),
@@ -23,30 +47,40 @@ PROFILE_TOOL_GROUPS: dict[str, frozenset[str]] = {
             "session",
             "knowledge",
             "debug",
+            "moat",
             "kernel_tools",
             "notebook_primary",
             "data",
             "graphics",
         }
     ),
-    "full": frozenset(
-        {
-            "core",
-            "session",
-            "knowledge",
-            "debug",
-            "kernel_tools",
-            "notebook_primary",
-            "notebook_advanced",
-            "file_legacy",
-            "data",
-            "graphics",
-            "admin",
-        }
-    ),
+    "full": _FULL_GROUPS,
+}
+
+# All extras off for lean; opt in via MATHEMATICA_TOOLSETS. expression_cache stays
+# on (internal query cache, registers no tools).
+_LEAN_FEATURES = {
+    "function_repository": False,
+    "data_repository": False,
+    "async_computation": False,
+    "symbol_lookup": False,
+    "math_aliases": False,
+    "expression_cache": True,
+    "telemetry": False,
+}
+_FULL_FEATURES = {
+    "function_repository": True,
+    "data_repository": True,
+    "async_computation": True,
+    "symbol_lookup": True,
+    "math_aliases": True,
+    "expression_cache": True,
+    "telemetry": False,
 }
 
 PROFILE_FEATURE_DEFAULTS: dict[str, dict[str, bool]] = {
+    "lean": _LEAN_FEATURES,
+    "classic": _FULL_FEATURES,
     "math": {
         "function_repository": False,
         "data_repository": False,
@@ -65,15 +99,7 @@ PROFILE_FEATURE_DEFAULTS: dict[str, dict[str, bool]] = {
         "expression_cache": True,
         "telemetry": False,
     },
-    "full": {
-        "function_repository": True,
-        "data_repository": True,
-        "async_computation": True,
-        "symbol_lookup": True,
-        "math_aliases": True,
-        "expression_cache": True,
-        "telemetry": False,
-    },
+    "full": _FULL_FEATURES,
 }
 
 FEATURE_ENV_KEYS = {
@@ -85,6 +111,38 @@ FEATURE_ENV_KEYS = {
     "expression_cache": "MATHEMATICA_ENABLE_CACHE",
     "telemetry": "MATHEMATICA_ENABLE_TELEMETRY",
 }
+
+
+# Opt-in extras for the lean profile (MATHEMATICA_TOOLSETS=data_io,cloud,...).
+# Toolset names map to either extra tool groups or optional-module feature flags.
+# Applied to the lean profile only; can only enable, never disable.
+_TOOLSET_GROUPS: dict[str, frozenset[str]] = {
+    "data_io": frozenset({"data"}),
+    "graphics_plus": frozenset({"graphics"}),
+    "cloud": frozenset({"knowledge"}),
+    "debug": frozenset({"debug"}),  # trace/time/journal — verify_derivation is lean-core (moat group)
+    "notebook_files": frozenset({"file_legacy"}),
+    "notebook_edit": frozenset({"notebook_advanced"}),
+}
+_TOOLSET_FEATURES: dict[str, dict[str, bool]] = {
+    "symbols": {"symbol_lookup": True},
+    "math_aliases": {"math_aliases": True},
+    "repository": {"function_repository": True, "data_repository": True},
+    "async_jobs": {"async_computation": True},
+    "cache": {"cache_tools": True},
+}
+
+
+def _resolve_toolsets() -> tuple[frozenset[str], dict[str, bool]]:
+    """Parse MATHEMATICA_TOOLSETS into (extra tool groups, feature overrides)."""
+    raw = os.getenv("MATHEMATICA_TOOLSETS", "")
+    names = {n.strip().lower() for n in raw.split(",") if n.strip()}
+    groups: set[str] = set()
+    features: dict[str, bool] = {}
+    for name in names:
+        groups |= _TOOLSET_GROUPS.get(name, frozenset())
+        features.update(_TOOLSET_FEATURES.get(name, {}))
+    return frozenset(groups), features
 
 
 _VALID_ROUTING_MEMORY_MODES = frozenset({"off", "observe", "advise"})
@@ -101,7 +159,9 @@ def _env_explicit_bool(key: str) -> bool | None:
     return _parse_bool(value)
 
 
-def _env_profile(default: str = "full") -> str:
+def _env_profile(default: str = "lean") -> str:
+    # v1.0 breaking change: lean is the default profile. Set MATHEMATICA_PROFILE=classic
+    # (or full) to keep the legacy 82-tool surface. See docs/MIGRATION.md.
     profile = os.getenv("MATHEMATICA_PROFILE", default).strip().lower()
     if profile in VALID_PROFILES:
         return profile
@@ -152,24 +212,32 @@ class FeatureFlags:
     def from_env(cls, profile_override: str | None = None) -> FeatureFlags:
         profile = profile_override or _env_profile()
         if profile not in VALID_PROFILES:
-            profile = "full"
+            profile = "lean"
         expression_cache = _resolve_feature("expression_cache", profile)
         telemetry = _resolve_feature("telemetry", profile)
         routing_memory = _resolve_routing_memory()
+        # Toolset opt-ins apply to lean only; they can enable, never disable.
+        extra_groups, ts_features = _resolve_toolsets() if profile == "lean" else (frozenset(), {})
+
+        def feat(name: str) -> bool:
+            return _resolve_feature(name, profile) or ts_features.get(name, False)
+
         return cls(
             profile=profile,
-            tool_groups=PROFILE_TOOL_GROUPS[profile],
-            function_repository=_resolve_feature("function_repository", profile),
-            data_repository=_resolve_feature("data_repository", profile),
-            async_computation=_resolve_feature("async_computation", profile),
-            symbol_lookup=_resolve_feature("symbol_lookup", profile),
-            math_aliases=_resolve_feature("math_aliases", profile),
+            tool_groups=PROFILE_TOOL_GROUPS[profile] | extra_groups,
+            function_repository=feat("function_repository"),
+            data_repository=feat("data_repository"),
+            async_computation=feat("async_computation"),
+            symbol_lookup=feat("symbol_lookup"),
+            math_aliases=feat("math_aliases"),
             expression_cache=expression_cache,
             telemetry=telemetry,
-            cache_tools=expression_cache and profile == "full",
+            cache_tools=(expression_cache and profile in ("full", "classic")) or ts_features.get("cache_tools", False),
             routing_memory=routing_memory,
             routing_action=_resolve_routing_action(routing_memory),
-            default_output_target="cli" if profile == "math" else "notebook",
+            # lean's evaluate defaults to target="kernel" (cli); it always passes
+            # output_target explicitly, so this only affects guidance text.
+            default_output_target="cli" if profile in ("math", "lean") else "notebook",
         )
 
     def is_enabled(self, feature: str) -> bool:

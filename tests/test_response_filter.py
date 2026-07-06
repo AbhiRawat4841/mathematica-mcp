@@ -107,7 +107,6 @@ class TestFilterResponseCompact:
             "output_tex",
             "detailed_analyses",
             "llm_error_report",
-            "error_analysis",
             "route_variant",
             "execution_path",
             "overall_timing_ms",
@@ -116,6 +115,9 @@ class TestFilterResponseCompact:
             "requested_style",
         ]:
             assert field not in filtered, f"{field} should be stripped"
+        # error_analysis is intentionally KEPT in compact (guidance + retry_with
+        # must reach the caller) — see _COMPACT_KEEP.
+        assert "error_analysis" in filtered
 
     def test_compact_keeps_essential_fields(self):
         response = {

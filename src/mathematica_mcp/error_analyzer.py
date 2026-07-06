@@ -14,6 +14,8 @@ ERROR_PATTERNS = {
         "common_cause": "Attempting to convert between incompatible unit types (e.g., time and currency)",
         "suggested_fix": "Use QuantityMagnitude[] to extract numeric values before performing arithmetic operations",
         "example": 'QuantityMagnitude[CountryData["USA", "GDP"], "USDollars"] instead of CountryData["USA", "GDP"]',
+        # No retry_with: a corrected call would need the USER'S failing input
+        # substituted in; a canned example is not a runnable fix.
         "severity": "error",
     },
     "Part::partw": {
@@ -49,6 +51,8 @@ ERROR_PATTERNS = {
         "common_cause": "Division by zero or undefined mathematical operation",
         "suggested_fix": "Add checks for zero denominators or use Limit[] for indeterminate forms",
         "example": "If[denominator != 0, numerator/denominator, Infinity]",
+        # No retry_with: "denominator"/"numerator" are placeholders, not the
+        # user's expression — a template this generic is not a runnable fix.
         "severity": "error",
     },
     "Power::infy": {
@@ -150,8 +154,11 @@ def analyze_messages(messages: list[dict[str, Any]]) -> dict[str, Any]:
             "total_messages": 0,
             "errors": 0,
             "warnings": 0,
+            "severity": "info",
             "assessment": "No errors or warnings detected",
             "recommendations": [],
+            "should_retry": False,
+            "retry_with": None,
         }
 
     errors = [m for m in messages if m.get("type") == "error"]
@@ -185,6 +192,20 @@ def analyze_messages(messages: list[dict[str, Any]]) -> dict[str, Any]:
             "TIP: Use Length[], Dimensions[], or Depth[] to inspect data structure before accessing elements."
         )
 
+    # retry_with: a concrete, runnable corrected call for the highest-confidence
+    # matched error. Sourced ONLY from a pattern's explicit "retry_with" field --
+    # the "example"/"suggested_fix" strings are prose advice, not runnable code,
+    # so we never fall back to them. No pattern currently defines one: a static
+    # template cannot substitute the user's actual failing input, and a canned
+    # string is not a runnable fix. The field stays None until a pattern's fix
+    # can be made CONTEXTUAL.
+    retry_with = None
+    ranked = high_confidence_fixes or [a for a in analyses if a.get("confidence") == "medium"]
+    if ranked:
+        top_pattern = ranked[0].get("matched_pattern")
+        if top_pattern:
+            retry_with = ERROR_PATTERNS.get(top_pattern, {}).get("retry_with")
+
     return {
         "total_messages": len(messages),
         "errors": len(errors),
@@ -194,6 +215,7 @@ def analyze_messages(messages: list[dict[str, Any]]) -> dict[str, Any]:
         "analyses": analyses,
         "recommendations": recommendations,
         "should_retry": len(high_confidence_fixes) > 0,
+        "retry_with": retry_with,
     }
 
 

@@ -28,6 +28,11 @@ from .constants import ExecutionPath as _EP
 from .error_analyzer import analyze_messages, format_error_for_llm
 from .guidance import (
     build_mathematica_expert_prompt,
+    build_prompt_calculate,
+    build_prompt_interactive,
+    build_prompt_new_notebook,
+    build_prompt_notebook,
+    build_prompt_quickstart,
     build_server_instructions,
     create_notebook_doc,
     evaluate_cell_doc,
@@ -40,10 +45,16 @@ from .guidance import (
 from .session import (
     clear_raster_cache,
     close_kernel_session,
+    cold_execution_count,
     execute_in_kernel,
     get_kernel_session,
+    has_existing_kernel_session,
+    kernel_idle_timeout,
 )
 from .telemetry import get_usage_stats, reset_stats
+from .transport_classification import (
+    ACTIONABLE_ERROR_FAMILIES as _HARD_ERROR_FAMILIES,
+)
 from .transport_classification import (
     classify_final_transport as _classify_transport,
 )
@@ -147,6 +158,54 @@ _journal = None  # type: ignore[assignment]
 # ---------------------------------------------------------------------------
 
 
+_WL_MSG_TAG_RE = re.compile(r"[A-Z]\w*::[a-zA-Z]\w*")
+
+
+def _messages_from_warnings(warnings: Any) -> list[dict[str, Any]]:
+    """Extract WL message tags (Symbol::tag) from the raw $MessageList text the
+    kernel/CLI path returns, so the analyzer runs on non-notebook executions too.
+
+    $MessageList tags carry no severity, and the kernel emits this list even when a
+    computation *succeeded with warnings* (e.g. Solve::ratnz, NIntegrate::ncvb). So
+    default to "warning" rather than "error" — mislabelling a benign warning as an
+    error made analyze_messages report severity="error" and could flip should_retry
+    on a result that actually succeeded. Only mark a tag "error" when its Symbol
+    family is a known hard-error family (reusing the same set transport
+    classification treats as a genuine failure)."""
+    if not warnings:
+        return []
+    text = " ".join(warnings) if isinstance(warnings, list) else str(warnings)
+    tags = list(dict.fromkeys(_WL_MSG_TAG_RE.findall(text)))
+    out: list[dict[str, Any]] = []
+    for t in tags:
+        family = t.split("::")[0]
+        msg_type = "error" if family in _HARD_ERROR_FAMILIES else "warning"
+        out.append({"tag": t, "text": t, "type": msg_type})
+    return out
+
+
+def _attach_error_analysis(response: dict) -> None:
+    """Attach error_analysis (incl. retry_with) to any evaluate response that
+    surfaced messages. Idempotent: the notebook path builds a richer version
+    itself, so this only fills in the kernel/CLI paths (plan §5.3)."""
+    if not isinstance(response, dict) or response.get("error_analysis"):
+        return
+    messages = response.get("messages") or _messages_from_warnings(response.get("warnings"))
+    if not messages:
+        return
+    analysis = analyze_messages(messages)
+    if analysis.get("total_messages", 0) == 0:
+        return
+    response["error_analysis"] = {
+        "total_errors": analysis["errors"],
+        "total_warnings": analysis["warnings"],
+        "severity": analysis["severity"],
+        "recommendations": analysis["recommendations"],
+        "should_retry": analysis["should_retry"],
+        "retry_with": analysis.get("retry_with"),
+    }
+
+
 def _finalize_execute_response(
     response: dict,
     *,
@@ -162,6 +221,27 @@ def _finalize_execute_response(
 
     response["route_variant"] = route_variant
     response["execution_path"] = execution_path
+    # Error analysis + retry_with on every evaluate path (notebook path already
+    # built its own; this fills kernel/CLI).
+    _attach_error_analysis(response)
+    # Diagnostic routing when there is no mechanical fix: point at the message
+    # log and recovery guide instead of inventing a canned retry_with.
+    ea = response.get("error_analysis")
+    if isinstance(ea, dict) and ea.get("total_errors", 0) > 0 and not ea.get("retry_with"):
+        ea.setdefault(
+            "next_step",
+            "kernel(action='messages') for details; guide(topic='errors') for recovery patterns"
+            if FEATURES.profile == "lean"
+            else "get_messages() for details",
+        )
+    # Non-obvious follow-up hint: a rendered graphic is best viewed as an image.
+    if response.get("is_graphics"):
+        response.setdefault("available_followups", ["screenshot(scope='cell') to view the rendered graphic"])
+    elif response.get("has_errors") or (isinstance(ea, dict) and ea.get("total_errors", 0) > 0):
+        response.setdefault(
+            "available_followups",
+            ["kernel(action='messages')"] if FEATURES.profile == "lean" else ["get_messages()"],
+        )
     response["overall_timing_ms"] = int((_time.monotonic() - start_time) * 1000)
     # Extract families FIRST — used by transport classification
     response["error_families"] = _extract_error_families(response)
@@ -318,26 +398,28 @@ def _hydrate_usage(symbols: list[str]) -> dict[str, str]:
     if not uncached:
         return result
 
-    from .lazy_wolfram_tools import _find_wolframscript
+    from .lazy_wolfram_tools import _json_wl, _wl_string
+    from .session import evaluate_wl
 
-    wolframscript = _find_wolframscript()
-    if not wolframscript:
-        return result
-
-    import subprocess
-
-    sym_list = ", ".join(f'"{s}"' for s in uncached)
-    code = f'Association[Map[# -> Quiet[Check[ToString[ToExpression[# <> "::usage"]], ""]] &, {{{sym_list}}}]]'
+    sym_list = ", ".join(_wl_string(s) for s in uncached)
+    # `/. _MessageName -> ""`: an UNDEFINED symbol's usage stays an unevaluated
+    # MessageName whose ToString is the literal "Sym::usage" — without the filter
+    # that fake text would be cached into the symbol index as real usage.
+    code = (
+        f"Association[Map[# -> Quiet[Check["
+        f'ToString[ToExpression[# <> "::usage"] /. _MessageName -> ""], ""]] &, {{{sym_list}}}]]'
+    )
 
     try:
-        proc = subprocess.run(
-            [wolframscript, "-code", code],
-            capture_output=True,
-            text=True,
-            timeout=15,
-        )
-        if proc.returncode == 0:
-            parsed = _parse_wolfram_association(proc.stdout.strip())
+        # Warm-first (persistent kernel, cold wolframscript fallback), JSON-first
+        # parsing so corrupted regex-parsed text is never cached into the symbol
+        # index. Read-only usage-string lookup — no isolation needed.
+        wl = evaluate_wl(_json_wl(code), 15)
+        if wl.success:
+            try:
+                parsed = json.loads(wl.text)
+            except (json.JSONDecodeError, ValueError):
+                parsed = _parse_wolfram_association(wl.text)
             if isinstance(parsed, dict):
                 for sym in uncached:
                     usage = parsed.get(sym, "")
@@ -367,18 +449,16 @@ def _lookup_symbols_in_kernel(query: str) -> dict[str, Any]:
             "system_only": True,
         }
 
-    # Fallback: subprocess.
-    import subprocess
+    # Fallback: warm kernel (persistent session, cold wolframscript inside
+    # evaluate_wl). Read-only Names[]/usage/attribute reads — no isolation
+    # needed; the warm kernel also means Global` matches now reflect the
+    # user's real session symbols instead of a fresh kernel's empty Global`.
+    from .lazy_wolfram_tools import _json_wl, _wl_string
+    from .session import evaluate_wl
 
-    from .lazy_wolfram_tools import _find_wolframscript
-
-    wolframscript = _find_wolframscript()
-    if not wolframscript:
-        return {"success": False, "error": "wolframscript not found"}
-
-    lookup_code = f'''
-Module[{{query, candidates, systemMatches, globalMatches, allMatches, getInfo}},
-  query = "{query}";
+    lookup_code = f"""
+Module[{{query, systemMatches, globalMatches, allMatches, getInfo}},
+  query = {_wl_string(query)};
   systemMatches = Select[Names["System`*"], StringContainsQ[#, query, IgnoreCase -> True] &];
   globalMatches = Select[Names["Global`*"], StringContainsQ[#, query, IgnoreCase -> True] &];
   allMatches = Take[Join[systemMatches, globalMatches], UpTo[20]];
@@ -391,23 +471,20 @@ Module[{{query, candidates, systemMatches, globalMatches, allMatches, getInfo}},
   ];
   <|"success" -> True, "query" -> query, "matches" -> (getInfo /@ allMatches)|>
 ]
-'''
+"""
 
     try:
-        result = subprocess.run(
-            [wolframscript, "-code", lookup_code],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        output = result.stdout.strip()
-
-        if result.returncode != 0:
-            return {"success": False, "error": result.stderr or "Lookup failed"}
-
-        return {"success": True, "raw_output": output}
-    except subprocess.TimeoutExpired:
-        return {"success": False, "error": "Lookup timed out"}
+        wl = evaluate_wl(_json_wl(lookup_code), 30)
+        if not wl.success:
+            return {"success": False, "error": wl.error or "Lookup failed"}
+        try:
+            parsed = json.loads(wl.text)
+        except (json.JSONDecodeError, ValueError):
+            parsed = _parse_wolfram_association(wl.text)
+        if isinstance(parsed, dict) and isinstance(parsed.get("matches"), list):
+            candidates = [m for m in parsed["matches"] if isinstance(m, dict) and m.get("symbol")]
+            return {"success": True, "candidates": candidates}
+        return {"success": True, "candidates": []}
     except Exception as e:
         return {"success": False, "error": str(e)}
 
@@ -508,6 +585,32 @@ def _try_addon_command(
         return {"success": False, "error": str(e)}
 
 
+def _check_addon_protocol(result: dict) -> None:
+    """Flag a stale addon (protocol skew) with a reinstall hint (plan §3.8).
+    Addons don't update with pip, so an old init.m can lag the Python client."""
+    from .connection import ADDON_PROTOCOL_VERSION
+
+    reported = result.get("protocol_version")
+    if reported is None or (isinstance(reported, (int, float)) and reported < ADDON_PROTOCOL_VERSION):
+        result["addon_outdated"] = True
+        result["addon_hint"] = (
+            f"Addon protocol {reported if reported is not None else 'missing'} is older than "
+            f"expected {ADDON_PROTOCOL_VERSION}. Reinstall the addon (run `mathematica-mcp setup`) "
+            "and restart Mathematica to pick up new features."
+        )
+
+
+def _warm_path_status() -> dict[str, Any]:
+    """Warm-funnel diagnostics for status responses (plan §3.5): cold-execution
+    counter (0 on the lean happy path), persistent-session liveness, and the
+    idle-shutdown timeout."""
+    return {
+        "cold_executions": cold_execution_count(),
+        "kernel_session_active": has_existing_kernel_session(),
+        "idle_timeout_seconds": kernel_idle_timeout(),
+    }
+
+
 @_tool("core")
 async def get_mathematica_status() -> str:
     """Get connection status and system info."""
@@ -516,6 +619,8 @@ async def get_mathematica_status() -> str:
         if result.get("success") is False and result.get("error"):
             raise RuntimeError(result["error"])
         result["connection_mode"] = "addon"
+        result["warm_path"] = _warm_path_status()
+        _check_addon_protocol(result)
         return _json_response(result)
     except Exception as e:
         try:
@@ -530,6 +635,7 @@ async def get_mathematica_status() -> str:
                     "connection_mode": "kernel_only",
                     "kernel_version": float(version),
                     "note": "Addon not running - notebook control unavailable. Execute StartMCPServer[] in Mathematica.",
+                    "warm_path": _warm_path_status(),
                     "error": str(e),
                 }
             )
@@ -595,13 +701,22 @@ async def get_notebook_info(notebook: str | None = None, session_id: str | None 
 
 
 @_tool("notebook_primary")
-async def create_notebook(title: str = "Untitled", session_id: str | None = None) -> str:
+async def create_notebook(
+    title: str = "Untitled",
+    session_id: str | None = None,
+    show_chatbar: bool = False,
+) -> str:
     """Create a new empty notebook. Returns notebook ID.
 
     Use when the user explicitly asks for a NEW notebook. Sets the active
     notebook so subsequent execute_code(output_target="notebook") calls target it.
+    On Mathematica >=15, show_chatbar=True keeps the chat sidebar that
+    agent-created notebooks suppress by default (older addons ignore the param).
     """
-    result = await _addon_result("create_notebook", {"title": title, "session_id": session_id})
+    result = await _addon_result(
+        "create_notebook",
+        {"title": title, "session_id": session_id, "show_chatbar": show_chatbar},
+    )
     return _json_response(result)
 
 
@@ -892,6 +1007,7 @@ async def execute_code(
                             "severity": error_analysis["severity"],
                             "recommendations": error_analysis["recommendations"],
                             "should_retry": error_analysis["should_retry"],
+                            "retry_with": error_analysis.get("retry_with"),
                         }
 
                         # Include detailed analysis for each error
@@ -1217,7 +1333,7 @@ async def export_notebook(
     return _json_response(result)
 
 
-@_tool("debug")
+@_tool("moat")
 async def verify_derivation(
     steps: list[str],
     format: Literal["text", "latex", "mathematica"] = "text",
@@ -1543,10 +1659,430 @@ def _register_optional_tools() -> None:
             reset_stats=reset_stats,
         )
 
-    if FEATURES.routing_memory != "off" and FEATURES.profile == "full":
+    if FEATURES.routing_memory != "off" and FEATURES.profile in ("full", "classic"):
         from .optional_routing_tools import register_routing_tools
 
         register_routing_tools(instrumented_mcp)
+
+
+# ============================================================================
+# LEAN PROFILE — 12 consolidated tools, split by param shape (plan §2).
+# Thin dispatchers over the SAME internals the classic tools use; registered
+# only when MATHEMATICA_PROFILE=lean (group "lean"). verify_derivation is shared
+# via the "moat" group. Docstrings here are <=200 chars and are intentionally
+# NOT rewritten by _apply_guidance_docs.
+# ============================================================================
+
+_GUIDE_CONTENT: dict[str, str] = {
+    "workflow": (
+        "Compute: evaluate(code, target='kernel'). Show in a notebook: notebooks(action='create') "
+        "then evaluate(code, target='notebook'). Inspect: cells(action='list'), screenshot(scope='cell'). "
+        "Verify algebra: verify_derivation(steps). Read a .nb without a kernel: read_notebook_file(path)."
+    ),
+    "errors": (
+        "Failed evaluations return error_analysis with suggested_fix and, when available, retry_with (a "
+        "corrected call you can rerun). check syntax first with evaluate(code, dry_run=True). Kernel wedged? "
+        "kernel(action='restart')."
+    ),
+    "notebook_hygiene": (
+        "One idea per cell; style='Section'/'Text' for structure, 'Input' for code. Evaluate a specific cell "
+        "with evaluate(target='cell', cell_id=...). Save with notebooks(action='save'). Agent-created notebooks "
+        "suppress the chat sidebar on v15."
+    ),
+    "screenshots": (
+        "screenshot(scope='notebook'|'cell'|'expression'). Prefer scope='cell' after a plot to capture just that "
+        "output. scope='expression' rasterizes a WL expression without touching the notebook."
+    ),
+    "v15": (
+        "On Mathematica >=15 agent-created notebooks set ShowChatbar->False (pass show_chatbar to override). "
+        "14.x stays supported behind $VersionNumber guards. The addon advertises a protocol_version so a newer "
+        "client can detect a stale addon and prompt a reinstall."
+    ),
+    "profiles": (
+        "lean (default): 12 consolidated tools. classic: the full 82-tool surface (alias 'full'). math/notebook: "
+        "legacy curated sets. Set MATHEMATICA_PROFILE to switch."
+    ),
+    "toolsets": (
+        "Add extras to lean via MATHEMATICA_TOOLSETS (comma-separated): data_io, graphics_plus, cloud, debug, "
+        "notebook_files, notebook_edit, symbols, math_aliases, repository, async_jobs, cache."
+    ),
+    "batch": (
+        "batch(ops=[{'command': ..., 'params': {...}}, ...]) runs ADDON commands (not MCP tool names). "
+        "Commands: ping, get_status, get_notebooks, get_notebook_info, create_notebook, save_notebook, "
+        "close_notebook, get_cells, get_cell_content, write_cell, delete_cell, evaluate_cell, execute_code, "
+        "execute_code_notebook, execute_selection, batch_commands, screenshot_notebook, screenshot_cell, "
+        "rasterize_expression, select_cell, scroll_to_cell, export_notebook, list_variables, get_variable, "
+        "set_variable, clear_variables, get_expression_info, get_messages, open_notebook_file, run_script, "
+        "trace_evaluation, time_expression, check_syntax, import_data, export_data, list_import_formats, "
+        "export_graphics. Example: batch(ops=[{'command': 'execute_code', 'params': {'code': '1+1'}}])."
+    ),
+}
+
+
+def _lean_bad(field: str, valid: str, example: str) -> str:
+    return _json_response({"success": False, "error": f"invalid {field}. valid: {valid}. e.g. {example}"})
+
+
+def _lean_annotate(text: str, key: str, value: Any, *, only_on_success: bool = False) -> str:
+    """Attach *key* (a note or followups) to a JSON tool response.
+
+    Non-JSON responses pass through untouched; with only_on_success, failed
+    responses (error present or success=False) pass through too.
+    """
+    try:
+        data = json.loads(text)
+    except (json.JSONDecodeError, ValueError):
+        return text
+    if not isinstance(data, dict):
+        return text
+    if only_on_success and (data.get("error") or data.get("success") is False):
+        return text
+    data.setdefault(key, value)
+    return _json_response(data)
+
+
+def _lean_paginate(text: str) -> str:
+    """Cap oversized lean-tool output, stashing the remainder behind a cursor
+    the client fetches by passing cursor= back to the same tool (plan §3.7)."""
+    from . import cursor_store
+
+    first, info = cursor_store.paginate(text)
+    if info is None:
+        return text
+    return _json_response(
+        {
+            "truncated": True,
+            "preview": first,
+            "next_cursor": info["next_cursor"],
+            "total_length": info["total_length"],
+            "note": "Output truncated. Pass cursor=<next_cursor> to this tool for the next page.",
+        }
+    )
+
+
+def _lean_cursor_page(cursor: str) -> str:
+    from . import cursor_store
+
+    result = cursor_store.page(cursor)
+    if result is None:
+        return _json_response(
+            {
+                "success": False,
+                "error": "unknown or expired cursor",
+                "next_step": "re-run the original call without cursor= to regenerate",
+            }
+        )
+    return _json_response(result)
+
+
+@_tool("lean")
+async def status() -> str:
+    """Connection, kernel version, active profile, features, and warm-path health (cold-execution count, idle timeout). No params."""
+    merged: dict[str, Any] = {}
+    for getter in (get_mathematica_status, get_feature_status):
+        try:
+            data = json.loads(await getter())
+            if isinstance(data, dict):
+                # get_feature_status always reports success=True; it must not
+                # overwrite a disconnected/error status from get_mathematica_status,
+                # which conveys state via connection_mode/error and omits success on
+                # failure. Features stay namespaced under "features".
+                if getter is get_feature_status:
+                    data.pop("success", None)
+                merged.update(data)
+        except Exception:
+            pass
+    return _json_response(merged)
+
+
+@_tool("lean")
+async def notebooks(
+    action: Literal["list", "info", "create", "open", "save", "close", "export"],
+    notebook: str | None = None,
+    title: str = "Untitled",
+    path: str | None = None,
+    format: Literal["Notebook", "PDF", "HTML", "TeX", "Markdown"] | None = None,
+    session_id: str | None = None,
+    show_chatbar: bool = False,
+) -> str:
+    """Manage notebooks. action: list | info | create(title, show_chatbar) | open(path) | save | close | export(path). format: save=Notebook|PDF|HTML|TeX, export=PDF|HTML|TeX|Markdown."""
+    if action == "list":
+        return await get_notebooks()
+    if action == "info":
+        return await get_notebook_info(notebook, session_id)
+    if action == "create":
+        return _lean_annotate(
+            await create_notebook(title, session_id, show_chatbar),
+            "available_followups",
+            ["evaluate(code=..., target='notebook') to run code in it"],
+            only_on_success=True,
+        )
+    if action == "open":
+        if not path:
+            return _json_response({"success": False, "error": "open requires path"})
+        return await open_notebook_file(path, session_id)
+    if action == "save":
+        fmt = format or "Notebook"
+        if fmt not in ("Notebook", "PDF", "HTML", "TeX"):
+            return _json_response(
+                {
+                    "success": False,
+                    "error": f"format '{fmt}' not valid for save. valid: Notebook|PDF|HTML|TeX",
+                    "next_step": f"notebooks(action='export', format='{fmt}', path=...) for {fmt} export",
+                }
+            )
+        return await save_notebook(notebook, path, fmt, session_id)
+    if action == "close":
+        return await close_notebook(notebook, session_id)
+    if action == "export":
+        if not path:
+            return _json_response({"success": False, "error": "export requires path"})
+        fmt = format or "PDF"
+        if fmt not in ("PDF", "HTML", "TeX", "Markdown"):
+            return _json_response(
+                {
+                    "success": False,
+                    "error": f"format '{fmt}' not valid for export. valid: PDF|HTML|TeX|Markdown",
+                    "next_step": "notebooks(action='save', format='Notebook', path=...) to save a .nb",
+                }
+            )
+        return await export_notebook(path, notebook, fmt, session_id)
+    return _lean_bad("action", "list|info|create|open|save|close|export", "notebooks(action='list')")
+
+
+@_tool("lean")
+async def cells(
+    action: Literal["list", "read", "select", "scroll"] = "list",
+    notebook: str | None = None,
+    cell_id: str | None = None,
+    style: str | None = None,
+    offset: int = 0,
+    limit: int | None = None,
+    include_content: bool = True,
+    session_id: str | None = None,
+    cursor: str | None = None,
+) -> str:
+    """Read notebook cells. action: list | read(cell_id) | select(cell_id) | scroll(cell_id). style/offset/limit filter list; cursor= pages long output."""
+    if cursor:
+        return _lean_cursor_page(cursor)
+    if action == "list":
+        return _lean_paginate(await get_cells(notebook, style, session_id, offset, limit, include_content))
+    if not cell_id:
+        return _json_response({"success": False, "error": f"{action} requires cell_id"})
+    if action == "read":
+        return _lean_paginate(await get_cell_content(cell_id, notebook, session_id))
+    if action == "select":
+        return await select_cell(cell_id, notebook, session_id)
+    if action == "scroll":
+        return await scroll_to_cell(cell_id, notebook, session_id)
+    return _lean_bad("action", "list|read|select|scroll", "cells(action='list')")
+
+
+@_tool("lean")
+async def edit_cells(
+    action: Literal["write", "delete"],
+    content: str | None = None,
+    cell_id: str | None = None,
+    style: str = "Input",
+    notebook: str | None = None,
+    position: Literal["After", "Before", "End", "Beginning"] = "After",
+    session_id: str | None = None,
+) -> str:
+    """Edit notebook cells. action: write(content, style, position) | delete(cell_id)."""
+    if action == "write":
+        if content is None:
+            return _json_response({"success": False, "error": "write requires content"})
+        return await write_cell(content, style, notebook, position, session_id)
+    if action == "delete":
+        if not cell_id:
+            return _json_response({"success": False, "error": "delete requires cell_id"})
+        return await delete_cell(cell_id, notebook, session_id)
+    return _lean_bad("action", "write|delete", "edit_cells(action='write', content='1+1')")
+
+
+@_tool("lean")
+async def evaluate(
+    code: str | None = None,
+    target: Literal["kernel", "notebook", "cell", "selection"] = "kernel",
+    file: str | None = None,
+    cell_id: str | None = None,
+    dry_run: bool = False,
+    format: Literal["text", "latex", "mathematica"] = "text",
+    notebook: str | None = None,
+    session_id: str | None = None,
+    timeout: int = 300,
+    cursor: str | None = None,
+) -> str:
+    """Evaluate code. target: kernel | notebook | cell(cell_id) | selection. dry_run=True checks syntax; file= runs a .wl script; cursor= pages long output."""
+    if cursor:
+        return _lean_cursor_page(cursor)
+    if code is not None and file:
+        return _json_response(
+            {
+                "success": False,
+                "error": "code and file are both set; pass code= to evaluate code OR file= to run a script, not both",
+            }
+        )
+    if dry_run and file:
+        return _json_response(
+            {
+                "success": False,
+                "error": "dry_run checks code, not file; pass code= with dry_run=True, or file= without dry_run",
+            }
+        )
+    if dry_run:
+        if code is None:
+            return _json_response({"success": False, "error": "dry_run requires code"})
+        return _lean_annotate(
+            await check_syntax(code),
+            "available_followups",
+            ["re-run without dry_run to execute"],
+            only_on_success=True,
+        )
+    # ponytail: timeout only applies to target=kernel/notebook (execute_code
+    # accepts it). run_script takes no timeout, and evaluate_cell/selection use
+    # max_wait (a notebook poll interval, not an execution timeout) — different
+    # semantics, so a non-default timeout gets a corrective note, not forwarded.
+    note = (
+        "timeout applies to target=kernel/notebook only; cell/selection/file evaluation ignores it"
+        if timeout != 300
+        else None
+    )
+    if file:
+        out = await run_script(file)
+        return _lean_paginate(_lean_annotate(out, "note", note) if note else out)
+    if target == "cell":
+        if not cell_id:
+            return _json_response({"success": False, "error": "target=cell requires cell_id"})
+        out = await evaluate_cell(cell_id, notebook, session_id)
+        return _lean_paginate(_lean_annotate(out, "note", note) if note else out)
+    if target == "selection":
+        out = await evaluate_selection(notebook, session_id)
+        return _lean_paginate(_lean_annotate(out, "note", note) if note else out)
+    if code is None:
+        return _json_response({"success": False, "error": "evaluate requires code (or file, or target=cell/selection)"})
+    output_target = "notebook" if target == "notebook" else "cli"
+    return _lean_paginate(
+        await execute_code(code, format, output_target=output_target, session_id=session_id, timeout=timeout)
+    )
+
+
+@_tool("lean")
+async def screenshot(
+    scope: Literal["notebook", "cell", "expression"] = "notebook",
+    notebook: str | None = None,
+    cell_id: str | None = None,
+    expression: str | None = None,
+    max_height: int = 2000,
+    image_size: int = 400,
+    session_id: str | None = None,
+) -> Image:
+    """Capture a PNG. scope: notebook | cell(cell_id) | expression(expression)."""
+    if scope == "cell":
+        if not cell_id:
+            raise ValueError("scope=cell requires cell_id")
+        return await screenshot_cell(cell_id, notebook, session_id)
+    if scope == "expression":
+        if not expression:
+            raise ValueError("scope=expression requires expression")
+        return await rasterize_expression(expression, image_size)
+    return await screenshot_notebook(notebook, max_height, session_id)
+
+
+@_tool("lean")
+async def kernel(
+    action: Literal["state", "messages", "restart", "load_package", "packages", "inspect"] = "state",
+    package: str | None = None,
+    expression: str | None = None,
+    count: int = 10,
+    cursor: str | None = None,
+) -> str:
+    """Kernel admin. action: state | messages | restart | load_package(package) | packages | inspect(expression). cursor= pages long output."""
+    if cursor:
+        return _lean_cursor_page(cursor)
+    if action == "state":
+        return _lean_paginate(await get_kernel_state())
+    if action == "messages":
+        return _lean_paginate(await get_messages(count))
+    if action == "restart":
+        return await restart_kernel()
+    if action == "packages":
+        return _lean_paginate(await list_loaded_packages())
+    if action == "load_package":
+        if not package:
+            return _json_response({"success": False, "error": "load_package requires package"})
+        return await load_package(package)
+    if action == "inspect":
+        if not expression:
+            return _json_response({"success": False, "error": "inspect requires expression"})
+        return _lean_paginate(await get_expression_info(expression))
+    return _lean_bad("action", "state|messages|restart|load_package|packages|inspect", "kernel(action='state')")
+
+
+@_tool("lean")
+async def vars(
+    action: Literal["list", "get", "set", "clear", "clear_all"] = "list",
+    name: str | None = None,
+    value: str | None = None,
+    pattern: str | None = None,
+    include_system: bool = False,
+    cursor: str | None = None,
+) -> str:
+    """Manage kernel variables. action: list | get(name) | set(name,value) | clear(name | pattern) | clear_all. cursor= pages long output."""
+    if cursor:
+        return _lean_cursor_page(cursor)
+    if action == "list":
+        return _lean_paginate(await list_variables(include_system))
+    if action == "get":
+        if not name:
+            return _json_response({"success": False, "error": "get requires name"})
+        return _lean_paginate(await get_variable(name))
+    if action == "set":
+        if not name or value is None:
+            return _json_response({"success": False, "error": "set requires name and value"})
+        return await set_variable(name, value)
+    if action == "clear":
+        # Data-loss guard: a bare clear must never silently wipe the session.
+        if not name and not pattern:
+            return _json_response(
+                {
+                    "success": False,
+                    "error": "clear requires name= or pattern=",
+                    "next_step": "vars(action='clear', name='x')  # or vars(action='clear_all') to wipe everything",
+                }
+            )
+        return await clear_variables(names=[name] if name else None, pattern=pattern, clear_all=False)
+    if action == "clear_all":
+        return await clear_variables(clear_all=True)
+    return _lean_bad("action", "list|get|set|clear|clear_all", "vars(action='list')")
+
+
+@_tool("lean")
+async def read_notebook_file(
+    path: str,
+    mode: Literal["markdown", "wolfram", "outline", "json", "plain"] = "markdown",
+    cursor: str | None = None,
+) -> str:
+    """Read a .nb/.wl file WITHOUT a kernel (Python-native parser). mode: markdown | wolfram | outline | json | plain. cursor= pages long output."""
+    if cursor:
+        return _lean_cursor_page(cursor)
+    return _lean_paginate(await read_notebook(path, output_format=mode))
+
+
+@_tool("lean")
+async def guide(
+    topic: Literal[
+        "workflow", "errors", "notebook_hygiene", "screenshots", "v15", "profiles", "toolsets", "batch"
+    ] = "workflow",
+) -> str:
+    """On-demand guidance. topic: workflow | errors | notebook_hygiene | screenshots | v15 | profiles | toolsets | batch."""
+    return _json_response({"topic": topic, "guidance": _GUIDE_CONTENT.get(topic, "Unknown topic.")})
+
+
+@_tool("lean")
+async def batch(ops: list[dict[str, Any]]) -> str:
+    """Run multiple addon ops in one round trip. ops: [{command, params}, ...]. Command vocabulary: guide(topic='batch')."""
+    return await batch_commands(ops)
 
 
 def _apply_guidance_docs() -> None:
@@ -1709,32 +2245,21 @@ async def convert_notebook(
         elif output_format == "plain":
             content = parser.to_plain_text(notebook)
         else:
-            import subprocess
+            from .lazy_wolfram_tools import _run_wl_parsed, _wl_string
 
-            from .lazy_wolfram_tools import _find_wolframscript
-
-            wolframscript = _find_wolframscript()
-            if not wolframscript:
-                return _json_response({"success": False, "error": "wolframscript not found"})
-
-            wl_path = expanded.replace("\\", "/")
-            code = f'''
+            # Warm-first + JSON-first via the shared funnel. File-content
+            # conversion only: Import[...] of a .nb returns the notebook
+            # expression without evaluating it, and everything is Module-local,
+            # so this is read-only w.r.t. kernel state — no isolation needed.
+            wl_path = _wl_string(expanded.replace("\\", "/"))
+            code = f"""
 Module[{{nb, content}},
-  nb = Import["{wl_path}"];
+  nb = Import[{wl_path}];
   content = ExportString[nb, "TeX"];
   <|"success" -> True, "format" -> "{output_format}", "content" -> content|>
 ]
-'''
-            result = await _run_blocking(
-                subprocess.run,
-                [wolframscript, "-code", code],
-                capture_output=True,
-                text=True,
-                timeout=60,
-            )
-            output = result.stdout.strip()
-            parsed = _parse_wolfram_association(output)
-            return _json_response(parsed)
+"""
+            return await _run_wl_parsed(code, _parse_wolfram_association, timeout=60)
 
         return _json_response({"success": True, "format": output_format, "content": content})
     except Exception as e:
@@ -2454,70 +2979,31 @@ def mathematica_expert(user_request: str = "") -> str:
 @mcp.prompt()
 def calculate(expression: str) -> str:
     """Compute a result inline in chat. Use for quick math, algebra, or any text answer."""
-    return f"Calculate the following and return the result inline (use style='compute'):\n\n{expression}"
+    return build_prompt_calculate(FEATURES, expression)
 
 
 @mcp.prompt()
 def notebook(task: str) -> str:
     """Execute in the current Mathematica notebook. Use for plots, visualizations, or notebook artifacts."""
-    return f"Execute the following in the current Mathematica notebook (use style='notebook'):\n\n{task}"
+    return build_prompt_notebook(FEATURES, task)
 
 
 @mcp.prompt()
 def new_notebook(task: str, title: str = "Analysis") -> str:
     """Create a fresh Mathematica notebook and execute there. Use when you want a clean slate."""
-    return (
-        f"Create a new Mathematica notebook titled '{title}' using create_notebook(), "
-        f"then execute the following in it (use style='notebook'):\n\n"
-        f"{task}"
-    )
+    return build_prompt_new_notebook(FEATURES, task, title)
 
 
 @mcp.prompt()
 def interactive(task: str) -> str:
     """Execute with frontend mode for dynamic/interactive content (Manipulate, Animate, sliders)."""
-    return (
-        f"Execute the following in the notebook using frontend mode for dynamic interaction "
-        f"(use style='interactive'):\n\n"
-        f"{task}"
-    )
+    return build_prompt_interactive(FEATURES, task)
 
 
 @mcp.prompt()
 def quickstart() -> str:
     """Show available execution styles and how to use them."""
-    return f"""Show the user this quick reference for Mathematica MCP styles:
-
-## Mathematica MCP — Execution Styles
-
-### For chat users — use keywords in your prompt
-
-| Say this...                     | What happens                                    |
-|---------------------------------|-------------------------------------------------|
-| **"calculate ..."**             | Result appears inline in chat                   |
-| **"plot ..."** / **"show ..."** | Executes in current Mathematica notebook         |
-| **"in new notebook: ..."**      | Creates a fresh notebook, then executes there    |
-| **"interactive ..."**           | Notebook with sliders/Manipulate (frontend mode) |
-
-### For tool callers — use the `style` parameter
-
-| `style=`          | What happens                                    |
-|-------------------|-------------------------------------------------|
-| `"compute"`       | Fast kernel evaluation, result in chat          |
-| `"notebook"`      | Evaluate in kernel, show in notebook cell       |
-| `"interactive"`   | Front-end evaluation (Manipulate/Dynamic)       |
-
-> There is no `style="new_notebook"`. Create a fresh notebook with
-> `create_notebook(title="...")` then `execute_code(style="notebook")`.
-
-### Examples
-- "Calculate the integral of x^3 from 0 to 1"  →  answer in chat
-- "Plot Sin[x] from 0 to 2π"  →  plot appears in notebook
-- "In new notebook: integrate 1/x^5 + x^7 and plot the region"  →  fresh notebook
-- "Interactive: Manipulate a slider for Plot[Sin[n x], {{x, 0, 2π}}]"  →  dynamic UI
-
-If you don't use a keyword, the default is: `{FEATURES.default_output_target}`
-"""
+    return build_prompt_quickstart(FEATURES)
 
 
 def main():

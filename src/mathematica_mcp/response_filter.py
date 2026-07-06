@@ -60,6 +60,9 @@ _COMPACT_KEEP = frozenset(
         "timed_out",
         "from_cache",
         "error",
+        "error_analysis",  # keep guidance + retry_with even in compact
+        "available_followups",
+        "state_delta",
         "rendered_image",
         "is_graphics",
         "output_inputform",  # kept temporarily for graphics swap, may be stripped after

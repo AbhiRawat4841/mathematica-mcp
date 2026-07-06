@@ -201,11 +201,30 @@ def _tool_names(env_overrides: dict[str, str]) -> list[str]:
     return json.loads(result.stdout)
 
 
-def test_default_profile_matches_full_baseline():
-    default_tools = set(_tool_names({}))
-    full_tools = set(_tool_names({"MATHEMATICA_PROFILE": "full"}))
+LEAN_TOOLS = {
+    "status",
+    "notebooks",
+    "cells",
+    "edit_cells",
+    "evaluate",
+    "screenshot",
+    "verify_derivation",
+    "kernel",
+    "vars",
+    "read_notebook_file",
+    "guide",
+    "batch",
+}
 
-    assert default_tools == FULL_TOOLS
+
+def test_default_profile_is_lean():
+    # v1.0 breaking change: the default profile is now lean (12 tools).
+    default_tools = set(_tool_names({}))
+    assert default_tools == LEAN_TOOLS
+
+
+def test_full_profile_matches_baseline():
+    full_tools = set(_tool_names({"MATHEMATICA_PROFILE": "full"}))
     assert full_tools == FULL_TOOLS
 
 

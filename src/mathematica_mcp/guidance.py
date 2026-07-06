@@ -6,6 +6,12 @@ from .config import FeatureFlags
 
 
 def _profile_summary(features: FeatureFlags) -> str:
+    if features.profile == "lean":
+        return (
+            "This lean profile exposes 12 consolidated tools. `evaluate(code)` is the "
+            'primary execution tool (kernel by default); use `target="notebook"` to '
+            "show results in the live notebook."
+        )
     if features.profile == "math":
         return (
             "This profile is compute-first. Prefer CLI-style execution and avoid "
@@ -28,7 +34,38 @@ def _has_notebook(features: FeatureFlags) -> bool:
     return features.tool_group_enabled("notebook_primary") or features.profile == "full"
 
 
+def _default_target_label(features: FeatureFlags) -> str:
+    if features.profile == "lean":
+        return "`evaluate(code)` (kernel)"
+    return f"`{features.default_output_target}`"
+
+
+def _ambiguous_fallback_sentence(features: FeatureFlags) -> str:
+    if features.profile == "lean":
+        return "When the request is ambiguous (none of the keywords above), default to\n`evaluate(code)` (kernel)."
+    return (
+        "When the request is ambiguous (none of the keywords above), fall back to the\n"
+        f"profile default output target (`{features.default_output_target}`)."
+    )
+
+
+_LEAN_STYLE_ROWS = [
+    ('"calculate", "compute", "solve", "evaluate"', "`evaluate(code)` — kernel, result in chat"),
+    ('"plot", "show", "in notebook"', '`evaluate(code, target="notebook")` — in the live notebook'),
+    (
+        '"new notebook"',
+        '`notebooks(action="create", title=...)` then `evaluate(code, target="notebook")`',
+    ),
+    ('"verify", "check derivation"', "`verify_derivation(steps)`"),
+]
+
+
 def _style_keyword_table(features: FeatureFlags) -> str:
+    if features.profile == "lean":
+        rows = [f"| {says} | {does} |" for says, does in _LEAN_STYLE_ROWS]
+        header = """| User says | What to do |
+|-----------|------------|"""
+        return "\n".join([header, *rows])
     rows = [
         '| "calculate", "compute", "what is", "evaluate", "solve" | `execute_code(style="compute")` — answer inline in chat |'
     ]
@@ -46,6 +83,8 @@ def _style_keyword_table(features: FeatureFlags) -> str:
 
 
 def _style_keyword_bullets(features: FeatureFlags) -> list[str]:
+    if features.profile == "lean":
+        return [f"**{says}** -> {does}" for says, does in _LEAN_STYLE_ROWS]
     bullets = ['**"calculate"** / **"compute"** / **"what is"** / **"evaluate"** / **"solve"** -> `style="compute"`']
     if _has_notebook(features):
         bullets.extend(
@@ -59,12 +98,28 @@ def _style_keyword_bullets(features: FeatureFlags) -> list[str]:
 
 
 def _profile_intro(features: FeatureFlags) -> str:
+    if features.profile == "lean":
+        return (
+            'A "notebook" here means a LIVE WINDOW inside the Mathematica frontend, not a '
+            "`.nb` file on disk. This lean profile exposes 12 consolidated tools."
+        )
     if _has_notebook(features):
         return 'A "notebook" here means a LIVE WINDOW inside the Mathematica frontend, not a `.nb` file on disk.'
     return "This profile is compute-first. Notebook tools are not exposed in this configuration."
 
 
 def _routing_lines(features: FeatureFlags) -> list[str]:
+    if features.profile == "lean":
+        return [
+            "Pure computation or symbolic algebra -> `evaluate(code)` (kernel default)",
+            'Plot or notebook-visible output -> `evaluate(code, target="notebook")`',
+            'New notebook -> `notebooks(action="create", title=...)` then `evaluate(code, target="notebook")`',
+            'Inspect notebook state -> `cells(action="list"|"read")` or `screenshot(scope="cell")`',
+            'Existing `.nb` file on disk -> `read_notebook_file(path)`; `notebooks(action="open")` only for a live window',
+            "Verify algebra steps -> `verify_derivation(steps)`",
+            "Syntax uncertainty -> `evaluate(code, dry_run=True)`",
+            'Errors or lost context -> `status()`, `kernel(action="messages")`, `guide(topic="errors")`',
+        ]
     lines = ['Pure computation, formulas, numbers, or symbolic algebra -> `execute_code(style="compute")`']
     if _has_notebook(features):
         lines.extend(
@@ -94,6 +149,11 @@ def _routing_lines(features: FeatureFlags) -> list[str]:
 
 
 def _quick_defaults(features: FeatureFlags) -> list[str]:
+    if features.profile == "lean":
+        return [
+            "Prefer one compound Wolfram expression over several sequential `evaluate` calls.",
+            "Reuse `session_id` for multi-step workflows; `batch(ops)` runs several calls in one round-trip.",
+        ]
     lines = [
         "Prefer one compound Wolfram expression over several sequential `execute_code` calls when only the final result matters.",
         "Reuse `session_id` for any multi-step workflow.",
@@ -109,6 +169,12 @@ def _quick_defaults(features: FeatureFlags) -> list[str]:
 
 
 def _recovery_defaults(features: FeatureFlags) -> list[str]:
+    if features.profile == "lean":
+        return [
+            "Call `status()` before resuming after failures or long context gaps.",
+            'Use `kernel(action="messages")` when Mathematica errors are unclear.',
+            'Use `guide(topic="errors")` for troubleshooting recipes.',
+        ]
     return [
         "Call `get_session_brief()` before resuming after failures or long context gaps.",
         "Use `get_computation_journal()` to recover recent code/output history after context compaction.",
@@ -120,6 +186,12 @@ def _avoid_lines(features: FeatureFlags) -> list[str]:
     lines = [
         "NEVER: split a simple sequential derivation across many MCP round-trips when one Wolfram expression can do it."
     ]
+    if features.profile == "lean":
+        lines.append(
+            'NEVER: `edit_cells(action="write")` then `evaluate(target="cell")` for fresh code; '
+            'INSTEAD: `evaluate(code, target="notebook")`.'
+        )
+        return lines
     if _has_notebook(features):
         lines.extend(
             [
@@ -152,7 +224,7 @@ Use MCP tools directly; do not touch the filesystem unless the user explicitly a
 Intent routing:
 {style_lines}
 
-Default when ambiguous: `{features.default_output_target}`
+Default when ambiguous: {_default_target_label(features)}
 
 Quick defaults:
 {quick_lines}
@@ -190,8 +262,7 @@ PROFILE: `{features.profile}`
 USER INTENT KEYWORDS — detect these in the request and route accordingly:
 {intent_block}
 
-When the request is ambiguous (none of the keywords above), fall back to the
-profile default output target (`{features.default_output_target}`).
+{_ambiguous_fallback_sentence(features)}
 
 TASK -> TOOL
 {routing_block}
@@ -290,20 +361,35 @@ workflow.
 def build_claude_hint(features: FeatureFlags) -> str:
     style_block = _bullet_block(_style_keyword_bullets(features))
 
+    if features.profile == "lean":
+        primary_line = "Primary execution tool: `evaluate()`"
+        steer = "Use the `target` parameter or these keywords to control where results appear:"
+    else:
+        primary_line = (
+            "Primary execution tool: `execute_code()`\n"
+            f"Current profile default output target: `{features.default_output_target}`"
+        )
+        steer = "Use the `style` parameter or these keywords to control where results appear:"
     hint = f"""# Mathematica MCP Usage
 
-Primary execution tool: `execute_code()`
-Current profile default output target: `{features.default_output_target}`
+{primary_line}
 
 **IMPORTANT**: ALWAYS use the Mathematica MCP tools for ALL Mathematica work.
 NEVER use `wolframscript` CLI, shell commands, `mkdir`, or manual `.nb` file creation.
 The MCP tools talk directly to the running Mathematica instance — just call them.
 
 ## Execution Styles
-Use the `style` parameter or these keywords to control where results appear:
+{steer}
 {style_block}
-Default when ambiguous: `{features.default_output_target}`
+Default when ambiguous: {_default_target_label(features)}
 """
+    if features.profile == "lean":
+        hint += """
+## Notebook Files
+- For `.nb` files on disk, prefer `read_notebook_file(path)`.
+- Use `notebooks(action="open"|"save"|"export")` only when the user explicitly wants a live window or disk output.
+"""
+        return hint
     if _has_notebook(features):
         hint += """
 ## Notebook Files
@@ -330,7 +416,7 @@ shell commands, or manual .nb file creation. The MCP tools control Mathematica d
 ## Style Keywords
 Users can steer execution by including these keywords in their request:
 {keyword_block}
-Default when no keyword matches: `{features.default_output_target}`
+Default when no keyword matches: {_default_target_label(features)}
 
 ## Tool Routing
 - Prefer the high-level tool route below unless the user explicitly needs low-level control:
@@ -361,7 +447,20 @@ def build_codex_guidance(features: FeatureFlags) -> str:
     keyword_table = _style_keyword_table(features)
     workflow_example = ""
 
-    if _has_notebook(features):
+    if features.profile == "lean":
+        workflow_example = """
+## Typical workflow
+
+```
+# User: "integrate x^2 in new notebook and plot it"
+1. notebooks(action="create", title="Integration")   # opens live notebook window
+2. evaluate("Integrate[x^2, x]", target="notebook")   # writes + evaluates there
+3. evaluate("Plot[x^3/3, {x, -2, 2}]", target="notebook")
+```
+
+That's it. No mkdir, no export, no file search.
+"""
+    elif _has_notebook(features):
         workflow_example = """
 ## Typical workflow
 
@@ -413,9 +512,100 @@ You never need to touch the filesystem unless the user explicitly asks.
 ## Style keywords
 
 {keyword_table}
-Default when ambiguous: `{features.default_output_target}`
+Default when ambiguous: {_default_target_label(features)}
 {workflow_example}"""
     return guidance
+
+
+def build_prompt_calculate(features: FeatureFlags, expression: str) -> str:
+    if features.profile == "lean":
+        return f"Calculate the following and return the result inline (use evaluate(code)):\n\n{expression}"
+    return f"Calculate the following and return the result inline (use style='compute'):\n\n{expression}"
+
+
+def build_prompt_notebook(features: FeatureFlags, task: str) -> str:
+    if features.profile == "lean":
+        return f"Execute the following in the current Mathematica notebook (use evaluate(code, target='notebook')):\n\n{task}"
+    return f"Execute the following in the current Mathematica notebook (use style='notebook'):\n\n{task}"
+
+
+def build_prompt_new_notebook(features: FeatureFlags, task: str, title: str = "Analysis") -> str:
+    if features.profile == "lean":
+        return (
+            f"Create a new Mathematica notebook titled '{title}' using notebooks(action='create', title=...), "
+            f"then execute the following in it (use evaluate(code, target='notebook')):\n\n"
+            f"{task}"
+        )
+    return (
+        f"Create a new Mathematica notebook titled '{title}' using create_notebook(), "
+        f"then execute the following in it (use style='notebook'):\n\n"
+        f"{task}"
+    )
+
+
+def build_prompt_interactive(features: FeatureFlags, task: str) -> str:
+    if features.profile == "lean":
+        return (
+            f"Execute the following in the live notebook (use evaluate(code, target='notebook')); "
+            f"dynamic content such as Manipulate renders in the notebook window:\n\n"
+            f"{task}"
+        )
+    return (
+        f"Execute the following in the notebook using frontend mode for dynamic interaction "
+        f"(use style='interactive'):\n\n"
+        f"{task}"
+    )
+
+
+def build_prompt_quickstart(features: FeatureFlags) -> str:
+    if features.profile == "lean":
+        return """Show the user this quick reference for Mathematica MCP:
+
+## Mathematica MCP — Quick Reference
+
+| Say this...                     | What happens                                              |
+|---------------------------------|-----------------------------------------------------------|
+| **"calculate ..."**             | `evaluate(code)` — result inline in chat                  |
+| **"plot ..."** / **"show ..."** | `evaluate(code, target="notebook")` — in the live notebook |
+| **"in new notebook: ..."**      | `notebooks(action="create")` then `evaluate(code, target="notebook")` |
+| **"screenshot ..."**            | `screenshot(scope="notebook")` or `screenshot(scope="cell")` |
+| **"verify ..."**                | `verify_derivation(steps)`                                |
+
+Recovery: `status()`, `kernel(action="messages")`, `guide(topic="errors")`.
+Default when ambiguous: `evaluate(code)` (kernel).
+"""
+    return f"""Show the user this quick reference for Mathematica MCP styles:
+
+## Mathematica MCP — Execution Styles
+
+### For chat users — use keywords in your prompt
+
+| Say this...                     | What happens                                    |
+|---------------------------------|-------------------------------------------------|
+| **"calculate ..."**             | Result appears inline in chat                   |
+| **"plot ..."** / **"show ..."** | Executes in current Mathematica notebook         |
+| **"in new notebook: ..."**      | Creates a fresh notebook, then executes there    |
+| **"interactive ..."**           | Notebook with sliders/Manipulate (frontend mode) |
+
+### For tool callers — use the `style` parameter
+
+| `style=`          | What happens                                    |
+|-------------------|-------------------------------------------------|
+| `"compute"`       | Fast kernel evaluation, result in chat          |
+| `"notebook"`      | Evaluate in kernel, show in notebook cell       |
+| `"interactive"`   | Front-end evaluation (Manipulate/Dynamic)       |
+
+> There is no `style="new_notebook"`. Create a fresh notebook with
+> `create_notebook(title="...")` then `execute_code(style="notebook")`.
+
+### Examples
+- "Calculate the integral of x^3 from 0 to 1"  →  answer in chat
+- "Plot Sin[x] from 0 to 2π"  →  plot appears in notebook
+- "In new notebook: integrate 1/x^5 + x^7 and plot the region"  →  fresh notebook
+- "Interactive: Manipulate a slider for Plot[Sin[n x], {{x, 0, 2π}}]"  →  dynamic UI
+
+If you don't use a keyword, the default is: `{features.default_output_target}`
+"""
 
 
 def build_session_brief(

@@ -12,6 +12,12 @@ import pytest
 # Override with MATHEMATICA_ROUTING_MEMORY=observe to run the full suite in observe mode.
 os.environ.setdefault("MATHEMATICA_ROUTING_MEMORY", "off")
 
+# The in-process suite exercises the classic (82-tool) surface, so pin it to full
+# here. v1.0's lean default is verified separately by the subprocess-based
+# profile tests (test_default_profile_is_lean, test_schema_budget, test_profiles_parity),
+# which clear/override MATHEMATICA_PROFILE explicitly.
+os.environ.setdefault("MATHEMATICA_PROFILE", "full")
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = REPO_ROOT / "src"
 TESTS_ROOT = REPO_ROOT / "tests"
@@ -62,3 +68,14 @@ def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line("markers", "needs_network: requires network connectivity")
     config.addinivalue_line("markers", "needs_resource: requires Wolfram resource system")
     config.addinivalue_line("markers", "needs_subkernels: requires parallel subkernels")
+
+
+def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
+    """Terminate any persistent kernel a live test started, so kernels never leak
+    past the test process and exhaust Wolfram's concurrent-kernel licenses."""
+    try:
+        from mathematica_mcp.session import close_kernel_session
+
+        close_kernel_session()
+    except Exception:
+        pass
