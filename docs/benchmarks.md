@@ -2,11 +2,49 @@
 
 Benchmark snapshots, each dated at its source. All numbers are median unless noted.
 
-> The **v1.0.1 section below** reflects the current architecture (warm persistent-kernel funnel + `state_delta` response gating). Sections after it are historical pre-1.0 snapshots kept for comparison.
+> The **v1.1.0 section below** covers the optimization round (prewarm, compact responses, screenshot cache, addon rung, transport-floor attribution). The **v1.0.1 section** reflects the prior architecture snapshot (warm persistent-kernel funnel + `state_delta` response gating). Sections after it are historical pre-1.0 snapshots kept for comparison.
 
 ---
 
-## v1.0.1 (2026-07-06)
+## v1.1.0 (2026-07-06)
+
+**Sources:** `benchmarks/results/transport_floor.json` + `.md`, `benchmarks/results/channel_split.json`, feature-level measurements from the optimization round. Same environment as v1.0.1.
+
+### Where the ~30ms transport floor actually lives
+
+A dedicated probe (`benchmarks/probe_transport_floor.py`) decomposed the bare-`ping` floor by measuring the identical client code path against three servers:
+
+| Layer | p50 | Share of floor |
+|-------|-----|----------------|
+| Python client + loopback wire (pure-Python echo) | 0.07ms | 0.2% |
+| Wolfram `SocketListen` + handler, headless kernel | 1.93ms | 5.8% |
+| Live addon `ping` (front-end kernel) | 31.9ms | - |
+| Front-end-kernel scheduling residue (by elimination) | ~30.0ms | 94% |
+
+The floor is not transport, JSON, or dispatch work (those measure under 2ms combined). The remaining ~30ms is attributed by elimination to the wait for the front-end-bonded kernel to service its async socket task, roughly one scheduling tick per handler invocation - an inference, not direct instrumentation, but one corroborated by two independent signatures below (pipelining collapse and faster-under-load service). Client-side micro-optimization cannot move it. A headless kernel answers the same `SocketListen` in ~2ms, so a sub-5ms floor would require a gateway-kernel architecture (out of scope).
+
+Two corollaries, both verified live:
+
+- **Batching pays one tick for N commands.** The addon processes all newline-delimited messages that arrive together in a single handler invocation, and `batch_commands` runs its sub-commands inline the same way. Measured: 10 pipelined pings = 5.9ms per request; a `batch` call with 10 sub-pings = 44.6ms total, ~4.5ms per sub-command (vs ~32ms each sequentially). Note this improves throughput, not time-to-first-result: all N results return together. Agents issuing several addon calls should use the lean `batch` tool.
+- **The floor is idle-state latency.** Under an active front-end evaluation the async task is serviced faster (~16-20ms observed), which is the signature of scheduling residue rather than fixed work.
+
+### Optimization round: measured effects
+
+| Change | Before | After |
+|--------|--------|-------|
+| First warm-funnel call after server start | ~12.9s (kernel boot on first use) | background prewarm at startup; boot overlaps agent setup (`MATHEMATICA_PREWARM`, default on) |
+| Lean `evaluate` response, trivial result | 361 B (`standard`) | 119 B (compact default; failures keep the full shape) |
+| Lean `evaluate` response, graphics + `state_delta` | 10,298 B | 1,701 B |
+| Repeat `screenshot` of unchanged notebook | ~403ms per call | ~0ms on cache hit (opt-in `cache=True`, epoch-invalidated) |
+| `verify_derivation` / `get_constant` during the boot window | ~12.5s (cold subprocess) | ~30ms via the opt-in addon rung (`execution_method='addon'`) |
+| Frontend-mode dispatch (`execute_code` mode=frontend) | up to 10s in-handler poll, then a false "success" | ~0.3-0.4s honest `evaluation_pending` (0.2s poll cap) |
+| Concurrent `ping` during a frontend evaluation | 5.1s (blocked behind the poll) | 23ms |
+
+Failure responses are exempt from compact slimming by design (an agent recovering from an error needs `messages`, `transport_status`, `error_families`, `output_preview`); large lean outputs flow to cursor pagination instead of lossy summarization.
+
+### Read-only second socket: measured no-go
+
+`benchmarks/measure_channel_split.py` tested whether a second socket could unblock status calls during long evaluations. Result: no. During a long `execute_code` or a kernel-mode notebook evaluation, the kernel's single command queue blocks a second socket exactly as long as the first (measured 2.9s block on both connections during a 3s kernel-mode eval; 3.7s during a preemptive-link eval). The only case a second channel could serve (frontend-mode evaluation) is one where the existing single connection already answers in ~13ms. No product code was added.
 
 **Sources:** `benchmarks/results/phase_v101.json`, `benchmark_notebook_ops.py`, warm-funnel probe
 **Environment:** macOS ARM64 (same dev machine as prior snapshots) | Mathematica 15.0 | Python 3.11

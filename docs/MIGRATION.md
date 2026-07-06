@@ -22,7 +22,7 @@ Why the change: the lean surface is ~11.5 KB of tool schema (~2.9k tokens) versu
 
 ## Reinstall the Mathematica addon
 
-1.0 adds a `protocol_version` handshake (currently `3`) between the Python client and the Mathematica addon. What lives in `$UserBaseDirectory/Kernel/init.m` is a loader line pointing at the installed package copy of `MathematicaMCP.wl` - and that path **does not update when you `pip`/`uvx` upgrade the Python package** (for `uvx` it points into a versioned cache directory). After upgrading, reinstall the addon:
+1.0 adds a `protocol_version` handshake (currently `4`) between the Python client and the Mathematica addon. What lives in `$UserBaseDirectory/Kernel/init.m` is a loader line pointing at the installed package copy of `MathematicaMCP.wl` - and that path **does not update when you `pip`/`uvx` upgrade the Python package** (for `uvx` it points into a versioned cache directory). After upgrading, reinstall the addon:
 
 ```bash
 uvx mathematica-mcp-full setup <client>

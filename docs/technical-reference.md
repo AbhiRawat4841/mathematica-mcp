@@ -26,9 +26,9 @@
 
 **Performance:** Notebook execution uses an atomic command that combines notebook lookup, cell creation, and evaluation into a single round-trip (vs. 4 separate calls), reducing latency from multiple socket round-trips to one.
 
-**Warm compute funnel:** When the addon is unavailable, kernel evaluation goes through a persistent `WolframLanguageSession` (`session.py`); a cold `wolframscript` subprocess is only a flagged fallback, counted per process and surfaced in the lean `status()` tool. An idle reaper shuts the kernel down after `MATHEMATICA_KERNEL_IDLE_TIMEOUT` seconds of inactivity (default 1800; `0` disables), and the session is closed via `atexit` on interpreter shutdown.
+**Warm compute funnel:** When the addon is unavailable, kernel evaluation goes through a persistent `WolframLanguageSession` (`session.py`); a cold `wolframscript` subprocess is only a flagged fallback, counted per process and surfaced in the lean `status()` tool. An idle reaper shuts the kernel down after `MATHEMATICA_KERNEL_IDLE_TIMEOUT` seconds of inactivity (default 1800; `0` disables), and the session is closed via `atexit` on interpreter shutdown. At server startup a background daemon thread prewarms this session (`MATHEMATICA_PREWARM`, default on) so the first warm call skips the ~13s boot. During that boot window (or whenever the warm session is unavailable), an opt-in middle rung lets *kernel-independent* pure-math evaluations (`get_constant`, `convert_units`, `verify_derivation`) run on the already-connected addon kernel (~30ms round trip, `execution_method='addon'`) instead of a cold subprocess. Kernel-identity-sensitive calls (variables, packages, kernel state) never take this rung - the addon is the user's front-end kernel - and any parse ambiguity falls through to the always-correct cold path.
 
-**Protocol:** The Python client and the addon share a `protocol_version` handshake (currently `3`); a version skew (e.g. addon installed in `init.m` not updated after `pip install --upgrade`) is detected and reported. Success responses of notebook-touching addon commands carry a `state_delta` (focused notebook, cell count, and `kernel_busy` via `CurrentValue[nb, Evaluating]`); pure-kernel commands skip it so trivial `execute_code` responses stay fast.
+**Protocol:** The Python client and the addon share a `protocol_version` handshake (currently `4`); a version skew (e.g. addon installed in `init.m` not updated after `pip install --upgrade`) is detected and reported. Success responses of notebook-touching addon commands carry a `state_delta` (the command's **target** notebook, its cell count, and `kernel_busy` via `CurrentValue[nb, Evaluating]`); pure-kernel commands skip it so trivial `execute_code` responses stay fast. Note that `kernel_busy` cannot observe a *front-end* evaluation in progress (`CurrentValue[nb, Evaluating]` does not resolve from the socket handler - see the preemptive-vs-main-link section); rely on the frontend `evaluation_pending` / `evaluation_complete` contract instead.
 
 **Error guidance:** Failed evaluations carry a structured `error_analysis` (`suggested_fix`, `next_step`, and a `retry_with` corrected call when one can be derived from context) on all evaluate paths; see [Error Detection and Analysis](#error-detection-and-analysis).
 
@@ -980,6 +980,7 @@ Control features via environment variables. Defaults shown are for the `classic`
 | `MATHEMATICA_PROFILE` | `lean` | Tool profile: `lean`, `classic`, `math`, `notebook`, or `full` |
 | `MATHEMATICA_TOOLSETS` | *(none)* | Comma-separated opt-in extras for the `lean` profile: `data_io`, `graphics_plus`, `cloud`, `debug`, `notebook_files`, `notebook_edit`, `symbols`, `math_aliases`, `repository`, `async_jobs`, `cache` |
 | `MATHEMATICA_KERNEL_IDLE_TIMEOUT` | `1800` | Seconds of kernel inactivity before idle shutdown (`0` disables) |
+| `MATHEMATICA_PREWARM` | `on` | Boot the persistent kernel in the background at server startup so the first warm call skips the ~13s boot; `0`/`false`/`no`/`off` disables |
 | `MATHEMATICA_KERNEL_PATH` | *(auto-detect)* | Explicit path to the Wolfram kernel binary for the fallback session |
 | `MATHEMATICA_MAX_OUTPUT_CHARS` | `4000` | Hard output cap in characters (minimum 500); oversized output is paginated via cursors |
 | `MATHEMATICA_MCP_TOKEN` | *(none)* | Authentication token for secure connections |
@@ -1000,12 +1001,12 @@ The server includes a multi-layer intelligence system for routing optimization, 
 
 ### Payload Shaping (`response_detail`)
 
-The `execute_code` tool (classic/math/notebook profiles) accepts a `response_detail` parameter to control response size (the lean `evaluate` tool does not expose it; lean relies on output-cap pagination instead):
+The `execute_code` tool (classic/math/notebook profiles) accepts a `response_detail` parameter to control response size. The lean `evaluate` tool does not expose the parameter, but it shapes its responses as `compact` by default. Set `MATHEMATICA_RESPONSE_DETAIL=standard` to restore the full backward-compatible shape (an invalid value warns and stays `compact`); the same env var accepts any level or alias below.
 
 | Level | Behavior |
 |-------|----------|
-| `"standard"` (default) | Exact backward-compatible response: no fields added or removed |
-| `"compact"` | Essential fields only: `success`, `status`, `message`, `output`, `timing_ms`, notebook IDs, transport fields (and `error_analysis` guidance is kept). Strips other verbose metadata. Auto-summarizes outputs > 4000 chars with balanced-brace list element counting. Swaps graphics placeholders to `output_inputform`. |
+| `"standard"` (default for `execute_code`) | Exact backward-compatible response: no fields added or removed |
+| `"compact"` (default for lean `evaluate`) | Essential fields only: `success`, `status`, `message`, `output`, `timing_ms`, notebook IDs, transport fields (and `error_analysis` guidance is kept). Strips other verbose metadata plus any remaining empty fields (`""`, `[]`, `{}`, `null`), always keeping `success` and `output` (an empty output is itself a result). Auto-summarizes outputs > 4000 chars with balanced-brace list element counting. Swaps graphics placeholders to `output_inputform`. Failing responses (`success` is `false`, or a truthy `error` key) are exempt: they pass through as the full `standard` shape so transport, message, and error-analysis fields survive for recovery. |
 | `"verbose"` | Full response + `detail_level` marker |
 | `"diagnostic"` | Full response + `detail_level`, `cache_epoch`, and `routing_hints` (if available) |
 
@@ -1049,6 +1050,12 @@ Examples of epoch-insensitive expressions: `Sin[Pi]`, `Integrate[x^2, x]`, `1 + 
 Examples of epoch-sensitive expressions (correctly invalidated): `f[3]` (user symbol `f`), `Sin[x]` (user symbol `x`), `Names["MyPkg\`*"]` (session-sensitive introspection), `$Packages` (session-sensitive global)
 
 The analysis is memoized (`lru_cache(1024)`) with a single-pass Wolfram scanner that handles nested comments and string literals. Malformed input safely falls back to epoch-sensitive.
+
+### Screenshot Cache (opt-in)
+
+`screenshot(scope="notebook"|"cell", cache=True)` reuses the last PNG for that scope instead of re-exporting from the front end (a ~400ms operation). It is keyed by a separate notebook mutation epoch that `connection.send_command` bumps after any successful notebook-mutating command (`write_cell`, `delete_cell`, `evaluate_cell`, `execute_code_notebook`, `execute_selection`, `create_notebook`, `close_notebook`, `save_notebook`, `open_notebook_file`, `batch_commands`), so any such command forces a fresh capture. Kernel-only work (`execute_code`, `set_variable`, ...) and reads/navigation (`get_notebook_info`, `select_cell`, `scroll_to_cell`) correctly do not bump the epoch, but a read can still silently repoint `$MCPActiveNotebook` at a different open notebook, so the epoch alone does not make the *focused* notebook a safe cache target. The cache therefore requires a **stable target**: pass `notebook=` (an explicit id) or `session_id=` (session-pinned notebooks resolve independently of the focused notebook). With neither, notebook-scope `cache=True` is skipped and captures fresh every call, because the "focused" key could otherwise serve another notebook's pixels. The cache is a small LRU (8 entries) of PNG bytes.
+
+It is opt-in and off by default because pixels can change without the epoch moving: manual edits in the front end, `Dynamic`/`Manipulate` repaints, scrolling, or window resizing. Two more staleness sources to know about: (a) the epoch is **per server process** (module-level state), so if two MCP server processes share one addon they do not see each other's invalidations, and one can serve a PNG the other's mutation already invalidated; and (b) `execute_code` running raw front-end writes (`NotebookWrite`, `CellPrint`, ...) changes the notebook without going through a `MUTATING_COMMANDS` command, so it does **not** bump the epoch, use `execute_code_notebook`/`write_cell` instead when you want the cache to notice. So `cache=True` may return stale pixels if the notebook changed outside these tracked commands; pass it only when you know nothing but your own tracked MCP commands has touched the notebook. `scope="expression"` ignores the flag (it is already cached at the raster layer).
 
 ### Routing Memory
 
@@ -1290,9 +1297,9 @@ Claude Code → Python MCP → TCP :9881 → MathematicaMCP.wl (SocketListen)
 ```
 
 **Key behaviors:**
-- **SocketListen handlers** run on the **preemptive link** and can interrupt the main link.
-- **`execute_code`** evaluates entirely on the preemptive link - fast even when the main link is busy.
-- **`evaluate_cell`** and **frontend-mode `execute_code_notebook`** dispatch to the **main link** via `FrontEndTokenExecute["EvaluateCells"]`, then poll with `CurrentValue[nb, Evaluating]` on the preemptive link.
+- **SocketListen handlers** occupy the kernel while they run. A handler that `Pause`-polls **blocks** the front-end (main-link) evaluation it dispatched: the dispatched cell cannot progress until the handler returns. Measured (kernel 15.0): the output cell of a `Pause[3]; 42` frontend eval does not appear until after the handler that dispatched it returns.
+- **`execute_code`** (kernel mode) evaluates synchronously inside the handler and returns its result directly - no front-end round trip.
+- **`evaluate_cell`, `evaluate_selection`, and frontend-mode `execute_code_notebook`** dispatch to the front end via `FrontEndTokenExecute["EvaluateCells"]`. Because that evaluation shares the kernel with the handler, its completion is **not observable in-handler**: `CurrentValue[nb, Evaluating]` returns an *unevaluated* `FrontEnd`CurrentValue[...]` from this context, and no output cell appears during the poll. All three therefore return an honest `evaluation_pending` shape (`evaluated: false`, `evaluation_complete: false`, `waited_seconds`) after a bounded 0.2s grace poll; re-read the notebook with `get_cells`/`get_cell_content` (or `screenshot_notebook`) to collect the result once it appears.
 - **`Manipulate`/`Dynamic`** slider updates use the preemptive link - they stay responsive even when cells show "Running...".
 
 **Blocking scenarios and remediation:**
@@ -1306,13 +1313,22 @@ Claude Code → Python MCP → TCP :9881 → MathematicaMCP.wl (SocketListen)
 
 > **Note:** `RestartMCPServer[]` only restarts the TCP socket listener - it does **not** restart the kernel. It is only useful when the socket connection itself is broken. For evaluation-related slowness, restart the kernel instead.
 
-### Frontend Polling Fix (v0.9.4)
+### Frontend Completion Detection (protocol 4)
 
-Prior to v0.9.4, `executeCodeNotebookFrontend` used a cell-count polling loop (`Length[Cells[nb]] > cellsBefore + 1`) to detect when the FrontEnd had finished evaluating and produced an output cell. This check was unreliable from the preemptive link - it never resolved, causing the loop to burn the entire `max_wait` timeout (10-30 seconds) even for `1+1`.
+The v0.9.4 loop combined `CurrentValue[nb, Evaluating]` polling with a `Break[]` after 0.5s when nothing had been observed. As measured above, neither signal actually resolves from the socket handler - `Evaluating` returns unevaluated and the output cell does not appear during the poll - so what really made the loop "fast" (the reported 129ms) was the 0.5s give-up returning early. That early return reported `{success: true, output_preview: ""}` while the notebook was still computing: any frontend eval longer than ~0.5s falsely looked finished with no output.
 
-The fix replaced this with `CurrentValue[nb, Evaluating]` polling - the same approach already proven reliable in `cmdEvaluateCell` and `cmdExecuteSelection`. Result: frontend mode latency dropped from **10,893ms to 129ms** for trivial expressions.
+Protocol 4 replaces the give-up with an honest contract. `executeCodeNotebookFrontend` still polls for an output cell (breaking immediately if one appears, which would only cover front-end configurations that yield mid-`Pause`), but the poll is capped at `Min[max_wait, 0.2s]`: completion is unobservable in-handler on current Mathematica, so a longer poll buys nothing and would only stall every other command - and the user's own evaluations - on the single-threaded handler. When the poll ends without an observed output cell (the expected outcome) it returns:
 
-Additionally, the polling interval for `cmdEvaluateCell` and `cmdExecuteSelection` was reduced from 100ms to 50ms, cutting detection latency for fast-completing computations.
+```
+{ "success": true, "status": "evaluation_pending", "evaluation_complete": false,
+  "waited_seconds": <elapsed>, "message": "...re-check with get_cells..." }
+```
+
+Pending is **not** a failure and is the **expected** outcome on current Mathematica - dispatch succeeded and the evaluation runs (and its `Out` cell appears in the target notebook) once the call returns. Agents collect the result by re-reading the notebook. The `evaluation_complete: true` branch (with a real `output_preview`) fires only if the front end can yield during the handler, which was **not observed on 14.x or 15.0**; treat it as a best-effort fast path, not a normal return.
+
+> **Warning:** Closing a notebook with a pending evaluation does **not** cancel it. The evaluation still finishes, but with the notebook gone its output is dumped into the system Messages window instead of a cell. Re-check pending work (via `get_cells`/`get_cell_content`) and let the `Out` cell land before closing the notebook.
+
+`evaluate_cell` and `evaluate_selection` carry the **same** honest contract: a 0.2s-capped poll, then `evaluated: false` + `status: "evaluation_pending"` + `evaluation_complete: false` + `waited_seconds` and a re-check message when no output cell is observed (the normal case). Re-read the notebook after calling them, or use frontend-mode `execute_code` which carries the identical contract.
 
 ---
 

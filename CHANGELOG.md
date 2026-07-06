@@ -2,7 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
-## [1.0.1] - 2026-07-06
+## [1.1.0] - 2026-07-06
+
+### ⚠ BREAKING
+
+- **Addon protocol is now `4`** (response-contract change for front-end evaluations, below). Reinstall the addon (`wolframscript -file addon/install.wl`, or `setup`) and restart Mathematica or re-`Get` the package; a stale addon is detected and surfaced by `status()`.
+
+### Added
+
+- **Background kernel prewarm**: the persistent kernel session now boots in a daemon thread at server startup, so the first warm call (e.g. `verify_derivation`) no longer pays the ~13s boot. `MATHEMATICA_PREWARM` (default on; `0`/`false`/`no`/`off` disables). An unused prewarmed kernel is still reclaimed by the idle reaper.
+- **Opt-in screenshot cache**: lean `screenshot` gains `cache=True` for notebook/cell scope, invalidated by a mutation epoch bumped on every notebook-mutating MCP command (repeat captures of an unchanged notebook drop from ~400ms to ~0ms). Requires a stable target (`notebook=` or `session_id=`); the focused-notebook default is never cached. May serve stale pixels if the notebook changes outside MCP (manual edits, `Dynamic` repaints); see the Technical Reference caveats.
+- **Addon fallback rung in the warm funnel**: while the warm kernel is booting (or cold-forced), kernel-independent pure-math calls (`verify_derivation`, `get_constant`, `convert_units`) run on the already-connected addon kernel (~30ms, `execution_method="addon"`) instead of a ~12.5s cold subprocess. Kernel-time on the user's front-end kernel is capped at 30s per call; kernel-identity-sensitive calls (variables, packages, kernel state) never take this rung; any parse ambiguity falls through to the always-correct cold path.
+- **Transport-floor attribution**: `benchmarks/probe_transport_floor.py` decomposes the ~30ms addon round-trip floor (client/JSON/dispatch measure under 2ms combined; the ~94% remainder is attributed by elimination to front-end-kernel async-task scheduling) and validates that `batch` amortizes it to ~4.5ms per sub-command. `benchmarks/measure_channel_split.py` documents the measured no-go on a read-only second socket. See [docs/benchmarks.md](docs/benchmarks.md).
+
+### Changed
+
+- **Lean `evaluate` responses default to `compact`**: empty fields stripped, verbose duplicates dropped (trivial responses shrink ~67%, graphics responses ~83%). Failure responses (including notebook `timeout` / `executed_with_errors` shapes) keep the complete diagnostic shape, and large outputs flow to cursor pagination instead of lossy summarization. Override with `MATHEMATICA_RESPONSE_DETAIL=standard`. Classic-profile tools are unchanged.
+- **Transient kernel-boot failures no longer latch the process cold**: a failed boot (e.g. license contention at startup) now sets a 60s retry cooldown instead of forcing cold `wolframscript` subprocesses until restart; permanent cold mode is reserved for missing `wolframclient`/kernel. A failed half-started session is terminated instead of leaking until exit.
+
+### Fixed
+
+- **Front-end evaluations no longer report false completion**: `execute_code(mode="frontend")`, `evaluate_cell`, and `evaluate_selection` used to return `success`/`evaluated: true` with empty output for anything running longer than ~0.5s while the notebook was still computing. All three now share one honest contract: `status: "evaluation_pending"`, `evaluation_complete: false`, `waited_seconds`, and guidance to re-check via `get_cells` (the output cell lands in the notebook when the evaluation finishes). The in-handler wait is capped at 0.2s because the front end provably cannot complete while the handler runs; previously the poll could stall every addon command for up to 10s per call (a concurrent `ping` measured 5.1s blocked before, 23ms after). Closing a notebook with a pending evaluation orphans its output into the system Messages window; the docs now warn about this.
+- **`state_delta.kernel_busy` reads the command's target notebook**, not whichever notebook happens to be focused. It still cannot observe an in-flight front-end evaluation (front-end state does not resolve from the socket handler); use the `evaluation_pending`/`evaluation_complete` contract for progress instead.
+- **Kernel-session creation race**: `get_kernel_session()` had no creation mutex; a background prewarm plus a first tool call could boot two kernels and leak a license seat. Creation is now serialized with double-checked locking.
 
 ### Fixed
 

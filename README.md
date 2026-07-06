@@ -14,6 +14,7 @@ It is designed to run **beside** the official [Wolfram Local MCP](https://www.wo
 [![Published](https://img.shields.io/pypi/v/mathematica-mcp-full?label=published)](https://pypi.org/project/mathematica-mcp-full/)
 
 > **v1.0 is a breaking release.** The default profile is now `lean` (12 tools) instead of `full` (82 tools). Set `MATHEMATICA_PROFILE=classic` (or `full`) to keep the old surface, and reinstall the Mathematica addon. See the [Migration Guide](docs/MIGRATION.md).
+> **v1.1 bumps the addon protocol to 4** (honest `evaluation_pending` status for front-end evaluations): re-run `setup` or `wolframscript -file addon/install.wl` after upgrading, then restart Mathematica.
 
 ---
 
@@ -31,7 +32,7 @@ LLMs can write Mathematica code, but they can't run it, control a live notebook,
 
 - **Live notebook control**: create, edit, evaluate, and screenshot Mathematica notebooks directly from your AI agent.
 - **License-free notebook reading**: `read_notebook_file` reads `.nb` files even when no kernel or Mathematica license is available (Python-native fallback parser; a kernel is used for higher fidelity when present, and is required for `.wl` scripts).
-- **Warm execution**: computation runs on a persistent headless kernel session, so the agent's calls return in sub-second time instead of paying a cold `wolframscript` start-up on every request.
+- **Warm execution**: computation runs on a persistent headless kernel session that starts warming in the background the moment the server launches, so the agent's calls return in sub-second time instead of paying a cold `wolframscript` start-up on every request.
 - **Error-aware execution**: Mathematica messages are fed back to the agent with a `suggested_fix` and, where a correction can be derived, a concrete `retry_with` call, so it can debug without you copying notebook output into chat.
 - **Local and private**: core execution runs on your machine. Optional tools like `wolfram_alpha` and repository search contact Wolfram's cloud services only when invoked.
 

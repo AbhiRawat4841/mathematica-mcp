@@ -99,7 +99,7 @@ Response:
 ## Available Commands
 
 ### Status
-- `ping` - Returns `{"pong": true, "timestamp": "...", "version": "...", "protocol_version": 3}`
+- `ping` - Returns `{"pong": true, "timestamp": "...", "version": "...", "protocol_version": 4}`
 - `get_status` - Returns frontend/kernel version, open notebook count, `mcp_port`, `mcp_server_running`, and `protocol_version` (the Python client compares it against its expected version to detect a stale addon)
 
 ### Notebooks
