@@ -80,6 +80,8 @@ async def _run_wl_parsed(
     code: str,
     parse_wolfram_association: Callable[[str], dict],
     timeout: int = 30,
+    *,
+    allow_addon_fallback: bool = False,
 ) -> str:
     """Evaluate WL ``code`` warm-first (persistent session, cold wolframscript
     fallback), parse the Association output, and return it as a JSON string with
@@ -89,10 +91,19 @@ async def _run_wl_parsed(
     The Association is JSON-exported kernel-side (see ``_json_wl``) and parsed
     with ``json.loads``; the regex Association parser remains only as a fallback
     for kernels/outputs where the JSON export failed.
+
+    ``allow_addon_fallback`` is forwarded to ``evaluate_wl``: pass it ONLY from
+    scratch-wrapped pure-math callers (unqualified names are redirected to a
+    throwaway context; the addon is the user's front-end kernel, and
+    context-qualified input still reaches it). See ``evaluate_wl`` for the full
+    safety contract.
     """
     from .session import evaluate_wl
 
-    wl = await asyncio.to_thread(evaluate_wl, _json_wl(code), timeout)
+    # Forward the opt-in only when enabled so the default funnel call keeps
+    # evaluate_wl's plain (code, timeout) shape.
+    addon_kw = {"allow_addon_fallback": True} if allow_addon_fallback else {}
+    wl = await asyncio.to_thread(evaluate_wl, _json_wl(code), timeout, **addon_kw)
     if not wl.success:
         return json.dumps(
             {
@@ -171,7 +182,11 @@ Module[{{steps, results, i, prev, current, isEqual, simplified, formatExpr}},
     from .session import evaluate_wl
 
     try:
-        wl = await asyncio.to_thread(evaluate_wl, verification_code, timeout)
+        # Scratch-wrapped: the derivation is checked inside MCPScratch` (see
+        # _scratch_block), so unqualified names stay off shared state and it may
+        # take the addon rung when the warm session is not ready. Context-qualified
+        # names in a step still reach the kernel; see evaluate_wl's opt-in contract.
+        wl = await asyncio.to_thread(evaluate_wl, verification_code, timeout, allow_addon_fallback=True)
         if not wl.success:
             return json.dumps(
                 {
@@ -464,7 +479,9 @@ Module[{{input, result}},
   ]
 ]
 """
-    return await _run_wl_parsed(code, parse_wolfram_association, timeout=30)
+    # Kernel-independent (Module-local Quantity/UnitConvert, no Global` touch) —
+    # opts into the addon rung. See evaluate_wl's opt-in contract.
+    return await _run_wl_parsed(code, parse_wolfram_association, timeout=30, allow_addon_fallback=True)
 
 
 async def get_constant(name: str, *, parse_wolfram_association: Callable[[str], dict]) -> str:
@@ -481,7 +498,10 @@ Module[{{constant, val, numeric}},
   ]
 ]
 """)
-    return await _run_wl_parsed(code, parse_wolfram_association, timeout=30)
+    # Scratch-wrapped constant lookup (unqualified names redirected; a
+    # context-qualified name in `name` still reaches the kernel): opts into the
+    # addon rung. See evaluate_wl's opt-in contract.
+    return await _run_wl_parsed(code, parse_wolfram_association, timeout=30, allow_addon_fallback=True)
 
 
 async def trace_evaluation(

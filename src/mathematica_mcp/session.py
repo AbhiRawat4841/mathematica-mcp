@@ -71,6 +71,28 @@ def _note_cold_execution() -> None:
     _cold_call_count += 1
 
 
+# Count of evaluate_wl calls routed through the addon kernel (the middle fallback
+# rung) this process. Mirrors _cold_call_count and is surfaced alongside it; only
+# opt-in kernel-independent calls ever reach this path.
+_addon_call_count: int = 0
+
+
+def addon_execution_count() -> int:
+    """Number of evaluate_wl calls routed through the addon kernel this process."""
+    return _addon_call_count
+
+
+def reset_addon_execution_count() -> None:
+    """Reset the addon-execution counter (tests / integration assertions)."""
+    global _addon_call_count
+    _addon_call_count = 0
+
+
+def _note_addon_execution() -> None:
+    global _addon_call_count
+    _addon_call_count += 1
+
+
 # Idle kernel shutdown (plan §3.4): free the Wolfram license after the persistent
 # kernel sits unused for MATHEMATICA_KERNEL_IDLE_TIMEOUT seconds (default 1800; 0
 # disables). A daemon thread reaps; the next use pays a cold restart.
@@ -695,12 +717,111 @@ class WLResult:
 
     text: str
     success: bool
-    execution_method: str  # "wolframclient" (warm) | "wolframscript" (cold) | "none"
+    # "wolframclient" (warm) | "addon" (user's front-end kernel, opt-in middle
+    # rung) | "wolframscript" (cold) | "none"
+    execution_method: str
     error: str = ""
     timed_out: bool = False
 
 
-def evaluate_wl(code: str, timeout: int = 60) -> WLResult:
+# The addon rung runs on the USER's single-threaded interactive front-end kernel,
+# so it must never hold that kernel for a long job: cap how long any addon-rung
+# eval may run and let anything longer fall through to the warm/cold paths, which
+# get the caller's full budget on a kernel that isn't the user's front-end.
+ADDON_RUNG_TIMEOUT_CAP = 30.0
+
+
+def _try_addon_eval(code: str, timeout: int) -> WLResult | None:
+    """Middle fallback rung: run *code* on the already-connected addon kernel.
+
+    Sends the SAME wrapper evaluate_wl's warm path uses, so the addon returns a
+    String whose InputForm it re-quotes; we json-decode that quoted literal back
+    to the raw OutputForm text (byte-compatible with warm/cold). Returns a
+    WLResult on a clean addon success/timeout, or None to tell the caller to fall
+    through to cold wolframscript. Any deviation - not connected, send failure,
+    addon-reported failure/timeout, truncated payload, or an escape json can't
+    decode (e.g. a \\[LongName]) - returns None rather than guessing. The addon
+    holds the USER's front-end kernel, so only opt-in kernel-independent calls
+    may reach here (see evaluate_wl).
+
+    The rung's kernel-side time limit is clamped to ``ADDON_RUNG_TIMEOUT_CAP``,
+    NOT the caller's ``timeout``. When the caller asks for more than the cap, a
+    kernel-side ``$Aborted`` only proves the job exceeds the cap on the user's
+    front-end kernel - not that it exceeds the caller's budget - so this returns
+    None to fall through to warm/cold, which get the full budget. Only when the
+    caller's ``timeout`` is within the cap does ``$Aborted`` mean a genuine
+    timeout and yield a timed-out WLResult.
+    """
+    from .connection import get_mathematica_connection
+
+    try:
+        conn = get_mathematica_connection()
+    except Exception:  # noqa: BLE001 — addon not connected / down -> cold
+        return None
+    if not conn.is_connected():
+        return None
+
+    # Clamp the kernel-side limit to the cap; the front-end kernel is the user's.
+    addon_timeout = min(int(timeout), int(ADDON_RUNG_TIMEOUT_CAP))
+    wrapped = f"ToString[TimeConstrained[(\n{code}\n), {addon_timeout}, $Aborted], OutputForm, PageWidth -> Infinity]"
+    try:
+        # Layered so each outer bound always outlives the inner one and fires
+        # only if the inner one wedged: inner TimeConstrained (addon_timeout)
+        # aborts first, yielding the "$Aborted" String we detect; the addon's own
+        # execute_code TimeConstrained (+5) is a margin over that; the socket read
+        # (+15) is the last resort. Passing an explicit socket timeout is REQUIRED
+        # - the default SOCKET_TIMEOUT is 180s, which would let the caller's
+        # timeout wedge the user's kernel far past the cap before the read gives up.
+        resp = conn.send_command(
+            "execute_code",
+            {"code": wrapped, "format": "text", "timeout": addon_timeout + 5},
+            addon_timeout + 15,
+        )
+    except Exception:  # noqa: BLE001 — socket/timeout/addon error -> cold
+        return None
+
+    # The wrapper always yields a String, so a healthy addon reports success and
+    # never truncates a small result; anything else means don't trust the parse.
+    if not isinstance(resp, dict) or not resp.get("success") or resp.get("truncated"):
+        return None
+    raw = resp.get("output_inputform")
+    if not isinstance(raw, str) or not (raw.startswith('"') and raw.endswith('"')):
+        return None
+    try:
+        # WL InputForm string escapes are a subset of JSON's; strict=False also
+        # tolerates literal control chars. Escapes json genuinely can't decode
+        # (e.g. \[LongName]) raise here -> cold. Non-ASCII that DOES decode may
+        # round-trip as mojibake, but the cold wolframscript path renders it the
+        # same way, so this rung stays at parity with cold rather than differing.
+        text = json.loads(raw, strict=False)
+    except (ValueError, json.JSONDecodeError):
+        return None
+    if not isinstance(text, str):
+        return None
+
+    if text.strip() == "$Aborted":
+        # The abort came from the cap, not the caller's budget. If the caller
+        # asked for more than the cap, this only proves the job is too slow for
+        # the user's front-end kernel, not that it exceeds the caller's timeout ->
+        # fall through so warm/cold get the full budget (and don't count it as an
+        # addon execution, since it's cold that will actually serve the call).
+        if timeout > ADDON_RUNG_TIMEOUT_CAP:
+            return None
+        _note_addon_execution()
+        logger.info("evaluate_wl routed through addon kernel (timed out after %ss)", addon_timeout)
+        return WLResult(
+            text="",
+            success=False,
+            execution_method="addon",
+            error=f"Evaluation timed out after {addon_timeout}s",
+            timed_out=True,
+        )
+    _note_addon_execution()
+    logger.info("evaluate_wl routed through addon kernel")
+    return WLResult(text=text.strip(), success=True, execution_method="addon")
+
+
+def evaluate_wl(code: str, timeout: int = 60, *, allow_addon_fallback: bool = False) -> WLResult:
     """Evaluate a WL expression (typically one returning an Association), warm first.
 
     Prefers the persistent kernel session; falls back to a cold ``wolframscript``
@@ -709,7 +830,24 @@ def evaluate_wl(code: str, timeout: int = 60) -> WLResult:
     so its text matches cold wolframscript stdout, letting callers reuse the same
     Association parser. Runaway warm evaluations are bounded kernel-side with
     ``TimeConstrained``.
+
+    When ``allow_addon_fallback`` is set AND the warm session is not ready (still
+    booting, or cold-forced), a call may route through the already-connected addon
+    kernel (~30ms, ``execution_method='addon'``) instead of a cold subprocess
+    (~12.5s). Opt in ONLY for calls wrapped in the scratch context (see
+    ``_scratch_block``): it redirects UNQUALIFIED names into a throwaway context,
+    so well-formed pure-math input touches no shared state. But a context-qualified
+    name in user-supplied input (e.g. ``Global`x = 5`` inside a verified step)
+    still reaches whichever kernel evaluates it - the same exposure as the addon's
+    own execute_code, and here that kernel is the user's front-end. The rung's
+    time on that kernel is capped (see ``ADDON_RUNG_TIMEOUT_CAP``). Checked before
+    ``get_kernel_session()`` so it never blocks on the ~13s creation lock.
     """
+    if allow_addon_fallback and not _warm_session_ready():
+        addon_result = _try_addon_eval(code, timeout)
+        if addon_result is not None:
+            return addon_result
+
     session = get_kernel_session()
     if session is not None:
         try:

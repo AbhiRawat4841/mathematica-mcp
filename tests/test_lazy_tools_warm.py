@@ -34,6 +34,9 @@ def _parser(text):
 @pytest.fixture
 def warm(monkeypatch):
     monkeypatch.setattr(S, "get_kernel_session", lambda: _FakeSession())
+    # A ready warm session must report ready, else opted-in pure-math tools
+    # (get_constant/convert_units/verify_derivation) would take the addon rung.
+    monkeypatch.setattr(S, "_warm_session_ready", lambda: True)
 
 
 @pytest.mark.parametrize(

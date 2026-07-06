@@ -43,7 +43,7 @@ async def _capture_verify_wl(monkeypatch, steps):
     """Run verify_derivation with a stubbed kernel that records the generated WL."""
     captured = {}
 
-    def _fake_evaluate_wl(code, timeout=60):
+    def _fake_evaluate_wl(code, timeout=60, **_kwargs):
         captured["code"] = code
         return WLResult(
             text='{"steps": [], "all_valid": true, "valid_count": 0, "total_steps": 1}',
@@ -89,7 +89,7 @@ async def test_verify_derivation_json_loads_beats_regex(monkeypatch):
     """A JSON payload with an expression-valued field parses via json.loads, which the
     old OutputForm-Association regex could not handle."""
 
-    def _fake_evaluate_wl(code, timeout=60):
+    def _fake_evaluate_wl(code, timeout=60, **_kwargs):
         payload = {
             "steps": [
                 {
@@ -150,7 +150,7 @@ async def test_run_wl_parsed_failed_result_is_not_success(monkeypatch):
     """A whole-result $Failed sanitizes to the JSON string "$Failed"; it must be
     labeled a failure, not {"success": true, "result": "$Failed"}."""
 
-    def _fake_evaluate_wl(code, timeout=60):
+    def _fake_evaluate_wl(code, timeout=60, **_kwargs):
         return WLResult(text='"$Failed"', success=True, execution_method="wolframclient")
 
     monkeypatch.setattr(S, "evaluate_wl", _fake_evaluate_wl)
@@ -162,7 +162,7 @@ async def test_run_wl_parsed_failed_result_is_not_success(monkeypatch):
 async def test_run_wl_parsed_json_first_no_parse_error(monkeypatch):
     captured = {}
 
-    def _fake_evaluate_wl(code, timeout=60):
+    def _fake_evaluate_wl(code, timeout=60, **_kwargs):
         captured["code"] = code
         return WLResult(
             text='{"success": true, "memory_in_use_mb": 123.4, "global_symbol_count": 7}',
@@ -190,7 +190,7 @@ async def test_run_wl_parsed_falls_back_to_regex_on_non_json(monkeypatch):
     """If the kernel-side JSON export failed (last-resort raw Association), the
     old regex parser still runs so behavior degrades no worse than before."""
 
-    def _fake_evaluate_wl(code, timeout=60):
+    def _fake_evaluate_wl(code, timeout=60, **_kwargs):
         return WLResult(
             text="<|success -> True, x -> 3|>",
             success=True,
