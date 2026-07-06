@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/abhirawat4841-mathematica-mcp-badge.png)](https://mseep.ai/app/abhirawat4841-mathematica-mcp)
+
 # Mathematica MCP
 
 **A front-end / notebook automation layer for Mathematica, built for AI agents.**
