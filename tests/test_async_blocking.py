@@ -283,6 +283,54 @@ def test_notebook_frontend_timeout_does_not_fall_through_to_cli(monkeypatch):
     assert payload["timing_ms"] == 305000
 
 
+def test_notebook_frontend_pending_is_surfaced_and_not_a_failure(monkeypatch):
+    """A frontend dispatch that could not observe completion returns an honest
+    ``evaluation_pending`` shape: success, no CLI fallthrough, guidance, not a failure."""
+    call_log = []
+
+    async def fake_to_thread(func, *args, **kwargs):
+        return func(*args, **kwargs)
+
+    def fake_addon(command, params=None, timeout=None):
+        call_log.append(command)
+        if command == "execute_code_notebook":
+            return {
+                "success": True,
+                "mode": "frontend",
+                "status": "evaluation_pending",
+                "evaluation_complete": False,
+                "timed_out": False,
+                "notebook_id": "nb1",
+                "cell_id": "c1",
+                "cell_id_numeric": 1,
+                "waited_seconds": 10.0,
+                "created_notebook": False,
+                "messages": [],
+                "has_errors": False,
+                "has_warnings": False,
+                "message_count": 0,
+                "message": "Evaluation dispatched to the notebook front end.",
+            }
+        return {"success": True, "output": "should not happen"}
+
+    monkeypatch.setattr(server.asyncio, "to_thread", fake_to_thread)
+    monkeypatch.setattr(server, "_try_addon_command", fake_addon)
+
+    result = asyncio.run(
+        server.execute_code(code="Pause[9]; 1", output_target="notebook", mode="frontend", max_wait=10)
+    )
+    payload = json.loads(result)
+
+    assert call_log == ["execute_code_notebook"]  # no CLI fallthrough
+    assert payload["status"] == "evaluation_pending"
+    assert payload["evaluated"] is False
+    assert payload["evaluation_complete"] is False
+    assert payload["waited_seconds"] == 10.0
+    assert "next_step" in payload
+    assert payload.get("success") is not False  # pending is not a failure
+    assert payload.get("timed_out") is not True
+
+
 def test_notebook_transport_error_does_not_fall_through_to_cli(monkeypatch):
     """Notebook transport failures should be surfaced as notebook errors, not rerun via CLI."""
     call_log = []
@@ -304,3 +352,54 @@ def test_notebook_transport_error_does_not_fall_through_to_cli(monkeypatch):
     assert payload["success"] is False
     assert payload["executed_output_target"] == "notebook"
     assert call_log == ["execute_code_notebook"]
+
+
+def _pending_addon(command_name: str):
+    """Fake addon returning the honest evaluation_pending shape for the given
+    front-end-eval command, matching the addon's cmdEvaluateCell/cmdExecuteSelection."""
+
+    def fake_addon(command, params=None, timeout=None):
+        assert command == command_name
+        return {
+            "evaluated": False,
+            "status": "evaluation_pending",
+            "evaluation_complete": False,
+            "waited_seconds": 0.2,
+            "message": "Evaluation dispatched to the notebook front end.",
+        }
+
+    return fake_addon
+
+
+def test_evaluate_cell_pending_shape_passes_through_and_is_not_failure(monkeypatch):
+    async def fake_to_thread(func, *args, **kwargs):
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(server.asyncio, "to_thread", fake_to_thread)
+    monkeypatch.setattr(server, "_try_addon_command", _pending_addon("evaluate_cell"))
+
+    payload = json.loads(asyncio.run(server.evaluate_cell(cell_id="c1")))
+
+    assert payload["evaluated"] is False
+    assert payload["status"] == "evaluation_pending"
+    assert payload["evaluation_complete"] is False
+    assert payload["waited_seconds"] == 0.2
+    # pending is not a failure
+    assert payload.get("success") is not False
+    assert payload.get("timed_out") is not True
+
+
+def test_evaluate_selection_pending_shape_passes_through_and_is_not_failure(monkeypatch):
+    async def fake_to_thread(func, *args, **kwargs):
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(server.asyncio, "to_thread", fake_to_thread)
+    monkeypatch.setattr(server, "_try_addon_command", _pending_addon("execute_selection"))
+
+    payload = json.loads(asyncio.run(server.evaluate_selection()))
+
+    assert payload["evaluated"] is False
+    assert payload["status"] == "evaluation_pending"
+    assert payload["evaluation_complete"] is False
+    assert payload.get("success") is not False
+    assert payload.get("timed_out") is not True

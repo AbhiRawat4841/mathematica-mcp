@@ -69,7 +69,7 @@ async def test_status_connected_preserves_fields(monkeypatch):
                 "success": True,
                 "connection_mode": "addon",
                 "warm_path": {"cold_executions": 0},
-                "protocol_version": 3,
+                "protocol_version": 4,
             }
         )
 
@@ -82,7 +82,7 @@ async def test_status_connected_preserves_fields(monkeypatch):
     merged = json.loads(await srv.status())
     assert merged["connection_mode"] == "addon"
     assert merged["warm_path"] == {"cold_executions": 0}
-    assert merged["protocol_version"] == 3
+    assert merged["protocol_version"] == 4
     assert merged["features"] == {"profile": "lean"}
 
 

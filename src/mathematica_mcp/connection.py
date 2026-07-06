@@ -18,7 +18,7 @@ DEFAULT_PORT = 9881
 # Bump in lockstep with $MCPProtocolVersion in addon/MathematicaMCP.wl. Users'
 # addons live in $UserBaseDirectory/Kernel/init.m and do NOT update with pip, so
 # the client detects skew and tells them to reinstall (plan §3.8).
-ADDON_PROTOCOL_VERSION = 3
+ADDON_PROTOCOL_VERSION = 4
 SOCKET_TIMEOUT = 180.0
 MAX_RESPONSE_BYTES = 20 * 1024 * 1024
 MAX_REQUEST_BYTES = 5 * 1024 * 1024

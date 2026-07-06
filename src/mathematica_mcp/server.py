@@ -983,12 +983,49 @@ async def execute_code(
                 )
 
             if result.get("success"):
+                # Frontend dispatch that could not observe completion within the
+                # in-handler poll: honest pending, not a fabricated empty success.
+                # This is NOT a failure. The eval runs in the notebook once the
+                # call returns; the agent recovers by re-reading the notebook.
+                if result.get("status") == "evaluation_pending":
+                    response = {
+                        "status": "evaluation_pending",
+                        "code": code,
+                        "notebook_id": result.get("notebook_id"),
+                        "cell_id": result.get("cell_id"),
+                        "evaluated": False,
+                        "evaluation_complete": False,
+                        "waited_seconds": result.get("waited_seconds"),
+                        "message": (
+                            result.get("message")
+                            or "Evaluation dispatched to the notebook; it runs after this call returns."
+                        ),
+                        "next_step": (
+                            "Re-check the notebook with get_cells (or screenshot_notebook) to read the "
+                            "output cell once it appears; the evaluation runs after this call returns."
+                        ),
+                        "executed_output_target": "notebook",
+                        "executed_mode": mode,
+                    }
+                    if style is not None:
+                        response["requested_style"] = style
+                    return _finalize_execute_response(
+                        response,
+                        route_variant=route_variant,
+                        execution_path="addon_notebook",
+                        fell_back=False,
+                        start_time=_exec_start,
+                        response_detail=response_detail,
+                        expression_type=_expr_type,
+                    )
+
                 response = {
                     "status": "executed_in_notebook",
                     "code": code,
                     "notebook_id": result.get("notebook_id"),
                     "cell_id": result.get("cell_id"),
                     "evaluated": True,
+                    "evaluation_complete": result.get("evaluation_complete", True),
                     "message": "Executed in notebook.",
                 }
                 if result.get("created_notebook"):

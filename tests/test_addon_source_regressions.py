@@ -50,11 +50,23 @@ def test_addon_multiline_code_parses_as_single_held_expression():
     assert "ToExpression[code, InputForm, HoldComplete]" not in source
 
 
-def test_addon_frontend_evaluation_waits_for_observed_start():
+def test_addon_frontend_eval_tools_share_honest_pending_contract():
+    """All three front-end-dispatch tools (executeCodeNotebookFrontend,
+    cmdEvaluateCell, cmdExecuteSelection) cap the in-handler poll at 0.2s and
+    return the honest evaluation_pending shape when no output cell is observed.
+    The old CurrentValue[Evaluating]/0.5s early-return heuristic is gone."""
     source = _addon_source()
 
     assert 'FrontEndTokenExecute[nb, "EvaluateCells"]' in source
-    assert "observedEvaluation" in source
+    # 0.2s grace cap in all three front-end-eval commands.
+    assert source.count("pollCap = Min[maxWait, 0.2]") == 3
+    # Honest pending status in all three.
+    assert source.count('"status" -> "evaluation_pending"') == 3
+    # evaluate_cell + execute_selection expose the evaluated:false pending flag.
+    assert source.count('"evaluated" -> False') == 2
+    # The dead-time 10s poll and the Evaluating-based heuristic are gone.
+    assert "Min[maxWait, 10" not in source
+    assert "observedEvaluation" not in source
 
 
 def test_addon_state_delta_gated_to_notebook_commands():
@@ -78,6 +90,6 @@ def test_addon_state_delta_kernel_busy_is_honest():
     assert source.count('"kernel_busy" -> False') == 2
 
 
-def test_protocol_version_3_in_lockstep():
-    assert "$MCPProtocolVersion = 3" in _addon_source()
-    assert "ADDON_PROTOCOL_VERSION = 3" in CONNECTION_SOURCE.read_text(encoding="utf-8")
+def test_protocol_version_in_lockstep():
+    assert "$MCPProtocolVersion = 4" in _addon_source()
+    assert "ADDON_PROTOCOL_VERSION = 4" in CONNECTION_SOURCE.read_text(encoding="utf-8")

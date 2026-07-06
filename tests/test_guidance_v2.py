@@ -111,7 +111,9 @@ def test_connection_surfaces_state_delta():
 
 def test_addon_source_appends_state_delta():
     wl = (Path(__file__).resolve().parents[1] / "addon" / "MathematicaMCP.wl").read_text()
-    assert "mcpStateDelta[]" in wl
-    assert '"state_delta" -> mcpStateDelta[]' in wl
+    # State delta now takes the command's resolved target notebook (not the
+    # focused notebook), so the definition and call site are parameterized.
+    assert "mcpStateDelta[nb_]" in wl
+    assert '"state_delta" -> mcpStateDelta[' in wl
     for key in ("notebook", "cell_count", "kernel_busy"):
         assert key in wl

@@ -199,8 +199,8 @@ truncateLargeResult[result_Association] := Module[
 (* ============================================================================ *)
 
 (* State delta appended to success responses of notebook-touching commands so
-   the client can track notebook focus / size without an extra round trip
-   (plan §3.6). Skipped for pure-kernel commands: SelectedNotebook[]/Cells[nb]
+   the client can track the target notebook's identity / size without an extra
+   round trip (plan §3.6). Skipped for pure-kernel commands: Cells[nb]
    cost ~3ms per call and block on front-end availability, dominating trivial
    execute_code responses. Degrades to nulls when no frontend is attached. *)
 $MCPStateDeltaCommands = {
@@ -211,11 +211,10 @@ $MCPStateDeltaCommands = {
   "batch_commands"  (* sub-commands may mutate notebooks *)
 };
 
-mcpStateDelta[] := Quiet @ Check[
-  Module[{nb, cells},
-    nb = SelectedNotebook[];
-    If[!MatchQ[nb, _NotebookObject],
-      <|"notebook" -> Null, "cell_count" -> 0, "kernel_busy" -> False|>,
+mcpStateDelta[nb_] := Quiet @ Check[
+  If[!MatchQ[nb, _NotebookObject],
+    <|"notebook" -> Null, "cell_count" -> 0, "kernel_busy" -> False|>,
+    Module[{cells},
       cells = Cells[nb];
       <|
         "notebook" -> ToString[nb],
@@ -250,7 +249,15 @@ processCommand[request_Association] := Module[
     KeyExistsQ[result, "error"] && !KeyExistsQ[result, "success"],
       <|"id" -> id, "status" -> "error", "message" -> result["error"]|>,
     MemberQ[$MCPStateDeltaCommands, command],
-      <|"id" -> id, "status" -> "success", "result" -> result, "state_delta" -> mcpStateDelta[]|>,
+      <|"id" -> id, "status" -> "success", "result" -> result,
+        (* Report the command's resolved TARGET, not the focused notebook.
+           resolveNotebook / cmdCreateNotebook set $MCPActiveNotebook to the
+           target for every single-target command. Listing/batch commands have
+           no single target, so fall back to the focused notebook. *)
+        "state_delta" -> mcpStateDelta[
+          If[MemberQ[{"get_notebooks", "batch_commands"}, command],
+            SelectedNotebook[], $MCPActiveNotebook]
+        ]|>,
     True,
       <|"id" -> id, "status" -> "success", "result" -> result|>
   ];
@@ -626,7 +633,7 @@ maybeCompressResponse[response_, params_] := Module[
 
 (* Addon protocol version — bumped when the request/response contract changes so
    a newer Python client can detect a stale addon (plan §3.8). *)
-$MCPProtocolVersion = 3;
+$MCPProtocolVersion = 4;
 
 (* V15 gate. MMCP_FORCE_V14=1 forces the <15 branch for guard testing. *)
 mcpVersionAtLeast15[] := TrueQ[$VersionNumber >= 15.] && Environment["MMCP_FORCE_V14"] =!= "1";
@@ -902,8 +909,8 @@ cmdDeleteCell[params_] := Module[{cell, nb, sessionId},
 ];
 
 cmdEvaluateCell[params_] := Module[
-  {cell, nb, maxWait, waitInterval, elapsed, syncMode, sessionId, evaluating,
-   syncWait, cellsBefore, cellsAfter, observedEvaluation},
+  {cell, nb, maxWait, waitInterval, elapsed, syncMode, sessionId,
+   pollCap, cellsBefore, cellsAfter, gotNewCell},
   sessionId = Lookup[params, "session_id", None];
   nb = resolveNotebook[Lookup[params, "notebook", None], sessionId];
   cell = resolveCellObject[Lookup[params, "cell_id", None], nb];
@@ -914,47 +921,53 @@ cmdEvaluateCell[params_] := Module[
   maxWait = Lookup[params, "max_wait", 10];
   waitInterval = 0.05;
   syncMode = resolveSyncMode[params];
-  syncWait = Lookup[params, "sync_wait", 2];
 
+  (* Front-end evaluation shares this socket handler's kernel main link, so the
+     dispatched cell cannot progress while we poll (measured on 14.x/15.0: no
+     output cell and no Evaluating flag until the handler returns). Cap the poll
+     at a 0.2s grace for hypothetical front-end configs that can yield mid-eval;
+     otherwise return the honest pending contract and let callers re-check via
+     get_cell_content / get_cells rather than reporting a fabricated success. *)
+  pollCap = Min[maxWait, 0.2];
   cellsBefore = Quiet[Check[Length[Cells[nb]], 0]];
   cellsAfter = cellsBefore;
-  observedEvaluation = False;
   SelectionMove[cell, All, Cell];
   FrontEndTokenExecute[nb, "EvaluateCells"];
 
   elapsed = 0;
-  While[elapsed < maxWait,
+  gotNewCell = False;
+  While[elapsed < pollCap,
     Pause[waitInterval];
     elapsed += waitInterval;
-    evaluating = Quiet[Check[CurrentValue[nb, Evaluating], False]];
     cellsAfter = Quiet[Check[Length[Cells[nb]], cellsBefore]];
-    If[TrueQ[evaluating] || cellsAfter > cellsBefore, observedEvaluation = True];
-    If[observedEvaluation && !TrueQ[evaluating], Break[]];
-    If[!observedEvaluation && elapsed >= Min[0.5, maxWait], Break[]];
+    If[cellsAfter > cellsBefore, gotNewCell = True; Break[]];
   ];
 
   If[syncMode =!= "none",
     FrontEndTokenExecute[nb, "Refresh"];
     Pause[0.05];
   ];
-  If[syncMode === "strict",
-    Module[{elapsedSync = 0, interval = 0.05},
-      While[elapsedSync < syncWait,
-        Pause[interval];
-        elapsedSync += interval;
-        evaluating = Quiet[Check[CurrentValue[nb, Evaluating], False]];
-        cellsAfter = Quiet[Check[Length[Cells[nb]], cellsAfter]];
-        If[TrueQ[evaluating] || cellsAfter > cellsBefore, observedEvaluation = True];
-        If[observedEvaluation && !TrueQ[evaluating], Break[]];
-      ];
-    ]
-  ];
 
-  <|
-    "evaluated" -> True,
-    "cell" -> ToString[cell, InputForm],
-    "waited_seconds" -> elapsed
-  |>
+  If[gotNewCell,
+    (* Output cell observed: evaluation actually completed. Dead on current
+       Mathematica (the poll never sees this) but kept for yielding front ends. *)
+    <|
+      "evaluated" -> True,
+      "evaluation_complete" -> True,
+      "cell" -> ToString[cell, InputForm],
+      "waited_seconds" -> elapsed
+    |>,
+    (* No output cell within the poll window: honest pending. Dispatch succeeded;
+       the eval runs once this handler returns and its Out cell then appears. *)
+    <|
+      "evaluated" -> False,
+      "status" -> "evaluation_pending",
+      "evaluation_complete" -> False,
+      "cell" -> ToString[cell, InputForm],
+      "waited_seconds" -> elapsed,
+      "message" -> "Evaluation dispatched to the notebook front end. It runs after this call returns, so its output is not visible yet. Re-check this cell with get_cell_content (or the notebook with get_cells) to read the result once it appears."
+    |>
+  ]
 ];
 
 (* ============================================================================ *)
@@ -1098,47 +1111,58 @@ cmdExecuteCode[params_] := Module[
   ]
 ];
 
-cmdExecuteSelection[params_] := Module[{nb, maxWait, waitInterval, elapsed, syncMode, sessionId, evaluating, cellsBefore, cellsAfter, syncWait},
+cmdExecuteSelection[params_] := Module[{nb, maxWait, waitInterval, elapsed, syncMode, sessionId, pollCap, cellsBefore, cellsAfter, gotNewCell},
   sessionId = Lookup[params, "session_id", None];
   nb = resolveNotebook[Lookup[params, "notebook", None], sessionId];
   maxWait = Lookup[params, "max_wait", 10];
   waitInterval = 0.05;
   syncMode = resolveSyncMode[params];
-  syncWait = Lookup[params, "sync_wait", 2];
 
+  (* Same single-link constraint as cmdEvaluateCell: the dispatched selection
+     cannot progress while this handler polls (measured on 14.x/15.0). Cap at a
+     0.2s grace, then return the honest pending contract for callers to re-check
+     via get_cells rather than reporting a fabricated success. *)
+  pollCap = Min[maxWait, 0.2];
   cellsBefore = Quiet[Check[Length[Cells[nb]], 0]];
+  cellsAfter = cellsBefore;
   FrontEndTokenExecute["EvaluateCells"];
 
   elapsed = 0;
-  While[elapsed < maxWait,
+  gotNewCell = False;
+  While[elapsed < pollCap,
     Pause[waitInterval];
     elapsed += waitInterval;
-    evaluating = Quiet[Check[CurrentValue[nb, Evaluating], False]];
-    If[!TrueQ[evaluating], Break[]];
+    cellsAfter = Quiet[Check[Length[Cells[nb]], cellsBefore]];
+    If[cellsAfter > cellsBefore, gotNewCell = True; Break[]];
   ];
 
   If[syncMode =!= "none",
     FrontEndTokenExecute[nb, "Refresh"];
     Pause[0.05];
   ];
-  If[syncMode === "strict",
-    Module[{elapsedSync = 0, interval = 0.05},
-      While[elapsedSync < syncWait,
-        Pause[interval];
-        elapsedSync += interval;
-        evaluating = Quiet[Check[CurrentValue[nb, Evaluating], False]];
-        If[!TrueQ[evaluating], Break[]];
-      ];
-    ]
-  ];
-
   cellsAfter = Quiet[Check[Length[Cells[nb]], cellsBefore]];
-  <|
-    "evaluated" -> True,
-    "waited_seconds" -> elapsed,
-    "cells_before" -> cellsBefore,
-    "cells_after" -> cellsAfter
-  |>
+
+  If[gotNewCell,
+    (* Output cell observed: completed. Dead on current Mathematica, kept for
+       yielding front ends. *)
+    <|
+      "evaluated" -> True,
+      "evaluation_complete" -> True,
+      "waited_seconds" -> elapsed,
+      "cells_before" -> cellsBefore,
+      "cells_after" -> cellsAfter
+    |>,
+    (* No output cell within the poll window: honest pending. *)
+    <|
+      "evaluated" -> False,
+      "status" -> "evaluation_pending",
+      "evaluation_complete" -> False,
+      "waited_seconds" -> elapsed,
+      "cells_before" -> cellsBefore,
+      "cells_after" -> cellsAfter,
+      "message" -> "Selection dispatched to the notebook front end. It runs after this call returns, so its output is not visible yet. Re-check the notebook with get_cells to read the result once it appears."
+    |>
+  ]
 ];
 
 cmdBatchCommands[params_] := Module[{commands, results},
@@ -1343,7 +1367,7 @@ executeCodeNotebookKernel[nb_, code_, timeout_, syncMode_, createdNew_, sessionI
 
 executeCodeNotebookFrontend[nb_, code_, maxWait_, timeout_, syncMode_, createdNew_, sessionId_, deterministicSeed_, isolateContext_, syncWait_] := Module[
   {cell, cellsBefore, cellsAfter, waitInterval, elapsed, inputCellId, inputCellObj, execCode,
-   ctx, effectiveWait, gotNewCell, evaluating, observedEvaluation},
+   ctx, pollCap, gotNewCell},
 
   cellsBefore = Length[Cells[nb]];
 
@@ -1366,8 +1390,19 @@ executeCodeNotebookFrontend[nb_, code_, maxWait_, timeout_, syncMode_, createdNe
   inputCellObj = Quiet@Check[First[Cells[nb, CellID -> inputCellId]], None];
   cell = If[inputCellObj === None, Last[Cells[nb, CellStyle -> "Input"]], inputCellObj];
 
-  (* Use timeout as the wait cap when provided, otherwise fall back to maxWait *)
-  effectiveWait = If[NumberQ[timeout], timeout + 5, maxWait];
+  (* Front-end evaluations run on the same kernel main link as this socket
+     handler, so while we poll the dispatched cell cannot progress (measured on
+     14.x/15.0: no output cell and no Evaluating flag until the handler returns).
+     The in-handler poll therefore cannot observe front-end completion on current
+     Mathematica. We keep it bounded and honest: break the instant an output cell
+     appears (only reachable on hypothetical front-end configs that yield
+     mid-eval) and otherwise return an explicit "evaluation_pending" contract for
+     callers to re-check via cells/get_cells, rather than a fabricated empty
+     success.
+     ponytail: 0.2s grace ceiling. A longer poll buys nothing (completion is
+     unobservable here) and would stall every other command plus the user's own
+     evaluations on this single-threaded handler for the whole window. *)
+  pollCap = Min[maxWait, 0.2];
 
   waitInterval = 0.05;
   SelectionMove[cell, All, Cell];
@@ -1375,19 +1410,15 @@ executeCodeNotebookFrontend[nb_, code_, maxWait_, timeout_, syncMode_, createdNe
 
   elapsed = 0;
   gotNewCell = False;
-  observedEvaluation = False;
-  While[elapsed < effectiveWait,
+  While[elapsed < pollCap,
     Pause[waitInterval];
     elapsed += waitInterval;
-    evaluating = Quiet[Check[CurrentValue[nb, Evaluating], False]];
     cellsAfter = Quiet[Check[Length[Cells[nb]], cellsBefore + 1]];
-    If[TrueQ[evaluating] || cellsAfter > cellsBefore + 1, observedEvaluation = True];
-    If[observedEvaluation && !TrueQ[evaluating], Break[]];
-    If[!observedEvaluation && elapsed >= Min[0.5, effectiveWait], Break[]];
+    If[cellsAfter > cellsBefore + 1, gotNewCell = True; Break[]];
   ];
-  (* After evaluation completes, give FrontEnd a moment to finalize output cell *)
-  Pause[0.05];
-  cellsAfter = Length[Cells[nb]];
+  (* If an output cell just appeared, give the FrontEnd a moment to finalize it *)
+  If[gotNewCell, Pause[0.05]];
+  cellsAfter = Quiet[Check[Length[Cells[nb]], cellsBefore]];
   gotNewCell = cellsAfter > cellsBefore + 1;
 
   If[syncMode =!= "none",
@@ -1444,31 +1475,41 @@ executeCodeNotebookFrontend[nb_, code_, maxWait_, timeout_, syncMode_, createdNe
     hasErrors = Length[Select[messages, #["type"] == "error" &]] > 0;
     hasWarnings = Length[Select[messages, #["type"] == "warning" &]] > 0;
 
-    Module[{timedOut, preview},
+    Module[{timedOut, preview, base},
       preview = StringTake[outputText, UpTo[1000]];
-      (* Detect timeout only when timeout was requested:
-         - New output cell contains $Aborted (TimeConstrained fired), OR
-         - Poll loop exhausted without any new output cell appearing *)
-      timedOut = NumberQ[timeout] && (
-        StringContainsQ[preview, "$Aborted"] ||
-        (!gotNewCell && elapsed >= effectiveWait)
-      );
-
-      <|
-        "success" -> !timedOut,
+      base = <|
         "mode" -> "frontend",
         "notebook_id" -> ToString[nb, InputForm],
         "cell_id" -> If[inputCellObj === None, ToString[cell, InputForm], ToString[inputCellObj, InputForm]],
         "cell_id_numeric" -> inputCellId,
         "waited_seconds" -> elapsed,
         "created_notebook" -> createdNew,
-        "timed_out" -> timedOut,
         "messages" -> messages,
         "has_errors" -> hasErrors,
         "has_warnings" -> hasWarnings,
-        "message_count" -> Length[messages],
-        "output_preview" -> preview
-      |>
+        "message_count" -> Length[messages]
+      |>;
+      If[gotNewCell,
+        (* Output cell observed: evaluation actually completed. A $Aborted cell
+           means the requested timeout fired (TimeConstrained). *)
+        timedOut = NumberQ[timeout] && StringContainsQ[preview, "$Aborted"];
+        Join[base, <|
+          "success" -> !timedOut,
+          "timed_out" -> timedOut,
+          "evaluation_complete" -> True,
+          "output_preview" -> preview
+        |>],
+        (* No output cell within the poll window: honest pending. Dispatch
+           succeeded; the eval runs once this handler returns and its Out cell
+           will then appear in the notebook. Do not fabricate an empty output. *)
+        Join[base, <|
+          "success" -> True,
+          "timed_out" -> False,
+          "status" -> "evaluation_pending",
+          "evaluation_complete" -> False,
+          "message" -> "Evaluation dispatched to the notebook front end. It runs after this call returns, so its output cell is not visible yet. Re-check this notebook with get_cells (or screenshot_notebook) to read the result once it appears."
+        |>]
+      ]
     ]
   ]
 ];
