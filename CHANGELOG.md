@@ -52,6 +52,13 @@ All notable changes to this project will be documented in this file.
 - Repo hygiene: draft docs moved out of the repo root to `docs/drafts/` (untracked); removed two tracked test fossils (`tests/TEST_SUMMARY.md`, `tests/demo_error_detection.py`).
 - `__init__.__version__` synced with `pyproject.toml` (0.9.5 → 1.0.0); enforced by a version-sync test.
 
+## [0.9.5] - 2026-07-03
+
+### Fixed
+
+- **Windows path escaping**: backslashes in Windows paths broke the generated Wolfram Language in `addon/install.wl` (the `init.m` load entry) and `session.py` temp-file paths; paths are now normalized before interpolation. (Community contribution by @lecojari.)
+- **Addon robustness for open-notebook flows**: `get_status` no longer fails when `SystemInformation["FrontEnd"]` is unavailable (reports `"Unavailable"` instead); notebook listing and creation are guarded against an invalid front-end state; the `MATHEMATICA_MCP_TOKEN` auth token is read defensively from the environment.
+
 ## [0.9.4] - 2026-04-09
 
 ### Fixed
