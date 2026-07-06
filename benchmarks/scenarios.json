@@ -3,60 +3,104 @@
     "id": "pure_symbolic_result",
     "prompt": "Integrate x^2 from 0 to 1 and return the exact result.",
     "preferred_tools": ["execute_code"],
-    "forbidden_sequences": []
+    "forbidden_sequences": [],
+    "lean_preferred_tools": ["evaluate"],
+    "lean_forbidden_sequences": []
   },
   {
     "id": "multi_step_symbolic_context",
     "prompt": "Define f[x_] := x^3 - 2 x, solve f[x] == 0, and keep the context for a follow-up.",
     "preferred_tools": ["execute_code"],
-    "forbidden_sequences": []
+    "forbidden_sequences": [],
+    "lean_preferred_tools": ["evaluate"],
+    "lean_forbidden_sequences": []
   },
   {
     "id": "plot_surface",
     "prompt": "Plot Sin[x] from 0 to 2 Pi in a notebook.",
     "preferred_tools": ["execute_code", "screenshot_notebook"],
-    "forbidden_sequences": [["create_notebook", "write_cell", "evaluate_cell"]]
+    "forbidden_sequences": [["create_notebook", "write_cell", "evaluate_cell"]],
+    "lean_preferred_tools": ["evaluate", "screenshot"],
+    "lean_forbidden_sequences": [["notebooks", "edit_cells", "evaluate"]]
   },
   {
     "id": "plot_and_save",
     "prompt": "Create a plot, save the notebook, and export it as PDF.",
     "preferred_tools": ["execute_code", "save_notebook", "export_notebook"],
-    "forbidden_sequences": [["create_notebook", "write_cell", "evaluate_cell"]]
+    "forbidden_sequences": [["create_notebook", "write_cell", "evaluate_cell"]],
+    "lean_preferred_tools": ["evaluate", "notebooks"],
+    "lean_forbidden_sequences": [["notebooks", "edit_cells", "evaluate"]]
   },
   {
     "id": "open_and_summarize_notebook",
     "prompt": "Open a notebook file and summarize its methods section.",
     "preferred_tools": ["open_notebook_file", "read_notebook"],
-    "forbidden_sequences": [["parse_notebook_python", "get_notebook_cell"]]
+    "forbidden_sequences": [["parse_notebook_python", "get_notebook_cell"]],
+    "lean_preferred_tools": ["read_notebook_file"],
+    "lean_forbidden_sequences": [["notebooks", "cells", "cells", "cells"]]
   },
   {
     "id": "re_evaluate_existing_cell",
     "prompt": "Re-run the existing input cell that produced the last plot.",
     "preferred_tools": ["evaluate_cell", "evaluate_selection"],
-    "forbidden_sequences": []
+    "forbidden_sequences": [],
+    "lean_preferred_tools": ["cells", "evaluate"],
+    "lean_forbidden_sequences": []
   },
   {
     "id": "function_lookup",
     "prompt": "Find the Mathematica function for a matrix exponential and show an example.",
     "preferred_tools": ["resolve_function", "get_symbol_info"],
-    "forbidden_sequences": []
+    "forbidden_sequences": [],
+    "lean_preferred_tools": ["kernel", "evaluate"],
+    "lean_forbidden_sequences": []
   },
   {
     "id": "unit_conversion",
     "prompt": "Convert 5 miles to kilometers.",
     "preferred_tools": ["convert_units"],
-    "forbidden_sequences": []
+    "forbidden_sequences": [],
+    "lean_preferred_tools": ["evaluate"],
+    "lean_forbidden_sequences": []
   },
   {
     "id": "long_running_job",
     "prompt": "Run a long optimization that may take several minutes.",
     "preferred_tools": ["submit_computation", "poll_computation", "get_computation_result"],
-    "forbidden_sequences": []
+    "forbidden_sequences": [],
+    "lean_preferred_tools": ["evaluate"],
+    "lean_forbidden_sequences": []
   },
   {
     "id": "derivation_check",
     "prompt": "Check whether this derivation is valid.",
     "preferred_tools": ["verify_derivation"],
-    "forbidden_sequences": []
+    "forbidden_sequences": [],
+    "lean_preferred_tools": ["verify_derivation"],
+    "lean_forbidden_sequences": []
+  },
+  {
+    "id": "error_recovery_bad_syntax",
+    "prompt": "Evaluate this code and fix it if it fails: Integrate[x^2, {x, 0, 1]",
+    "preferred_tools": ["check_syntax", "get_messages", "execute_code"],
+    "forbidden_sequences": [["execute_code", "execute_code", "execute_code"]],
+    "lean_preferred_tools": ["evaluate", "kernel"],
+    "lean_forbidden_sequences": [["evaluate", "evaluate", "evaluate", "evaluate"]]
+  },
+  {
+    "id": "error_recovery_unknown_cursor",
+    "prompt": "Continue reading the long cell listing from before; the pagination cursor you saved may have expired.",
+    "preferred_tools": ["get_cells"],
+    "forbidden_sequences": [],
+    "lean_preferred_tools": ["cells"],
+    "lean_forbidden_sequences": [["cells", "cells", "cells", "cells"]]
+  },
+  {
+    "id": "error_recovery_addon_down",
+    "prompt": "Take a notebook screenshot; the Mathematica front-end addon may not be running.",
+    "preferred_tools": ["get_mathematica_status", "screenshot_notebook"],
+    "forbidden_sequences": [["screenshot_notebook", "screenshot_notebook", "screenshot_notebook"]],
+    "lean_preferred_tools": ["status", "screenshot"],
+    "lean_forbidden_sequences": [["screenshot", "screenshot", "screenshot"]]
   }
 ]

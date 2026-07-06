@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import argparse
 import json
 import statistics
-import sys
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
@@ -26,7 +26,9 @@ def _contains_sequence(tools: list[str], sequence: list[str]) -> bool:
     return any(tools[index : index + len(sequence)] == sequence for index in range(len(tools) - len(sequence) + 1))
 
 
-def _score(rows: list[dict[str, Any]], scenarios: dict[str, dict[str, Any]]) -> dict[str, Any]:
+def _score(
+    rows: list[dict[str, Any]], scenarios: dict[str, dict[str, Any]], profile: str = "classic"
+) -> dict[str, Any]:
     tool_counts = []
     first_useful = []
     total_times = []
@@ -45,7 +47,8 @@ def _score(rows: list[dict[str, Any]], scenarios: dict[str, dict[str, Any]]) -> 
         if row.get("success"):
             success_total += 1
 
-        forbidden_sequences = scenario.get("forbidden_sequences", [])
+        forbidden_key = "lean_forbidden_sequences" if profile == "lean" else "forbidden_sequences"
+        forbidden_sequences = scenario.get(forbidden_key, [])
         hit_anti_pattern = any(_contains_sequence(tools, sequence) for sequence in forbidden_sequences)
         if hit_anti_pattern:
             anti_patterns += 1
@@ -70,18 +73,19 @@ def _score(rows: list[dict[str, Any]], scenarios: dict[str, dict[str, Any]]) -> 
 
 
 def main() -> None:
-    if len(sys.argv) != 3:
-        raise SystemExit("Usage: python benchmarks/score_trace_corpus.py BASELINE.jsonl UPDATED.jsonl")
+    parser = argparse.ArgumentParser(description="Score trace corpora against benchmarks/scenarios.json")
+    parser.add_argument("baseline", type=Path)
+    parser.add_argument("updated", type=Path)
+    parser.add_argument("--profile", choices=["classic", "lean"], default="classic")
+    opts = parser.parse_args()
 
-    baseline_path = Path(sys.argv[1])
-    updated_path = Path(sys.argv[2])
     scenarios = {row["id"]: row for row in json.loads(SCENARIOS_PATH.read_text())}
 
-    baseline_rows = _load_jsonl(baseline_path)
-    updated_rows = _load_jsonl(updated_path)
+    baseline_rows = _load_jsonl(opts.baseline)
+    updated_rows = _load_jsonl(opts.updated)
 
-    baseline = _score(baseline_rows, scenarios)
-    updated = _score(updated_rows, scenarios)
+    baseline = _score(baseline_rows, scenarios, opts.profile)
+    updated = _score(updated_rows, scenarios, opts.profile)
 
     report = {
         "baseline": baseline,

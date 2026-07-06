@@ -46,8 +46,12 @@ async def _collect_profile(profile: str) -> ProfileSurface:
 
 
 async def main() -> None:
+    profiles = [asdict(await _collect_profile(profile)) for profile in VALID_PROFILES]
+    # _collect_profile mutated MATHEMATICA_PROFILE; clear it so "defaults" reflects
+    # the true unset-env default (lean at 1.0).
+    os.environ.pop("MATHEMATICA_PROFILE", None)
     report = {
-        "profiles": [asdict(await _collect_profile(profile)) for profile in VALID_PROFILES],
+        "profiles": profiles,
         "defaults": FeatureFlags.from_env().to_dict(),
     }
     print(json.dumps(report, indent=2))
