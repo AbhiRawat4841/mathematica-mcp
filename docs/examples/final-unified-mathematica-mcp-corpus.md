@@ -105,8 +105,8 @@ These tests are intentionally tool-first. They should run before the larger Wolf
 | TOOL-NB-11 | notebook | frontend | `get_notebook_info` | created notebook id | Structural: title matches and `cell_count=0` for a fresh notebook |
 | TOOL-NB-12 | full | frontend | `write_cell` | write `1 + 1` as `Input` with `sync="strict"` | Structural: `written=true` and a `cell_id` is returned |
 | TOOL-NB-13 | notebook | frontend | `get_cells` | created notebook, `include_content=true` | Structural: at least one cell exists and includes an `Input` cell preview for `1 + 1` |
-| TOOL-NB-14 | full | frontend | `evaluate_cell` | evaluate the written `Input` cell | Structural: `evaluated=true` |
-| TOOL-NB-15 | full | frontend | `select_cell` then `evaluate_selection` | select the input cell, then evaluate selection | Structural: `selected=true`; evaluation reports success without transport failure |
+| TOOL-NB-14 | full | frontend | `evaluate_cell` | evaluate the written `Input` cell | Structural: `status="evaluation_pending"` with `evaluated=false` (protocol 4 pending contract; the output cell lands after the call returns - confirm via `get_cells`) |
+| TOOL-NB-15 | full | frontend | `select_cell` then `evaluate_selection` | select the input cell, then evaluate selection | Structural: `selected=true`; evaluation returns the pending contract without transport failure (output confirmed via `get_cells`) |
 | TOOL-NB-16 | full | frontend | `scroll_to_cell` | scroll to the written cell | Exact/structural: `scrolled=true` |
 | TOOL-NB-17 | notebook | frontend | `screenshot_cell` | screenshot the written cell | Artifact: non-empty image payload is returned |
 | TOOL-NB-18 | notebook | frontend | `save_notebook` | save created notebook to `/tmp/corpus-validation.nb` | Artifact: `saved=true`; file exists and is non-empty |

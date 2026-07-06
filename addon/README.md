@@ -68,7 +68,7 @@ MathematicaMCP`Private`$MCPDebug = True;
 
 ## Command Protocol
 
-Success responses of notebook-touching commands (`create_notebook`, `write_cell`, `evaluate_cell`, `get_cells`, `batch_commands`, ...) additionally carry a `state_delta` field: `{"notebook": ..., "cell_count": ..., "kernel_busy": ...}` where `kernel_busy` reflects the focused notebook's `Evaluating` state. Pure-kernel commands omit it for speed.
+Success responses of notebook-touching commands (`create_notebook`, `write_cell`, `evaluate_cell`, `get_cells`, `batch_commands`, ...) additionally carry a `state_delta` field: `{"notebook": ..., "cell_count": ..., "kernel_busy": ...}` where `kernel_busy` reflects the command's target notebook's `Evaluating` state (protocol 4; it cannot observe an in-flight front-end evaluation from the socket handler - use the `evaluation_pending`/`evaluation_complete` fields for progress). Pure-kernel commands omit it for speed.
 
 Commands are sent as JSON over TCP:
 
@@ -187,7 +187,7 @@ The addon uses two distinct kernel links for evaluation:
 
 `execute_code_notebook` supports two modes:
 - **`mode="kernel"`** (default): Evaluates code directly on the preemptive link using `AbsoluteTiming`, writes the output cell manually. No polling. Fastest path (~50ms).
-- **`mode="frontend"`**: Dispatches via `FrontEndTokenExecute["EvaluateCells"]` to the main link, then polls `CurrentValue[nb, Evaluating]` until complete. Required for `Manipulate`, `Dynamic`, and other FrontEnd-dependent content (~130ms).
+- **`mode="frontend"`**: Dispatches via `FrontEndTokenExecute["EvaluateCells"]` to the main link and returns quickly (in-handler wait capped at 0.2s; the front end cannot complete while the handler runs). The normal response is `status: "evaluation_pending"` with `evaluation_complete: false` - the evaluation runs after the call returns and its output cell lands in the notebook (re-check with `get_cells`). Required for `Manipulate`, `Dynamic`, and other FrontEnd-dependent content. `evaluate_cell` and `evaluate_selection` follow the same pending contract (protocol 4).
 
 ## Troubleshooting
 
