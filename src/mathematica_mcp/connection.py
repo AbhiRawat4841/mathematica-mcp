@@ -12,6 +12,11 @@ logger = logging.getLogger("mathematica_mcp.connection")
 
 DEFAULT_HOST = "localhost"
 DEFAULT_PORT = 9881
+
+# Bump in lockstep with $MCPProtocolVersion in addon/MathematicaMCP.wl. Users'
+# addons live in $UserBaseDirectory/Kernel/init.m and do NOT update with pip, so
+# the client detects skew and tells them to reinstall (plan §3.8).
+ADDON_PROTOCOL_VERSION = 3
 SOCKET_TIMEOUT = 180.0
 MAX_RESPONSE_BYTES = 20 * 1024 * 1024
 MAX_REQUEST_BYTES = 5 * 1024 * 1024
@@ -139,7 +144,12 @@ class MathematicaConnection:
                     error_msg = response.get("message", "Unknown error from Mathematica")
                     raise RuntimeError(f"Mathematica error: {error_msg}")
 
-                return response.get("result", {})
+                result = response.get("result", {})
+                # Surface the addon's per-response state delta (plan §3.6) into
+                # the result dict so callers can pass it through.
+                if isinstance(result, dict) and "state_delta" in response:
+                    result.setdefault("state_delta", response["state_delta"])
+                return result
 
             except TimeoutError:
                 self._last_error = "Timeout waiting for Mathematica response"

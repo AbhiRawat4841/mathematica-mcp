@@ -198,6 +198,35 @@ truncateLargeResult[result_Association] := Module[
 (* COMMAND DISPATCHER                                                           *)
 (* ============================================================================ *)
 
+(* State delta appended to success responses of notebook-touching commands so
+   the client can track notebook focus / size without an extra round trip
+   (plan §3.6). Skipped for pure-kernel commands: SelectedNotebook[]/Cells[nb]
+   cost ~3ms per call and block on front-end availability, dominating trivial
+   execute_code responses. Degrades to nulls when no frontend is attached. *)
+$MCPStateDeltaCommands = {
+  "create_notebook", "close_notebook", "save_notebook", "open_notebook_file",
+  "write_cell", "delete_cell", "evaluate_cell", "execute_code_notebook",
+  "execute_selection", "select_cell", "scroll_to_cell",
+  "get_notebooks", "get_notebook_info", "get_cells",
+  "batch_commands"  (* sub-commands may mutate notebooks *)
+};
+
+mcpStateDelta[] := Quiet @ Check[
+  Module[{nb, cells},
+    nb = SelectedNotebook[];
+    If[!MatchQ[nb, _NotebookObject],
+      <|"notebook" -> Null, "cell_count" -> 0, "kernel_busy" -> False|>,
+      cells = Cells[nb];
+      <|
+        "notebook" -> ToString[nb],
+        "cell_count" -> If[ListQ[cells], Length[cells], 0],
+        "kernel_busy" -> TrueQ[Quiet[CurrentValue[nb, Evaluating]]]
+      |>
+    ]
+  ],
+  <|"notebook" -> Null, "cell_count" -> 0, "kernel_busy" -> False|>
+];
+
 processCommand[request_Association] := Module[
   {id, command, params, token, result, response},
 
@@ -217,9 +246,13 @@ processCommand[request_Association] := Module[
   (* Safety net: truncate oversized string fields before serialization *)
   result = truncateLargeResult[result];
 
-  response = If[KeyExistsQ[result, "error"] && !KeyExistsQ[result, "success"],
-    <|"id" -> id, "status" -> "error", "message" -> result["error"]|>,
-    <|"id" -> id, "status" -> "success", "result" -> result|>
+  response = Which[
+    KeyExistsQ[result, "error"] && !KeyExistsQ[result, "success"],
+      <|"id" -> id, "status" -> "error", "message" -> result["error"]|>,
+    MemberQ[$MCPStateDeltaCommands, command],
+      <|"id" -> id, "status" -> "success", "result" -> result, "state_delta" -> mcpStateDelta[]|>,
+    True,
+      <|"id" -> id, "status" -> "success", "result" -> result|>
   ];
 
   maybeCompressResponse[response, params]
@@ -591,10 +624,30 @@ maybeCompressResponse[response_, params_] := Module[
 (* STATUS COMMANDS                                                              *)
 (* ============================================================================ *)
 
+(* Addon protocol version — bumped when the request/response contract changes so
+   a newer Python client can detect a stale addon (plan §3.8). *)
+$MCPProtocolVersion = 3;
+
+(* V15 gate. MMCP_FORCE_V14=1 forces the <15 branch for guard testing. *)
+mcpVersionAtLeast15[] := TrueQ[$VersionNumber >= 15.] && Environment["MMCP_FORCE_V14"] =!= "1";
+
+(* Options for an agent-created notebook. On >=15 the chat sidebar is suppressed
+   unless show_chatbar->True is passed. Pure + FE-free so it is unit-testable. *)
+mcpNotebookOptions[params_Association] := Module[{title, showChatbar, opts},
+  title = Lookup[params, "title", "Untitled"];
+  showChatbar = Lookup[params, "show_chatbar", False];
+  opts = {WindowTitle -> title};
+  If[mcpVersionAtLeast15[] && showChatbar =!= True,
+    AppendTo[opts, ShowChatbar -> False]
+  ];
+  opts
+];
+
 cmdPing[_] := <|
-  "pong" -> True, 
+  "pong" -> True,
   "timestamp" -> DateString["ISODateTime"],
-  "version" -> "0.1.0"
+  "version" -> "0.1.0",
+  "protocol_version" -> $MCPProtocolVersion
 |>;
 
 cmdGetStatus[_] := Module[{frontEndInfo, frontEndVersion, nbs},
@@ -611,7 +664,8 @@ cmdGetStatus[_] := Module[{frontEndInfo, frontEndVersion, nbs},
     "system_id" -> $SystemID,
     "notebooks_open" -> Length[nbs],
     "mcp_server_running" -> ($MCPListener =!= None),
-    "mcp_port" -> $MCPPort
+    "mcp_port" -> $MCPPort,
+    "protocol_version" -> $MCPProtocolVersion
   |>
 ];
 
@@ -674,7 +728,7 @@ cmdGetNotebookInfo[params_] := Module[{nb, cells, sessionId, cellStyles, titleVa
 cmdCreateNotebook[params_] := Module[{nb, title, sessionId},
   title = Lookup[params, "title", "Untitled"];
   sessionId = Lookup[params, "session_id", None];
-  nb = Quiet[Check[CreateDocument[{}, WindowTitle -> title], $Failed]];
+  nb = Quiet[Check[CreateDocument[{}, Sequence @@ mcpNotebookOptions[params]], $Failed]];
   If[!validNotebookQ[nb],
     Return[<|"error" -> "Failed to create notebook. Mathematica front end may not be active."|>]
   ];
@@ -717,7 +771,7 @@ cmdCloseNotebook[params_] := Module[{nb, sessionId},
 (* CELL COMMANDS                                                                *)
 (* ============================================================================ *)
 
-cmdGetCells[params_] := Module[{nb, style, cells, sessionId, offset, limit, includeContent, total, start, end, slice, returnMeta, cellAssocs},
+cmdGetCells[params_] := Module[{nb, style, cells, sessionId, offset, limit, includeContent, total, start, end, slice, cellAssocs},
   sessionId = Lookup[params, "session_id", None];
   nb = resolveNotebook[Lookup[params, "notebook", None], sessionId];
   If[nb === None || !validNotebookQ[nb],
@@ -725,10 +779,12 @@ cmdGetCells[params_] := Module[{nb, style, cells, sessionId, offset, limit, incl
   ];
   
   style = Lookup[params, "style", None];
-  offset = Max[0, Lookup[params, "offset", 0]];
-  limit = Lookup[params, "limit", None];
+  (* Coerce to safe integers: a non-integer offset/limit (JSON null, float, or
+     string from a raw socket client) would otherwise leave Max[0, Null] held and
+     produce degenerate JSON. Non-integer offset -> 0; non-integer limit -> None. *)
+  offset = Max[0, With[{o = Lookup[params, "offset", 0]}, If[IntegerQ[o], o, 0]]];
+  limit = With[{l = Lookup[params, "limit", None]}, If[IntegerQ[l], l, None]];
   includeContent = Lookup[params, "include_content", True];
-  returnMeta = KeyExistsQ[params, "offset"] || KeyExistsQ[params, "limit"] || KeyExistsQ[params, "include_content"];
 
   cells = Quiet[Check[
     If[style === None || style === Null,
@@ -749,19 +805,22 @@ cmdGetCells[params_] := Module[{nb, style, cells, sessionId, offset, limit, incl
     Function[{cell},
       Quiet[Check[cellToAssoc[cell, includeContent], <|"id" -> "error", "style" -> "Unknown", "error" -> "Failed to read cell"|>]]
     ],
-    If[returnMeta, slice, cells]
+    slice
   ];
 
-  If[!returnMeta,
-    cellAssocs,
-    <|
-      "count" -> Length[slice],
-      "total" -> total,
-      "offset" -> offset,
-      "limit" -> If[limit === None, Null, limit],
-      "cells" -> cellAssocs
-    |>
-  ]
+  (* Always return an Association. The response wrapper (dispatchCommand) rejects
+     any non-Association result with "unexpected result head: List", so returning
+     a bare List here broke get_cells for every client that omitted the
+     offset/limit/include_content params. With default offset=0 and limit=None,
+     slice covers all cells, so callers still receive the full cell list. *)
+  <|
+    "success" -> True,
+    "count" -> Length[slice],
+    "total" -> total,
+    "offset" -> offset,
+    "limit" -> If[limit === None, Null, limit],
+    "cells" -> cellAssocs
+  |>
 ];
 
 cmdGetCellContent[params_] := Module[{cell, content, nb, sessionId},
