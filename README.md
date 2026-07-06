@@ -10,8 +10,8 @@ It is designed to run **beside** the official [Wolfram Local MCP](https://www.wo
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![Mathematica 14+](https://img.shields.io/badge/Mathematica-14+-red.svg)](https://www.wolfram.com/mathematica/)
 [![CI](https://github.com/AbhiRawat4841/mathematica-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/AbhiRawat4841/mathematica-mcp/actions/workflows/ci.yml)
-[![Repo](https://img.shields.io/github/v/tag/AbhiRawat4841/mathematica-mcp?label=repo)](https://github.com/AbhiRawat4841/mathematica-mcp/releases)
-[![Published](https://img.shields.io/pypi/v/mathematica-mcp-full?label=published)](https://pypi.org/project/mathematica-mcp-full/)
+[![Repo](https://img.shields.io/github/v/tag/AbhiRawat4841/mathematica-mcp?label=repo&sort=semver)](https://github.com/AbhiRawat4841/mathematica-mcp/releases)
+[![Published](https://img.shields.io/pypi/v/mathematica-mcp-full?label=published&cacheSeconds=3600)](https://pypi.org/project/mathematica-mcp-full/)
 
 > **v1.0 is a breaking release.** The default profile is now `lean` (12 tools) instead of `full` (82 tools). Set `MATHEMATICA_PROFILE=classic` (or `full`) to keep the old surface, and reinstall the Mathematica addon. See the [Migration Guide](docs/MIGRATION.md).
 > **v1.1 bumps the addon protocol to 4** (honest `evaluation_pending` status for front-end evaluations): re-run `setup` or `wolframscript -file addon/install.wl` after upgrading, then restart Mathematica.
