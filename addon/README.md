@@ -186,7 +186,7 @@ The addon uses two distinct kernel links for evaluation:
 - **Main link** - `evaluate_cell` and `execute_code_notebook` in frontend mode dispatch to this link via `FrontEndTokenExecute["EvaluateCells"]`. Queued and single-threaded. Also used by Shift+Enter in the notebook UI.
 
 `execute_code_notebook` supports two modes:
-- **`mode="kernel"`** (default): Evaluates code directly on the preemptive link using `AbsoluteTiming`, writes the output cell manually. No polling. Fastest path (~50ms).
+- **`mode="kernel"`** (default): Evaluates code directly on the preemptive link using `AbsoluteTiming`, writes the output cell manually. No polling. Fastest path (~50ms). Interactive results (`Manipulate`/`Dynamic`/`Animate`) are written as rendered boxes (a live panel); other non-graphics results as `InputForm` text.
 - **`mode="frontend"`**: Dispatches via `FrontEndTokenExecute["EvaluateCells"]` to the main link and returns quickly (in-handler wait capped at 0.2s; the front end cannot complete while the handler runs). The normal response is `status: "evaluation_pending"` with `evaluation_complete: false` - the evaluation runs after the call returns and its output cell lands in the notebook (re-check with `get_cells`). Required for `Manipulate`, `Dynamic`, and other FrontEnd-dependent content. `evaluate_cell` and `evaluate_selection` follow the same pending contract (protocol 4).
 
 ## Troubleshooting
