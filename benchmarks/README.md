@@ -16,6 +16,8 @@ This directory contains benchmarks for performance measurement and routing/profi
 - `benchmark_perf_phases.py`: offline performance benchmarks (symbol index build/warm/cold, search, caching, telemetry). Results validate that builds succeed (symbol_count > 0) before recording timings.
 - `benchmark_notebook_ops.py`: live addon benchmarks with dedicated session (`session_id=benchmark-session`). Creates a notebook, threads session_id through all operations, cleans up at the end.
 - `benchmark_bottleneck_diagnosis.py`: live latency diagnosis (socket round-trip, preemptive vs main link, frontend polling).
+- `probe_transport_floor.py`: decomposes the ~30ms addon round-trip floor into client/wire, Wolfram socket stack, and front-end-kernel scheduling shares (pure-Python echo + headless WL echo + live addon; pipelining and payload sweeps). Writes `results/transport_floor.json` and `.md`.
+- `measure_channel_split.py`: measures where a concurrent status call blocks during long evaluations (Python lock vs kernel queue); the data behind the read-only-second-socket no-go. Uses an explicit-id scratch notebook and drains queued frontend evals before closing it.
 - `scenarios.json`: canonical task corpus (13 scenarios, including error-recovery ones). Each scenario carries both classic (`preferred_tools` / `forbidden_sequences`) and lean (`lean_preferred_tools` / `lean_forbidden_sequences`) expectations.
 - `profile_surface.py`: reports tool count and schema byte size for each profile
 - `llm_driver.py`: drives the scenario corpus through a tool-calling LLM (or an offline stub) and emits trace JSONL for the scorer

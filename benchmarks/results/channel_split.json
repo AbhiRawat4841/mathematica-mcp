@@ -1,0 +1,39 @@
+{
+  "timestamp": "2026-07-06 16:07:24",
+  "pause_seconds": 4,
+  "iterations": 3,
+  "experiments": {
+    "a_i_same_connection_handshake_ms": {
+      "samples": [
+        642.9094159975648,
+        589.3318330054171,
+        586.6075420053676
+      ],
+      "median": 589.3318330054171
+    },
+    "a_ii_second_socket_during_compute_ms": {
+      "samples": [
+        27.434624993475154,
+        16.303416981827468,
+        20.406791009008884
+      ],
+      "median": 20.406791009008884
+    },
+    "a_iii_same_connection_during_compute_ms": {
+      "samples": [
+        16.710833995603025,
+        9.629458974814042,
+        13.241084001492709
+      ],
+      "median": 13.241084001492709
+    },
+    "b_second_socket_execute_code_ms": {
+      "samples": [
+        3733.6451660085004,
+        3732.4242920149118,
+        3780.4972500016447
+      ],
+      "median": 3733.6451660085004
+    }
+  }
+}
