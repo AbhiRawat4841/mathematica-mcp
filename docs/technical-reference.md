@@ -21,7 +21,7 @@
 ```
 
 **Two components:**
-1. **Python MCP Server** - Exposes MCP tools to LLMs: 12 consolidated tools in the default `lean` profile, up to ~82 in `classic` (varies by profile and feature flags)
+1. **Python MCP Server** - Exposes MCP tools to LLMs: 12 tools in the default `lean` profile (11 consolidated dispatchers + `verify_derivation`), up to ~82 in `classic` (varies by profile and feature flags)
 2. **Mathematica Addon** - Runs inside Mathematica with persistent session state
 
 **Performance:** Notebook execution uses an atomic command that combines notebook lookup, cell creation, and evaluation into a single round-trip (vs. 4 separate calls), reducing latency from multiple socket round-trips to one.
@@ -30,17 +30,21 @@
 
 **Protocol:** The Python client and the addon share a `protocol_version` handshake (currently `3`); a version skew (e.g. addon installed in `init.m` not updated after `pip install --upgrade`) is detected and reported. Success responses of notebook-touching addon commands carry a `state_delta` (focused notebook, cell count, and `kernel_busy` via `CurrentValue[nb, Evaluating]`); pure-kernel commands skip it so trivial `execute_code` responses stay fast.
 
+**Error guidance:** Failed evaluations carry a structured `error_analysis` (`suggested_fix`, `next_step`, and a `retry_with` corrected call when one can be derived from context) on all evaluate paths; see [Error Detection and Analysis](#error-detection-and-analysis).
+
+**Mathematica 15:** On kernels ≥15, agent-created notebooks (`notebooks(action="create")` / `create_notebook`) set `ShowChatbar -> False` so the built-in AI sidebar does not open in automated notebooks; pass `show_chatbar=True` to keep it. 14.x is supported behind `$VersionNumber >= 15.` guards in the addon (`mcpVersionAtLeast15[]`); set `MMCP_FORCE_V14=1` in the Mathematica kernel's environment to force the pre-15 branches for testing (see [V14_VALIDATION.md](../V14_VALIDATION.md)).
+
 **Security:** See [SECURITY.md](../SECURITY.md) for the full threat model, permissions matrix, and vulnerability reporting process.
 
 ---
 
 ## Tool Profiles
 
-The server supports five profiles that control which tools are exposed. This lets you tune the tool surface for your use case, reducing noise for LLMs that don't need notebook or legacy features.
+The server supports four profiles (plus `full` as an alias of `classic`) that control which tools are exposed. This lets you tune the tool surface for your use case, reducing noise for LLMs that don't need notebook or legacy features.
 
 | Profile | Tools | Use Case |
 |---------|-------|----------|
-| `lean` (default) | 12 | Consolidated tools, ~11.5 KB (~2.9k tokens) of schema; extend with `MATHEMATICA_TOOLSETS` |
+| `lean` (default) | 12 | Consolidated tools, ~11.5 KB (~2.9k tokens) of schema (measure: `uv run python benchmarks/profile_surface.py`); extend with `MATHEMATICA_TOOLSETS` |
 | `classic` | ~82 | The complete pre-1.0 surface (alias: `full`) - legacy, admin, and all optional tools |
 | `math` | ~28 | Pure computation, no notebook tools |
 | `notebook` | ~48 | Computation + notebook reading/management + `create_notebook` |
@@ -204,137 +208,7 @@ Results are cached to disk at `~/.cache/mathematica-mcp/notebooks/` and invalida
 
 ## Installation
 
-### Step 1: Install the Python Package
-
-```bash
-cd ~/mcp/mathematica-mcp
-uv sync
-```
-
-Or with pip:
-```bash
-pip install -e ~/mcp/mathematica-mcp
-```
-
-### Step 2: Install the Mathematica Addon
-
-**Option A: Auto-load on startup (recommended)**
-
-```bash
-cd ~/mcp/mathematica-mcp/addon
-wolframscript -file install.wl
-```
-
-**Option B: Manual load in Mathematica**
-
-```mathematica
-Get["~/mcp/mathematica-mcp/addon/MathematicaMCP.wl"]
-StartMCPServer[]
-```
-
-### Step 3: Configure Your LLM Client
-
-Each client uses its own config format and key structure. Examples for each supported client:
-
-**Claude app (Claude Desktop)**
-
-Config file (macOS): `~/Library/Application Support/Claude/claude_desktop_config.json`
-
-```json
-{
-  "mcpServers": {
-    "mathematica": {
-      "command": "/ABSOLUTE/PATH/TO/uv",
-      "args": ["--directory", "/path/to/mathematica-mcp", "run", "mathematica-mcp-full"]
-    }
-  }
-}
-```
-
-**Claude Code (`~/.claude.json`)**
-
-```json
-{
-  "mcpServers": {
-    "mathematica": {
-      "command": "/ABSOLUTE/PATH/TO/uv",
-      "args": ["--directory", "/path/to/mathematica-mcp", "run", "mathematica-mcp-full"]
-    }
-  }
-}
-```
-
-**Cursor**
-
-Add the same JSON to your Cursor MCP config (typically `~/.cursor/mcp.json`).
-
-**VS Code**
-
-VS Code supports MCP natively via [GitHub Copilot Chat](https://marketplace.visualstudio.com/items?itemName=GitHub.copilot-chat). Add to `~/.vscode/mcp.json` (note: uses `"servers"` not `"mcpServers"`, and requires `"type": "stdio"`).
-
-**Codex / Gemini CLI**
-
-Supported by the automated setup command: `uvx mathematica-mcp-full setup codex` (writes `~/.codex/config.toml`) or `setup gemini` (writes `~/.gemini/settings.json`).
-
-**OpenCode**
-
-OpenCode does not have automated `uvx setup` support. Add the MCP server definition manually in your OpenCode config (project or global). Refer to your OpenCode config location and include `mathematica` under `mcpServers`.
-
-### Make the AI Use It Naturally
-
-The server's built-in [LLM Guidance System](#llm-guidance-system) handles most routing automatically. For best results, install project guidance during setup:
-
-```bash
-# Claude Code: installs CLAUDE.md + .claude/commands/mathematica.md
-uvx mathematica-mcp-full setup claude-code --project-dir .
-
-# Codex: installs AGENTS.md
-uvx mathematica-mcp-full setup codex --project-dir .
-```
-
-**Execution style keywords**: users can steer where results appear:
-
-| Say this | Result |
-|----------|--------|
-| "Calculate the integral of x^3" | Answer inline in chat |
-| "Plot Sin[x] from 0 to 2pi" | Plot in current Mathematica notebook |
-| "In new notebook: integrate 1/x^5 + x^7" | Fresh notebook created |
-| "Interactive: Manipulate slider for Sin[n x]" | Dynamic UI with sliders |
-
-**Suggested prompts (copy/paste for users):**
-
-- "Calculate the eigenvalues of {{1,2},{3,4}}"
-- "Plot the sombrero function in a new notebook"
-- "Interactive: Manipulate Plot[Sin[n x], {x,0,2Pi}] with a slider for n"
-- "Use Wolfram Alpha to look up the GDP of Japan and convert to USD."
-- "Check the steps of this derivation for correctness."
-
-**AGENTS.md template** (auto-generated by `setup codex --project-dir .`; content is profile-aware - this is the `classic`-profile variant, the default `lean` profile generates the `evaluate`/`notebooks` vocabulary instead):
-
-```md
-## Mathematica MCP
-
-Use MCP tools directly. Never use wolframscript CLI or shell commands.
-
-**Style keywords**:
-- "calculate/compute/evaluate/solve" → execute_code(style="compute")
-- "plot/show/graph/visualize/in notebook" → execute_code(style="notebook")
-- "new notebook/create notebook" → create_notebook() then execute_code(style="notebook")
-- "interactive/manipulate/slider/dynamic" → execute_code(style="interactive")
-
-**Notebook files**:
-- Prefer `read_notebook()` first
-- Open/save/export only when the user explicitly wants a live window or disk output
-```
-
----
-
-## Quick Start
-
-1. **Start Mathematica** (addon auto-starts if installed)
-2. **Verify addon is running:** `MCPServerStatus[]`
-3. **Start your LLM client**
-4. **Ask Claude to interact with Mathematica!**
+Installation lives in one place: the **[Installation Guide](installation.md)** (one-command setup via `uvx mathematica-mcp-full setup <client>`, manual setup, client configs for Claude Desktop / Claude Code / Cursor / VS Code / Codex / Gemini, and troubleshooting). Verify an install with `uvx mathematica-mcp-full doctor`.
 
 ---
 
@@ -348,7 +222,7 @@ The default `lean` profile exposes exactly 12 tools. Eleven are consolidated act
 |------|---------------------|-------------|
 | `status()` | - | Connection, kernel version, profile, features, warm-path health (cold-execution count, idle timeout) |
 | `evaluate` | `target=kernel\|notebook\|cell\|selection`, `code`, `file`, `dry_run`, `timeout` | Primary execution tool. `dry_run=True` checks syntax; `file=` runs a `.wl` script |
-| `notebooks` | `action=list\|info\|create\|open\|save\|close\|export` | Notebook lifecycle management |
+| `notebooks` | `action=list\|info\|create\|open\|save\|close\|export`, `format` (save: `Notebook\|PDF\|HTML\|TeX`; export: `PDF\|HTML\|TeX\|Markdown`), `show_chatbar` | Notebook lifecycle management; on Mathematica ≥15 created notebooks suppress the chat sidebar unless `show_chatbar=True` |
 | `cells` | `action=list\|read\|select\|scroll` | Read/navigate notebook cells (supports `style`/`offset`/`limit` filters) |
 | `edit_cells` | `action=write\|delete` | Write or delete notebook cells |
 | `screenshot` | `scope=notebook\|cell\|expression` | Capture a PNG |
@@ -644,8 +518,8 @@ get_constant("PlanckConstant")
 |------|-------------|
 | `trace_evaluation` | Step-by-step evaluation trace (like a debugger) |
 | `time_expression` | Measure execution time and memory |
-| `check_syntax` | Validate syntax without executing |
-| `suggest_similar_functions` | Fuzzy search for function names |
+| `check_syntax` | Validate syntax without executing (core group; in lean use `evaluate(code, dry_run=True)`) |
+| `suggest_similar_functions` | Fuzzy search for function names (symbol-lookup feature, not the `debug` toolset; enable via `MATHEMATICA_TOOLSETS=symbols`) |
 
 **Examples:**
 
@@ -730,8 +604,8 @@ export_data("Plot[Sin[x], {x, 0, 2 Pi}]", "~/plot.pdf", format="PDF")
 list_supported_formats()
 # Returns:
 # {
-#   "import_formats": ["CSV", "JSON", "XLSX", "PDF", "PNG", ...],  # 256 formats
-#   "export_formats": ["CSV", "JSON", "PDF", "SVG", "HTML", ...]   # 264 formats
+#   "import_formats": ["CSV", "JSON", "XLSX", "PDF", "PNG", ...],  # 250+ formats (kernel-reported, version-dependent)
+#   "export_formats": ["CSV", "JSON", "PDF", "SVG", "HTML", ...]   # 250+ formats (kernel-reported, version-dependent)
 # }
 ```
 
@@ -875,7 +749,7 @@ create_animation(
 
 | Tool | Description |
 |------|-------------|
-| `search_function_repository` | Search 2900+ community functions |
+| `search_function_repository` | Search thousands of community functions |
 | `get_function_repository_info` | Get details about a repository function |
 | `load_resource_function` | Load a repository function |
 | `search_data_repository` | Search curated datasets |
@@ -985,10 +859,10 @@ When code is executed in notebook mode (`execute_code` with `style="notebook"` o
 1. **Error Capture**: The addon captures messages from `$MessageList` after cell evaluation without discarding valid message-bearing results such as `ComplexInfinity`
 2. **Pattern Matching**: Captured errors are matched against a knowledge base of 10+ common error patterns
 3. **Confidence Scoring**: Matches are scored as high/medium/low confidence
-4. **Suggestion Generation**: Actionable fixes are suggested based on the error type
+4. **Suggestion Generation**: Actionable fixes are suggested based on the error type; when a corrected call can be derived from the failing input, a runnable `retry_with` is included (otherwise it is `null` rather than a canned template), and a `next_step` names the literal follow-up call (e.g. `kernel(action='messages')`)
 5. **LLM Formatting**: Errors are formatted with analysis, causes, fixes, and examples
 
-**Note**: Error analysis is currently active for notebook execution only. Compute mode (`style="compute"`) returns raw messages without notebook-side analysis. Notebook requests do not silently reroute to CLI when the notebook transport fails; they return a notebook-targeted error.
+**Note**: Error analysis attaches on **all** evaluate paths (notebook, kernel/CLI, cell, selection). Notebook requests do not silently reroute to CLI when the notebook transport fails; they return a notebook-targeted error.
 
 ### Supported Error Types
 
@@ -1042,7 +916,7 @@ TIP: When working with Entity data, use QuantityMagnitude[]
 The error analyzer is automatically invoked during notebook code execution. It can also be used directly for testing or analysis:
 
 ```python
-from src.mathematica_mcp.error_analyzer import (
+from mathematica_mcp.error_analyzer import (
     analyze_error,
     analyze_messages,
     format_error_for_llm
@@ -1308,13 +1182,13 @@ After killing the process, run `StartMCPServer[]` in Mathematica again.
 
 ### "Timeout waiting for response"
 
-- Use `submit_computation` for long operations
+- Use `submit_computation` for long operations (classic, or `MATHEMATICA_TOOLSETS=async_jobs` on lean); on lean you can also raise `evaluate(..., timeout=...)`
 - Break complex computations into steps
 
 ### Variables not persisting
 
 - Ensure you're using the **addon connection** (not wolframscript fallback)
-- Check `get_mathematica_status()` shows `connection_mode: "addon"`
+- Check `get_mathematica_status()` (classic) or `status()` (lean) shows `connection_mode: "addon"`
 
 ### Output parsing issues (older Mathematica versions)
 
@@ -1331,7 +1205,7 @@ The MCP server uses `ExportString[..., "RawJSON"]` for reliable JSON output from
 | macOS | ARM64 (Apple Silicon) |
 | Linux | x86_64 (POSIX) |
 | Windows | Community-tested (not in official classifiers) |
-| MCP Protocol | 1.0 |
+| MCP Python SDK | `mcp>=1.0.0` (see pyproject.toml) |
 
 ---
 
