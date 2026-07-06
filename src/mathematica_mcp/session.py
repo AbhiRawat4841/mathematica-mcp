@@ -15,7 +15,15 @@ from typing import Any
 logger = logging.getLogger("mathematica_mcp.session")
 
 _kernel_session: Any = None
+# Permanent-cold latch: only structurally hopeless causes (no wolframclient, no
+# kernel path) set this. A transient boot failure must NOT; see _boot_retry_after.
 _use_wolframscript: bool = False
+# Transient boot failures (license contention, front end still launching) arm a
+# short cooldown instead of latching permanent-cold: get_kernel_session() returns
+# None until time.monotonic() passes this, then retries the boot once. Reset to 0
+# by an explicit close/restart.
+KERNEL_BOOT_RETRY_COOLDOWN = 60.0
+_boot_retry_after: float = 0.0
 # Set while get_kernel_session() is building a new session (~12s startup). The
 # idle reaper must not terminate a half-started session, so it skips reaping
 # whenever this is True.
@@ -32,6 +40,14 @@ KERNEL_HEALTH_CHECK_INTERVAL = 30.0
 import threading as _eval_threading  # noqa: E402
 
 _session_eval_lock = _eval_threading.Lock()
+
+# Serializes kernel CREATION only. Without it a background prewarm thread and a
+# first tool call can both observe _kernel_session is None and boot two kernels,
+# leaking a WolframKernel license seat. Double-checked inside get_kernel_session
+# under this lock; never held over the fast path or the health-check ping, and
+# get_kernel_session is never called while holding _session_eval_lock, so the two
+# locks cannot nest into a deadlock.
+_session_create_lock = _eval_threading.Lock()
 
 # Count of cold wolframscript subprocesses spawned this process. The lean happy
 # path must be zero (plan §3.5); surfaced in status(). Incremented at every cold
@@ -479,9 +495,14 @@ Module[{{startTime, result, messages, timing, response, outInput, outFull="", ou
 
 
 def get_kernel_session():
-    global _kernel_session, _use_wolframscript, _last_kernel_health_check, _session_starting
+    global _kernel_session, _use_wolframscript, _last_kernel_health_check, _session_starting, _boot_retry_after
 
     if _use_wolframscript:
+        return None
+
+    # A recent transient boot failure armed a cooldown: skip the ~13s boot retry
+    # (and the per-call boot storm) until it expires. A live session ignores it.
+    if _kernel_session is None and time.monotonic() < _boot_retry_after:
         return None
 
     if _kernel_session is not None:
@@ -509,44 +530,100 @@ def get_kernel_session():
         finally:
             _session_eval_lock.release()
 
-    try:
-        from wolframclient.evaluation import WolframLanguageSession
-        from wolframclient.language import wlexpr
-    except ImportError:
-        logger.info("wolframclient not available, falling back to wolframscript")
-        _use_wolframscript = True
-        return None
-
-    kernel_path = os.environ.get("MATHEMATICA_KERNEL_PATH") or find_wolfram_kernel()
-
-    if not kernel_path:
-        logger.error("No Wolfram kernel found. Set MATHEMATICA_KERNEL_PATH env var.")
-        _use_wolframscript = True
-        return None
-
-    try:
-        _session_starting = True
-        try:
-            _kernel_session = WolframLanguageSession(kernel_path)
-            # Stamp activity before start()/evaluate() so the reaper never sees a
-            # fresh session as stale during its ~12s startup (belt to _session_starting).
+    # Creation path, serialized so a background prewarm thread and a first tool
+    # call can't both boot a kernel. Double-check under the lock: another thread
+    # may have finished creating (or flipped to permanent-cold) while we waited.
+    with _session_create_lock:
+        if _kernel_session is not None:
             _note_activity()
-            _kernel_session.start()
-            _kernel_session.evaluate(wlexpr("1+1"))
-        finally:
-            _session_starting = False
-        _last_kernel_health_check = time.monotonic()
-        _note_activity()
-        # A transient cold fallback recovers here: a successful (re)creation clears
-        # the permanent-cold flag.
-        _use_wolframscript = False
-        _start_idle_reaper()
-        logger.info(f"Kernel session ready: {kernel_path}")
-        return _kernel_session
-    except Exception as e:
-        logger.warning(f"WolframLanguageSession failed ({e}), falling back to wolframscript")
-        _use_wolframscript = True
+            return _kernel_session
+        if _use_wolframscript:
+            return None
+        # Re-check the cooldown under the lock: a thread queued behind a failed
+        # boot must not immediately re-boot the moment it acquires the lock.
+        if time.monotonic() < _boot_retry_after:
+            return None
+
+        try:
+            from wolframclient.evaluation import WolframLanguageSession
+            from wolframclient.language import wlexpr
+        except ImportError:
+            logger.info("wolframclient not available, falling back to wolframscript")
+            _use_wolframscript = True
+            return None
+
+        kernel_path = os.environ.get("MATHEMATICA_KERNEL_PATH") or find_wolfram_kernel()
+
+        if not kernel_path:
+            logger.error("No Wolfram kernel found. Set MATHEMATICA_KERNEL_PATH env var.")
+            _use_wolframscript = True
+            return None
+
+        try:
+            _session_starting = True
+            try:
+                _kernel_session = WolframLanguageSession(kernel_path)
+                # Stamp activity before start()/evaluate() so the reaper never sees a
+                # fresh session as stale during its ~12s startup (belt to _session_starting).
+                _note_activity()
+                _kernel_session.start()
+                _kernel_session.evaluate(wlexpr("1+1"))
+            finally:
+                _session_starting = False
+            _last_kernel_health_check = time.monotonic()
+            _note_activity()
+            # A transient cold fallback recovers here: a successful (re)creation clears
+            # the permanent-cold flag.
+            _use_wolframscript = False
+            _start_idle_reaper()
+            logger.info(f"Kernel session ready: {kernel_path}")
+            return _kernel_session
+        except Exception as e:
+            # Transient boot failure (license contention, front end still
+            # launching): do NOT latch permanent-cold. Terminate any half-started
+            # session (a failed .start()/.evaluate() leaves the object dangling)
+            # and arm a cooldown so the next call retries the warm boot after it,
+            # rather than re-booting every call or never again.
+            logger.warning(
+                "WolframLanguageSession boot failed (%s); retrying warm after %.0fs cooldown",
+                e,
+                KERNEL_BOOT_RETRY_COOLDOWN,
+            )
+            if _kernel_session is not None:
+                with contextlib.suppress(Exception):
+                    _kernel_session.terminate()
+                _kernel_session = None
+            _boot_retry_after = time.monotonic() + KERNEL_BOOT_RETRY_COOLDOWN
+            return None
+
+
+def prewarm_kernel():
+    """Boot the persistent kernel in a background daemon thread at server startup.
+
+    The warm funnel's ~13s WolframLanguageSession boot is otherwise paid by the
+    FIRST warm call; prewarming lets that call find a ready kernel. Returns the
+    thread, or None when prewarm is disabled (MATHEMATICA_PREWARM=0/false/no/off),
+    cold-only mode is already forced, or a session already exists. Never raises: a
+    transient boot failure just logs and arms a short cooldown
+    (KERNEL_BOOT_RETRY_COOLDOWN seconds), after which the next real call retries
+    the warm boot; only a structurally hopeless cause (missing wolframclient or no
+    kernel path) latches permanent cold. An unused prewarmed kernel is still
+    capped by the idle reaper.
+    """
+    from .config import prewarm_enabled
+
+    if not prewarm_enabled() or _use_wolframscript or _kernel_session is not None:
         return None
+
+    def _boot() -> None:
+        try:
+            get_kernel_session()
+        except Exception as e:  # noqa: BLE001 — best effort; first call boots on demand
+            logger.warning("kernel prewarm failed (%s); booting on first use", e)
+
+    thread = _eval_threading.Thread(target=_boot, daemon=True, name="kernel-prewarm")
+    thread.start()
+    return thread
 
 
 def has_existing_kernel_session() -> bool:
@@ -554,17 +631,31 @@ def has_existing_kernel_session() -> bool:
     return _kernel_session is not None and not _use_wolframscript
 
 
+def _warm_session_ready() -> bool:
+    """True only when the persistent kernel is booted AND usable right now.
+
+    Stricter than has_existing_kernel_session(): _kernel_session is assigned
+    BEFORE .start() finishes, so this also excludes the ~13s boot window
+    (_session_starting) and the permanent-cold flag. The addon fallback rung
+    consults this so it can fire during boot without blocking on the ~13s
+    creation lock inside get_kernel_session().
+    """
+    return _kernel_session is not None and not _session_starting and not _use_wolframscript
+
+
 def close_kernel_session():
-    global _kernel_session, _last_kernel_health_check, _use_wolframscript
+    global _kernel_session, _last_kernel_health_check, _use_wolframscript, _boot_retry_after
     if _kernel_session is not None:
         with contextlib.suppress(Exception):
             _kernel_session.terminate()
         _kernel_session = None
         _last_kernel_health_check = 0.0
         logger.info("Closed kernel session")
-    # Reset the permanent-cold flag unconditionally (the failure path leaves
-    # _kernel_session already None) so a restart retries the warm session.
+    # An explicit close/restart is an explicit retry request: clear both the
+    # permanent-cold latch and the transient boot cooldown so the next call
+    # retries the warm session immediately.
     _use_wolframscript = False
+    _boot_retry_after = 0.0
 
 
 def _shutdown_at_exit() -> None:

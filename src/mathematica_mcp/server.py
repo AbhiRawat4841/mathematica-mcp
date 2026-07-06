@@ -3007,6 +3007,12 @@ def quickstart() -> str:
 
 
 def main():
+    # Kick the ~13s kernel boot in the background so the first warm call finds a
+    # ready session (see session.prewarm_kernel). Import-time is untouched: this
+    # only fires on the real serve path, never when tests/schema dumps import us.
+    from .session import prewarm_kernel
+
+    prewarm_kernel()
     mcp.run()
 
 

@@ -159,6 +159,18 @@ def _env_explicit_bool(key: str) -> bool | None:
     return _parse_bool(value)
 
 
+def prewarm_enabled() -> bool:
+    """Whether to boot the persistent kernel in the background at server startup.
+
+    Env MATHEMATICA_PREWARM; default on when unset. Any non-truthy value
+    ("0"/"false"/"no"/"off", case-insensitive) disables, matching the other bool envs.
+    """
+    value = os.getenv("MATHEMATICA_PREWARM")
+    if value is None:
+        return True
+    return _parse_bool(value)
+
+
 def _env_profile(default: str = "lean") -> str:
     # v1.0 breaking change: lean is the default profile. Set MATHEMATICA_PROFILE=classic
     # (or full) to keep the legacy 82-tool surface. See docs/MIGRATION.md.
