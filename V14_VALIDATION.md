@@ -28,9 +28,9 @@ Then restart the kernel / front-end so the addon re-reads the environment. Unset
   - With `MMCP_FORCE_V14=1` on a 15 machine, `mcpVersionAtLeast15[]` returns `False` and the notebook is created **without** `ShowChatbar`.
   - Without the flag on 15, it returns `True` and the option is present.
 
-- [ ] **Addon `protocol_version` handshake** (`$MCPProtocolVersion = 3`; `cmdPing`, `cmdGetStatus`)
+- [ ] **Addon `protocol_version` handshake** (`$MCPProtocolVersion = 4`; `cmdPing`, `cmdGetStatus`)
   - `status()` should report the addon `protocol_version` on both 14.x and 15.
-  - A stale addon (older `protocol_version` than the Python client's `ADDON_PROTOCOL_VERSION`, currently `3`) must trigger the reinstall message from `status()`. Confirm the handshake is version-independent (works on 14.x, not gated behind ≥15).
+  - A stale addon (older `protocol_version` than the Python client's `ADDON_PROTOCOL_VERSION`, currently `4`) must trigger the reinstall message from `status()`. Confirm the handshake is version-independent (works on 14.x, not gated behind ≥15).
 
 - [ ] **Core notebook + kernel flows on 14.x**
   - `evaluate` (kernel + notebook target), `notebooks`, `cells`, `edit_cells`, `screenshot`, `verify_derivation`, `read_notebook_file`, `vars`, `kernel` all succeed on a 14.x kernel.
@@ -41,4 +41,4 @@ Then restart the kernel / front-end so the addon re-reads the environment. Unset
 
 ## Coverage note
 
-`guide('v15')` describes exactly the three version-sensitive behaviors that exist: `ShowChatbar` suppression on agent-created notebooks (override with `show_chatbar=True` on `notebooks(action="create")` / `create_notebook`), the `$VersionNumber >= 15.` guards, and the addon `protocol_version` handshake - all covered by the checklist above. Theme-pinned screenshots and chat-cell filtering are **not implemented** (no `theme` param on `screenshot`, no chat-cell filter in `cells`) and are intentionally not mentioned in the guide; they remain roadmap items (plan §4 in `docs/roadmaps/v1.0-lean-plan-v2.md`).
+`guide('v15')` describes exactly the three version-sensitive behaviors that exist: `ShowChatbar` suppression on agent-created notebooks (override with `show_chatbar=True` on `notebooks(action="create")` / `create_notebook`), the `$VersionNumber >= 15.` guards, and the addon `protocol_version` handshake - all covered by the checklist above. Theme-pinned screenshots and chat-cell filtering are **not implemented** (no `theme` param on `screenshot`, no chat-cell filter in `cells`) and are intentionally not mentioned in the guide; they remain roadmap items.

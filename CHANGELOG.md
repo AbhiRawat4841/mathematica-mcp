@@ -32,6 +32,8 @@ All notable changes to this project will be documented in this file.
 - **`state_delta.kernel_busy` reads the command's target notebook**, not whichever notebook happens to be focused. It still cannot observe an in-flight front-end evaluation (front-end state does not resolve from the socket handler); use the `evaluation_pending`/`evaluation_complete` contract for progress instead.
 - **Kernel-session creation race**: `get_kernel_session()` had no creation mutex; a background prewarm plus a first tool call could boot two kernels and leak a license seat. Creation is now serialized with double-checked locking.
 
+## [1.0.1] - 2026-07-06
+
 ### Fixed
 
 - **Addon reinstall was a no-op for existing installs**: `install.wl` skipped any `init.m` that already contained a MathematicaMCP section, so upgrades never re-pointed the loader at the new package copy and `status()` kept reporting protocol skew. The installer now replaces the section idempotently (re-runs are byte-identical).

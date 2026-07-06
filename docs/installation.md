@@ -62,7 +62,7 @@ uvx mathematica-mcp-full setup claude-code
 uvx mathematica-mcp-full setup claude-desktop --profile classic
 ```
 
-Then **restart Mathematica** and **restart your editor**. Done!
+Then **restart Mathematica** (this loads the addon) and **restart your editor**. Done!
 
 <details>
 <summary>VS Code: Alternative setup via Command Palette</summary>

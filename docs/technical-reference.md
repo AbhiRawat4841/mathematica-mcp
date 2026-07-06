@@ -1338,4 +1338,4 @@ MIT License
 
 ---
 
-*Last updated: July 2026 (v1.0.0: lean profile default, profile-aware guidance, consolidated action-enum tools)*
+*Last updated: July 2026 (v1.1.2: interactive auto-routing, honest pending contract, protocol 4, prewarm, compact lean responses)*
