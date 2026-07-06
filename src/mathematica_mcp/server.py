@@ -15,7 +15,10 @@ from .cache import (
     _query_cache,
     bump_kernel_epoch,
     clear_cache,
+    get_cached_screenshot,
+    get_notebook_epoch,
     list_cached_expressions,
+    put_cached_screenshot,
 )
 from .cache import (
     cache_expression as _cache_expr,
@@ -2006,6 +2009,22 @@ async def evaluate(
     return _lean_paginate(out)
 
 
+async def _cached_screenshot(key_parts: tuple, produce) -> Image:
+    """Serve a notebook/cell PNG from the opt-in cache or produce and store one.
+    Keyed by the current notebook epoch, so any mutating MCP command forces a
+    fresh capture; a miss calls through to the real screenshot function."""
+    key = (*key_parts, get_notebook_epoch())
+    png = get_cached_screenshot(key)
+    if png is not None:
+        logger.info("screenshot cache hit: %s", key)
+        return Image(data=png, format="png")
+    logger.info("screenshot cache miss: %s", key)
+    image = await produce()
+    if image.data is not None:
+        put_cached_screenshot(key, image.data)
+    return image
+
+
 @_tool("lean")
 async def screenshot(
     scope: Literal["notebook", "cell", "expression"] = "notebook",
@@ -2015,16 +2034,40 @@ async def screenshot(
     max_height: int = 2000,
     image_size: int = 400,
     session_id: str | None = None,
+    cache: bool = False,
 ) -> Image:
-    """Capture a PNG. scope: notebook | cell(cell_id) | expression(expression)."""
+    """Capture a PNG. scope: notebook | cell(cell_id) | expression(expression).
+    cache=True reuses the last PNG for notebook/cell scope until an MCP command
+    mutates the notebook; may return stale pixels if it changed outside MCP
+    (manual edits, Dynamic/Manipulate repaints, scroll/resize). The cache needs a
+    stable target: pass notebook= or session_id=; without them the notebook-scope
+    cache is skipped (the focused notebook cannot be named reliably). expression
+    scope ignores it (already cached at the raster layer)."""
     if scope == "cell":
         if not cell_id:
             raise ValueError("scope=cell requires cell_id")
+        if cache:
+            return await _cached_screenshot(
+                ("cell", notebook or "focused", cell_id, session_id),
+                lambda: screenshot_cell(cell_id, notebook, session_id),
+            )
         return await screenshot_cell(cell_id, notebook, session_id)
     if scope == "expression":
         if not expression:
             raise ValueError("scope=expression requires expression")
         return await rasterize_expression(expression, image_size)
+    if cache:
+        if notebook is None and session_id is None:
+            # "focused" target anchors on $MCPActiveNotebook, which reads
+            # silently rewrite without bumping the epoch, so the cache key
+            # cannot name a stable notebook. Capture fresh instead of risking
+            # another notebook's pixels under the "focused" key.
+            logger.info("screenshot cache skipped: no stable notebook identity (pass notebook= or session_id=)")
+            return await screenshot_notebook(notebook, max_height, session_id)
+        return await _cached_screenshot(
+            ("notebook", notebook or "focused", max_height, session_id),
+            lambda: screenshot_notebook(notebook, max_height, session_id),
+        )
     return await screenshot_notebook(notebook, max_height, session_id)
 
 

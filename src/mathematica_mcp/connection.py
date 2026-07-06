@@ -8,6 +8,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
+from .cache import MUTATING_COMMANDS, bump_notebook_epoch
+
 logger = logging.getLogger("mathematica_mcp.connection")
 
 DEFAULT_HOST = "localhost"
@@ -149,6 +151,11 @@ class MathematicaConnection:
                 # the result dict so callers can pass it through.
                 if isinstance(result, dict) and "state_delta" in response:
                     result.setdefault("state_delta", response["state_delta"])
+                # Single chokepoint for notebook-mutation tracking: a successful
+                # notebook-mutating command invalidates any cached screenshots.
+                # Errors raise above and never reach here.
+                if command in MUTATING_COMMANDS:
+                    bump_notebook_epoch()
                 return result
 
             except TimeoutError:

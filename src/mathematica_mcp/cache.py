@@ -416,6 +416,72 @@ def get_kernel_epoch() -> int:
     return _kernel_epoch
 
 
+# ---------------------------------------------------------------------------
+# Notebook mutation epoch + opt-in screenshot cache
+# ---------------------------------------------------------------------------
+
+# Addon commands that can change VISIBLE notebook content. Mirrors the
+# notebook-mutating subset of $MCPStateDeltaCommands in addon/MathematicaMCP.wl.
+# Excluded on purpose: reads/navigation (get_notebooks, get_notebook_info,
+# get_cells, select_cell, scroll_to_cell), because screenshot_notebook
+# rasterizes the whole notebook so selection/scroll position never changes the
+# PNG; and kernel-only commands (execute_code, set_variable, run_script,
+# restart) that never touch a notebook window. batch_commands stays in: its
+# sub-commands may mutate. Over-bumping only costs a cache miss; under-bumping
+# serves stale pixels, so ambiguous cases (save_notebook) are included.
+MUTATING_COMMANDS = frozenset(
+    {
+        "create_notebook",
+        "close_notebook",
+        "save_notebook",
+        "open_notebook_file",
+        "write_cell",
+        "delete_cell",
+        "evaluate_cell",
+        "execute_code_notebook",
+        "execute_selection",
+        "batch_commands",
+    }
+)
+
+# Monotonic counter bumped by connection.send_command after any successful
+# MUTATING_COMMANDS response. Folded into screenshot cache keys so a mutation
+# makes every prior entry unreachable (same trick as _kernel_epoch above).
+_notebook_epoch: int = 0
+
+
+def bump_notebook_epoch() -> int:
+    """Increment the notebook mutation epoch, invalidating cached screenshots."""
+    global _notebook_epoch
+    _notebook_epoch += 1
+    return _notebook_epoch
+
+
+def get_notebook_epoch() -> int:
+    """Return the current notebook mutation epoch."""
+    return _notebook_epoch
+
+
+_MAX_SCREENSHOT_ENTRIES = 8
+_screenshot_cache: OrderedDict[tuple, bytes] = OrderedDict()
+
+
+def get_cached_screenshot(key: tuple) -> bytes | None:
+    """Return cached PNG bytes for key (LRU-touch on hit), or None."""
+    png = _screenshot_cache.get(key)
+    if png is not None:
+        _screenshot_cache.move_to_end(key)
+    return png
+
+
+def put_cached_screenshot(key: tuple, png: bytes) -> None:
+    """Store PNG bytes under key, evicting the oldest entry past capacity."""
+    _screenshot_cache[key] = png
+    _screenshot_cache.move_to_end(key)
+    while len(_screenshot_cache) > _MAX_SCREENSHOT_ENTRIES:
+        _screenshot_cache.popitem(last=False)
+
+
 NON_CACHEABLE_PATTERNS = [
     "Random",
     "Now",
