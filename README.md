@@ -30,7 +30,7 @@ It is designed to run **beside** the official [Wolfram Local MCP](https://www.wo
 LLMs can write Mathematica code, but they can't run it, control a live notebook, or verify their own results. This MCP server bridges that gap:
 
 - **Live notebook control**: create, edit, evaluate, and screenshot Mathematica notebooks directly from your AI agent.
-- **License-free notebook reading**: `read_notebook_file` parses `.nb` / `.wl` files with a Python-native parser - no kernel and no Mathematica license needed.
+- **License-free notebook reading**: `read_notebook_file` reads `.nb` files even when no kernel or Mathematica license is available (Python-native fallback parser; a kernel is used for higher fidelity when present, and is required for `.wl` scripts).
 - **Warm execution**: computation runs on a persistent headless kernel session, so the agent's calls return in sub-second time instead of paying a cold `wolframscript` start-up on every request.
 - **Error-aware execution**: Mathematica messages are fed back to the agent with a `suggested_fix` and, where a correction can be derived, a concrete `retry_with` call, so it can debug without you copying notebook output into chat.
 - **Local and private**: core execution runs on your machine. Optional tools like `wolfram_alpha` and repository search contact Wolfram's cloud services only when invoked.
@@ -51,14 +51,14 @@ Prefer the old surface? `classic` (alias `full`) keeps all 82 legacy tools byte-
 
 ## How it compares
 
-This server runs **alongside** the official Wolfram Local MCP - `setup <client> --with-official` writes the official server's config next to this one so they run side by side. Overlap is deliberate where it helps agents; the differentiator is notebook / front-end automation that runs without a license round trip.
+This server runs **alongside** the official Wolfram Local MCP (tool names per the [MCPServer paclet docs](https://github.com/rhennigan/MCPServer)) - `setup <client> --with-official` writes the official server's config next to this one so they run side by side. Overlap is deliberate where it helps agents; the differentiator is notebook / front-end automation that runs without a license round trip.
 
 | Capability | Official Wolfram Local MCP | **This MCP** |
 |------------|:--------------------------:|:------------:|
 | Wolfram-Language evaluation | `WolframLanguageEvaluator` | `evaluate` (warm persistent kernel) |
 | Wolfram Alpha | `WolframAlpha` | `wolfram_alpha` (opt-in `cloud`) |
 | Symbol docs / definitions | `SymbolDefinition`, `CreateSymbolDoc` | `kernel(action="inspect")`, `symbols` extra |
-| Read a notebook file | `ReadNotebook` (needs kernel) | **`read_notebook_file` - Python-native, no kernel / license** |
+| Read a notebook file | `ReadNotebook` (needs kernel) | **`read_notebook_file` - works with no kernel / license (Python fallback)** |
 | Write a notebook file | `WriteNotebook` | `notebooks`, `edit_cells` (live front-end) |
 | Live notebook control (create/edit/eval/screenshot) | No | **Yes** |
 | Interactive UIs (sliders, `Manipulate`) | No | **Yes, in the live front-end** |
@@ -173,7 +173,7 @@ evaluate("Plot3D[Sinc[Sqrt[x^2+y^2]], {x,-4,4}, {y,-4,4}]", target="notebook")
 
 ```text
 read_notebook_file("paper/derivation.nb", mode="markdown")
-=> [structured markdown, no kernel or license used]
+=> [structured markdown; works even with no kernel or license available]
 ```
 
 ---

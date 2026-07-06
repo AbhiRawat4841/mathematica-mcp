@@ -104,9 +104,9 @@ uv run pytest tests/test_corpus_runner.py::test_corpus_workflow -v
 | Tier | Purpose | CI |
 |------|---------|-----|
 | `smoke` | 30 cases + 1 workflow (31 total) | Required (meta-tests in CI, live tests in manual/nightly) |
-| `core` | ~120 stable offline math/algebra/calculus | Nightly schedule |
-| `extended` | ~80 broader coverage (DE, ML, image, graph) | Manual dispatch |
-| `probe` | ~30 fragile/regression paths (entity, notebook advanced) | Manual dispatch, non-blocking |
+| `core` | planned (~120 stable offline math/algebra/calculus) - **not yet populated**; `-m tier_core` collects 0 tests | Nightly schedule (no-op today) |
+| `extended` | planned (~80 broader coverage) - **not yet populated** | Manual dispatch (no-op today) |
+| `probe` | planned (~30 fragile/regression paths) - **not yet populated** | Manual dispatch, non-blocking |
 
 ## Corpus Verification Strategies
 

@@ -148,7 +148,7 @@ The offline suite includes:
 ### Live addon benchmarks (Mathematica + addon required)
 
 ```bash
-python benchmarks/benchmark_notebook_ops.py my_run
+uv run python benchmarks/benchmark_notebook_ops.py my_run
 ```
 
 The live benchmark creates a dedicated notebook session (`session_id=benchmark-session`) and threads it through all operations. The session is cleaned up at the end.

@@ -68,6 +68,8 @@ MathematicaMCP`Private`$MCPDebug = True;
 
 ## Command Protocol
 
+Success responses of notebook-touching commands (`create_notebook`, `write_cell`, `evaluate_cell`, `get_cells`, `batch_commands`, ...) additionally carry a `state_delta` field: `{"notebook": ..., "cell_count": ..., "kernel_busy": ...}` where `kernel_busy` reflects the focused notebook's `Evaluating` state. Pure-kernel commands omit it for speed.
+
 Commands are sent as JSON over TCP:
 
 ```json
@@ -97,8 +99,8 @@ Response:
 ## Available Commands
 
 ### Status
-- `ping` - Returns `{"pong": true, "timestamp": "...", "version": "..."}`
-- `get_status` - Returns frontend/kernel version, open notebook count
+- `ping` - Returns `{"pong": true, "timestamp": "...", "version": "...", "protocol_version": 3}`
+- `get_status` - Returns frontend/kernel version, open notebook count, `mcp_port`, `mcp_server_running`, and `protocol_version` (the Python client compares it against its expected version to detect a stale addon)
 
 ### Notebooks
 - `get_notebooks` - List all open notebooks
@@ -172,7 +174,7 @@ Or in Mathematica:
 $initPath = FileNameJoin[{$UserBaseDirectory, "Kernel", "init.m"}];
 content = Import[$initPath, "Text"];
 newContent = StringReplace[content,
-  RegularExpression["\\n*\\(\\* MathematicaMCP.*?StartMCPServer\\[\\];\\n"] -> ""];
+  RegularExpression["(?s)\\n*\\(\\* MathematicaMCP.*?StartMCPServer\\[\\];\\n"] -> ""];
 Export[$initPath, newContent, "Text"];
 ```
 

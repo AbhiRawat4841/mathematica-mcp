@@ -79,7 +79,7 @@ Wolfram Language has access to:
 
 ## Safe Defaults
 
-- The default `lean` profile exposes 12 consolidated tools; cloud/network tools (e.g., `wolfram_alpha`) are opt-in via `MATHEMATICA_TOOLSETS=cloud` or `MATHEMATICA_PROFILE=classic`
+- The default `lean` profile exposes 12 consolidated tools with no network-backed knowledge tools; they are opt-in via `MATHEMATICA_TOOLSETS=cloud`. Note the `math`, `notebook`, and `classic` profiles all include network-backed knowledge tools (e.g., `wolfram_alpha`) by default
 - The `math` profile exposes only 28 computation tools (no file or notebook operations)
 - Telemetry is disabled by default
 - Expression cache is memory-only
@@ -93,7 +93,7 @@ Please report security issues via [GitHub Security Advisories](https://github.co
 
 ## Recommended Practices
 
-1. Keep the default `lean` profile (or use `math`) when the full classic tool surface is unnecessary
+1. Keep the default `lean` profile (without the `cloud` toolset) when the full classic tool surface is unnecessary - it is the only profile with no network-backed tools
 2. Enable `MATHEMATICA_MCP_TOKEN` when sharing a machine with other users
 3. Run Mathematica as a non-privileged user
 4. Keep mathematica-mcp and Mathematica up to date

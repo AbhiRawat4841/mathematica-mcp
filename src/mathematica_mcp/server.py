@@ -2063,7 +2063,7 @@ async def read_notebook_file(
     mode: Literal["markdown", "wolfram", "outline", "json", "plain"] = "markdown",
     cursor: str | None = None,
 ) -> str:
-    """Read a .nb/.wl file WITHOUT a kernel (Python-native parser). mode: markdown | wolfram | outline | json | plain. cursor= pages long output."""
+    """Read a .nb/.wl file from disk (works without a kernel via Python fallback). mode: markdown | wolfram | outline | json | plain. cursor= pages long output."""
     if cursor:
         return _lean_cursor_page(cursor)
     return _lean_paginate(await read_notebook(path, output_format=mode))

@@ -22,7 +22,7 @@ Why the change: the lean surface is ~11.5 KB of tool schema (~2.9k tokens) versu
 
 ## Reinstall the Mathematica addon
 
-1.0 adds a `protocol_version` handshake (currently `3`) between the Python client and the Mathematica addon. The addon lives in `$UserBaseDirectory/Kernel/init.m` and **does not update when you `pip`/`uvx` upgrade the Python package.** After upgrading, reinstall the addon:
+1.0 adds a `protocol_version` handshake (currently `3`) between the Python client and the Mathematica addon. What lives in `$UserBaseDirectory/Kernel/init.m` is a loader line pointing at the installed package copy of `MathematicaMCP.wl` - and that path **does not update when you `pip`/`uvx` upgrade the Python package** (for `uvx` it points into a versioned cache directory). After upgrading, reinstall the addon:
 
 ```bash
 uvx mathematica-mcp-full setup <client>
@@ -30,6 +30,8 @@ uvx mathematica-mcp-full setup <client>
 ```
 
 Then restart Mathematica. If the addon is stale, `status()` reports the version skew and asks you to reinstall.
+
+> **Upgrading from the 1.0.0 wheel specifically:** 1.0.0's bundled `install.wl` skipped rewriting an existing MathematicaMCP section, so on 1.0.0 first delete the MathematicaMCP lines from `$UserBaseDirectory/Kernel/init.m`, then run setup. From 1.0.1 the installer replaces the section idempotently.
 
 ## Missing a tool under `lean`?
 
@@ -42,7 +44,7 @@ Every classic capability still exists. If a specific tool you relied on isn't on
   export MATHEMATICA_TOOLSETS=data_io,graphics_plus,cloud,debug,notebook_files,notebook_edit,symbols,math_aliases,repository,async_jobs,cache
   ```
 
-  Toolsets can only *add* tools to lean; they never remove the 12 core tools. See the [README](../README.md#opt-in-extras-for-lean) for what each name adds.
+  Toolsets can only *add* tools to lean; they never remove the 12 core tools. See the [Technical Reference](technical-reference.md#lean-opt-in-toolsets) for what each name adds.
 
 ## Old tool → lean equivalent
 
@@ -71,6 +73,7 @@ The 12 lean tools are thin wrappers over the same internals. Map your old calls 
 
 - **`vars(action='clear')` requires `name=` or `pattern=`.** A bare `clear` no longer wipes the session - it returns an error. To clear everything, call `vars(action='clear_all')` explicitly. (Classic `clear_variables` is unchanged.)
 - **`evaluate` rejects ambiguous calls.** Passing both `code=` and `file=`, or `dry_run=True` with `file=`, returns an error instead of guessing which you meant.
+- **`evaluate`'s `timeout` applies to `kernel`/`notebook` targets.** For `target=cell/selection` and `file=` runs the underlying operations have no timeout parameter; a non-default `timeout` is acknowledged with a `note` in the response rather than enforced.
 - **`notebooks` validates `format` per action.** `save` accepts `Notebook|PDF|HTML|TeX`; `export` accepts `PDF|HTML|TeX|Markdown`. Invalid combinations return an error with a `next_step` pointing at the right call.
 
 ## Behavioral notes for 1.0

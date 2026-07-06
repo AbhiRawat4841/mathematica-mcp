@@ -14,7 +14,7 @@ All notable changes to this project will be documented in this file.
 
 - **Default profile is now `lean` (12 tools), not `full` (82 tools).** If you do nothing, agents see the 12 consolidated lean tools. Set `MATHEMATICA_PROFILE=classic` (alias `full`) to keep the complete pre-1.0 surface. `classic` is byte-identical to the old `full` - same tools, same implementations, no shims. See [docs/MIGRATION.md](docs/MIGRATION.md).
 - **Reinstall the Mathematica addon.** 1.0 adds a Python↔addon `protocol_version` handshake, now at `3`. The addon lives in `$UserBaseDirectory/Kernel/init.m` and does **not** update with `pip`/`uvx`; run `setup` (or `wolframscript -file addon/install.wl`) again. A stale addon is detected and surfaced by `status()`.
-- **`state_delta` is no longer attached to every addon response** (protocol 2→3, a response-contract change). It now appears only on notebook-touching commands (`create_notebook`, `write_cell`, `evaluate_cell`, `get_cells`, ... plus `batch_commands`); pure-kernel responses omit it. `kernel_busy` inside it reports the focused notebook's actual `Evaluating` state.
+- **`state_delta` is no longer attached to every addon response** (a response-contract change; the handshake ships at protocol `3`). It now appears only on notebook-touching commands (`create_notebook`, `write_cell`, `evaluate_cell`, `get_cells`, ... plus `batch_commands`); pure-kernel responses omit it. `kernel_busy` inside it reports the focused notebook's actual `Evaluating` state.
 - **`vars(action='clear')` requires `name=` or `pattern=`.** A bare `clear` no longer wipes the session - it errors and points at `vars(action='clear_all')`, which is now the explicit way to clear everything. Anyone scripting a bare `clear` must switch to `clear_all`.
 
 ### Added
@@ -41,6 +41,7 @@ All notable changes to this project will be documented in this file.
 - **Undefined symbols' usage was faked and cached**: looking up a nonexistent symbol echoed the literal `Sym::usage` text as real usage and stored it in the symbol index.
 - **Graphics re-rasterization on query-cache hits spawned a ~12.5s cold `wolframscript` subprocess**, making a cache hit slower than a miss; it now renders the cached output expression on the warm session without re-running user code.
 - **`execute_code`'s warm path ignored `timeout`**, so a runaway evaluation could block the kernel session indefinitely; evaluations are now bounded by `TimeConstrained`.
+- **Idle kernel shutdown could silently never fire on freshly-booted hosts**: the reaper compared against a re-read monotonic clock instead of the sampled one, so on machines with short uptime (CI runners, fresh boots) the idle timeout was never considered reached.
 - **User-expression tools leaked symbol definitions into the shared kernel's `` Global` ``** (e.g. `inspect_graphics`, `get_constant`); user text now evaluates in a throwaway scratch context.
 
 ### Changed

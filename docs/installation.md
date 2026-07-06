@@ -316,7 +316,7 @@ Restart your editor to load the MCP server. Look for the MCP indicator (e.g., ha
 
 ### Execution Styles
 
-Once set up, use keywords like "calculate", "plot", "new notebook", or "interactive" in your prompts to control where results appear. See the README's [Execution Styles](../README.md#execution-styles) section for the full keyword table and examples.
+Once set up, use keywords like "calculate", "plot", "new notebook", or "interactive" in your prompts to control where results appear. See the [LLM Guidance System](technical-reference.md#llm-guidance-system) for the full keyword table and examples.
 
 ---
 
@@ -427,11 +427,13 @@ See the [Technical Reference](technical-reference.md#intelligent-routing--observ
 
 ### Session Isolation
 
-For multi-session use (e.g., multiple notebooks), use the `session_id` parameter:
+`session_id` routes output to a per-session notebook window (each session gets its own notebook):
 ```python
-evaluate(code="x = 5", session_id="notebook1")
-evaluate(code="x = 10", session_id="notebook2")  # Independent variable
+evaluate(code="x = 5", session_id="notebook1")   # writes into notebook1's window
+evaluate(code="x = 10", session_id="notebook2")  # writes into notebook2's window
 ```
+
+Note: `session_id` alone does **not** isolate variables; both calls above share the kernel's `Global\`` context. Variable isolation requires the classic profile's `isolate_context=True` (next section).
 
 ### Context Isolation (classic profile)
 
