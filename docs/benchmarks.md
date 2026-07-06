@@ -24,15 +24,20 @@ One-time cost: the persistent kernel session starts on first use (~12.9s, includ
 
 ### Live addon operations (after `state_delta` gating)
 
-| Operation | v1.0.1 median | 2026-01 baseline |
-|-----------|---------------|------------------|
-| `execute_code` (trivial, pure-kernel: no `state_delta`) | 32.7ms | 28.6ms |
-| `get_notebook_info` | 34.6ms | 21ms |
-| `write_cell` | 47.9ms | 39ms |
-| `get_cells` | 68.0ms | 122ms |
-| `screenshot_notebook` | 403.5ms | 529ms |
+The meaningful way to read these round trips is against the **transport floor**: a bare `ping` (no kernel work, no `state_delta`) costs ~30ms of socket + JSON + handler-scheduling overhead, so an operation's real cost is what it adds *above* that floor.
 
-Wire transport dominates these round trips, so per-operation deltas vs the January baseline are mostly session/notebook-state noise. The `state_delta` gating change is about *what* pure-kernel responses depend on, not raw latency: they no longer touch the front end at all (previously every response computed `SelectedNotebook[]`/`Cells[]`, ~80% of in-kernel processing, and stalled whenever the front end was busy).
+| Operation | v1.0.1 median | Above floor | Note |
+|-----------|---------------|-------------|------|
+| `ping` (transport floor) | 29.7ms | - | pure transport, zero kernel work |
+| `execute_code` (trivial) | 28.4-32.7ms | ~0ms | pure-kernel: carries no `state_delta` |
+| `get_notebook_info` | 33.0-34.6ms | ~3ms | carries `state_delta` by design |
+| `write_cell` | 47.9ms | ~18ms | cell creation + `state_delta` |
+| `get_cells` | 68.0ms | ~38ms | O(cell count) `NotebookRead` |
+| `screenshot_notebook` | 403.5ms | ~374ms | front-end PNG export |
+
+Ranges show run-to-run variance on the identical setup (`execute_code` measured 32.7ms and 28.4ms an hour apart) - about ±4ms, larger than most cross-snapshot differences.
+
+**Why the 2026-01 baseline is not a comparison column:** that snapshot (below) was taken on Mathematica **14.x**, pre-1.0, and recorded `get_notebook_info` at 21ms - *below today's 29.7ms empty-command floor*, which is unreachable under the current front end's transport. Its deltas against v1.0.1 reflect the Mathematica version and machine state, not code changes. The `state_delta` gating change is about *what* pure-kernel responses depend on, not raw latency: they no longer touch the front end at all (previously every response computed `SelectedNotebook[]`/`Cells[]`, ~80% of in-kernel processing, and stalled whenever the front end was busy).
 
 ### Offline operations
 
