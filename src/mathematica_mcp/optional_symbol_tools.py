@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import re
-import subprocess
 from typing import Literal
 
 from mcp.server.fastmcp import FastMCP
@@ -70,25 +69,23 @@ def register_symbol_lookup_tools(
         # When the fast index path was used, it only covers System symbols.
         # Also search Global symbols so user-defined names are not lost.
         if system_only or not candidates_raw:
-            from .lazy_wolfram_tools import _find_wolframscript
+            from .lazy_wolfram_tools import _run_wl_parsed, _wl_string
 
-            wolframscript = _find_wolframscript()
-            if wolframscript:
-                try:
-                    global_code = f'Names["Global`*{query}*"]' if system_only else f'Names["*{query}*"]'
-                    result = subprocess.run(
-                        [wolframscript, "-code", global_code],
-                        capture_output=True,
-                        text=True,
-                        timeout=15,
-                    )
-                    if result.returncode == 0:
-                        existing = {c.get("symbol") for c in candidates_raw}
-                        for name in re.findall(r'"([^"]+)"', result.stdout)[:20]:
-                            if name not in existing:
-                                candidates_raw.append({"symbol": name, "usage": ""})
-                except Exception:
-                    pass
+            # Read-only Names[] lookup — no isolation needed. Warm kernel means
+            # Global` actually contains the user's session symbols now (the old
+            # cold subprocess spawned a fresh kernel whose Global` was empty, so
+            # this fallback could never find user-defined names).
+            pattern = f"Global`*{query}*" if system_only else f"*{query}*"
+            names_code = f'<|"success" -> True, "names" -> Names[{_wl_string(pattern)}]|>'
+            try:
+                parsed = json.loads(await _run_wl_parsed(names_code, parse_wolfram_association, timeout=15))
+                names = parsed.get("names", []) if parsed.get("success") else []
+                existing = {c.get("symbol") for c in candidates_raw}
+                for name in names[:20]:
+                    if isinstance(name, str) and name not in existing:
+                        candidates_raw.append({"symbol": name, "usage": ""})
+            except Exception:
+                pass
 
         if not candidates_raw:
             return json.dumps(
@@ -181,23 +178,28 @@ def register_symbol_lookup_tools(
         if cached and cached.get("success") and cached.get("attributes") is not None:
             return json.dumps(cached, indent=2)
 
-        from .lazy_wolfram_tools import _find_wolframscript
+        from .lazy_wolfram_tools import _run_wl_parsed, _scratch_block, _wl_string
 
-        wolframscript = _find_wolframscript()
-        if not wolframscript:
-            return json.dumps({"success": False, "error": "wolframscript not found in PATH"}, indent=2)
-
+        # Scratch-blocked: ToExpression on caller-supplied text must not create or
+        # evaluate symbols in the shared kernel's Global` (the old throwaway kernel
+        # gave this isolation for free). Unknown names land in MCPScratch` instead.
+        wl_sym = _wl_string(symbol)
         info_code = f"""
 Module[{{sym, info, usage, opts, attrs, syntaxInfo, relatedSyms, examples}},
-  sym = ToExpression["{symbol}"];
-  usage = Quiet[Check[ToString[sym::usage], "No usage information available"]];
+  sym = ToExpression[{wl_sym}];
+  (* StringQ guard: an UNDEFINED symbol's sym::usage stays an unevaluated
+     MessageName whose ToString is the literal "Sym::usage" — without the guard
+     that fake text would be returned AND cached into the symbol index. *)
+  usage = Quiet[Check[
+    With[{{u = sym::usage}}, If[StringQ[u], u, "No usage information available"]],
+    "No usage information available"]];
   opts = Quiet[Check[Map[{{ToString[#[[1]]], ToString[#[[2]]]}} &, Options[sym]], {{}}]];
   attrs = Quiet[Check[ToString /@ Attributes[sym], {{}}]];
   syntaxInfo = Quiet[Check[SyntaxInformation[sym], {{}}]];
-  relatedSyms = Quiet[Check[Take[ToString /@ WolframLanguageData["{symbol}", "RelatedSymbols"], UpTo[10]], {{}}]];
+  relatedSyms = Quiet[Check[Take[ToString /@ WolframLanguageData[{wl_sym}, "RelatedSymbols"], UpTo[10]], {{}}]];
   <|
     "success" -> True,
-    "symbol" -> "{symbol}",
+    "symbol" -> {wl_sym},
     "usage" -> usage,
     "options" -> opts,
     "options_count" -> Length[opts],
@@ -210,57 +212,27 @@ Module[{{sym, info, usage, opts, attrs, syntaxInfo, relatedSyms, examples}},
 ]
 """
 
-        try:
-            result = subprocess.run(
-                [wolframscript, "-code", info_code],
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-
-            if result.returncode != 0:
-                return json.dumps(
-                    {
-                        "success": False,
-                        "error": result.stderr or "Symbol lookup failed",
-                        "symbol": symbol,
-                    },
-                    indent=2,
-                )
-
-            raw_output = result.stdout.strip()
-            parsed = parse_wolfram_association(raw_output)
-
-            if isinstance(parsed, dict) and parsed.get("success"):
-                formatted = {
-                    "success": True,
-                    "symbol": symbol,
-                    "usage": parsed.get("usage", ""),
-                    "attributes": parsed.get("attributes", []),
-                    "options_count": parsed.get("options_count", 0),
-                    "options": parsed.get("options", [])[:10],
-                    "related_symbols": parsed.get("related_symbols", []),
-                    "context": parsed.get("context", "Unknown"),
-                }
-                symbol_index.cache_metadata(symbol, formatted)
-                return json.dumps(formatted, indent=2)
-
-            return json.dumps(
-                {
-                    "success": True,
-                    "symbol": symbol,
-                    "raw_output": raw_output,
-                    "note": "Partial parsing - see raw output",
-                },
-                indent=2,
-            )
-        except subprocess.TimeoutExpired:
-            return json.dumps(
-                {"success": False, "error": "Symbol lookup timed out", "symbol": symbol},
-                indent=2,
-            )
-        except Exception as e:
-            return json.dumps({"success": False, "error": str(e), "symbol": symbol}, indent=2)
+        raw = await _run_wl_parsed(_scratch_block(info_code), parse_wolfram_association, timeout=30)
+        parsed = json.loads(raw)
+        if isinstance(parsed, dict) and parsed.get("success") and parsed.get("attributes") is not None:
+            formatted = {
+                "success": True,
+                "symbol": symbol,
+                "usage": parsed.get("usage", ""),
+                "attributes": parsed.get("attributes", []),
+                "options_count": parsed.get("options_count", 0),
+                "options": parsed.get("options", [])[:10],
+                "related_symbols": parsed.get("related_symbols", []),
+                "context": parsed.get("context", "Unknown"),
+            }
+            # Cache a copy without execution_method: a later cache hit must not
+            # claim the execution method of the original lookup.
+            symbol_index.cache_metadata(symbol, dict(formatted))
+            formatted["execution_method"] = parsed.get("execution_method")
+            return json.dumps(formatted, indent=2)
+        # Funnel error or unparseable output: return it as-is (carries
+        # success/error/execution_method from _run_wl_parsed).
+        return raw
 
     @mcp.tool()
     async def suggest_similar_functions(query: str) -> str:
@@ -280,16 +252,13 @@ Module[{{sym, info, usage, opts, attrs, syntaxInfo, relatedSyms, examples}},
                 indent=2,
             )
 
-        # Fallback: subprocess.
-        from .lazy_wolfram_tools import _find_wolframscript
+        # Fallback: warm kernel. Read-only — Names[] plus usage strings of
+        # System` symbols only — so no isolation needed.
+        from .lazy_wolfram_tools import _run_wl_parsed, _wl_string
 
-        wolframscript = _find_wolframscript()
-        if not wolframscript:
-            return json.dumps({"success": False, "error": "wolframscript not found"}, indent=2)
-
-        code = f'''
+        code = f"""
 Module[{{query, matches}},
-  query = "{query}";
+  query = {_wl_string(query)};
   matches = Select[
     Names["System`*"],
     StringContainsQ[#, query, IgnoreCase -> True] &
@@ -310,14 +279,5 @@ Module[{{query, matches}},
     ]
   |>
 ]
-'''
-        try:
-            result = subprocess.run(
-                [wolframscript, "-code", code],
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-            return json.dumps(parse_wolfram_association(result.stdout.strip()), indent=2)
-        except Exception as e:
-            return json.dumps({"success": False, "error": str(e)}, indent=2)
+"""
+        return await _run_wl_parsed(code, parse_wolfram_association, timeout=30)

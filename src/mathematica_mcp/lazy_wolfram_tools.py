@@ -4,8 +4,7 @@ import asyncio
 import functools
 import json
 import shutil
-import subprocess
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from typing import Literal
 
 
@@ -20,9 +19,102 @@ def _clear_wolframscript_cache() -> None:
     _find_wolframscript.cache_clear()
 
 
-async def _run_subprocess(*args, **kwargs) -> subprocess.CompletedProcess:
-    """Run subprocess.run in a thread to avoid blocking the event loop."""
-    return await asyncio.to_thread(subprocess.run, *args, **kwargs)
+def _wl_string(s: str) -> str:
+    """Return ``s`` as a safely-escaped, double-quoted WL string literal.
+
+    Escapes backslash first, then double-quote, so arbitrary Python text can be
+    interpolated where a WL string literal is expected without breaking out of the
+    quotes (WL injection). e.g. ``Quantity[100, "Centimeters"]`` survives intact
+    instead of mangling the surrounding expression.
+    """
+    escaped = s.replace(chr(92), chr(92) * 2).replace('"', '\\"')
+    return f'"{escaped}"'
+
+
+def _scratch_block(code: str) -> str:
+    """Wrap user-expression WL ``code`` so it evaluates in a throwaway context.
+
+    Any symbol defined while parsing/evaluating user input lands in ``MCPScratch```
+    instead of the shared persistent kernel's ``Global```, so ``ToExpression[userInput]``
+    can't leak Global` state across calls. Mirrors ``session._wrap_code_for_context``.
+    """
+    return f'Block[{{$Context = "MCPScratch`", $ContextPath = {{"System`"}}}}, {code}]'
+
+
+def _json_wl(code: str) -> str:
+    """Wrap WL ``code`` (which returns an Association) so its final result is a
+    JSON string via ``ExportString[..., "JSON"]``.
+
+    A String result renders verbatim through ``evaluate_wl``'s OutputForm path
+    (and cold wolframscript stdout), so the JSON round-trips to ``json.loads``.
+    This replaces parsing the Association's OutputForm rendering with the fragile
+    regex parser, which returned ``parse_error`` fallbacks for expression-valued
+    fields (e.g. get_kernel_state). If the Association holds non-JSON-safe leaves
+    (Quantity, Entity, held expressions, Rationals), a second attempt recursively
+    stringifies them via the Module-local ``mcpSan`` (an explicit recursion, NOT
+    ReplaceAll: ReplaceAll visits heads, so the ``Association`` head symbol itself
+    would get stringified and the export would always fail). Rule keys are
+    stringified too (entity_lookup returns ``EntityProperty[...] -> value`` pairs).
+    Only if that also fails does the raw Association pass through for the caller's
+    regex fallback.
+    """
+    return f"""Module[{{mcpRes, mcpJson, mcpSan}},
+  mcpRes = ({code});
+  mcpJson = Quiet[Check[ExportString[mcpRes, "JSON", "Compact" -> True], $Failed]];
+  If[!StringQ[mcpJson],
+    mcpSan[x_Association] := Association[KeyValueMap[
+      If[StringQ[#1], #1, ToString[#1, InputForm]] -> mcpSan[#2] &, x]];
+    mcpSan[x_List] := Map[mcpSan, x];
+    mcpSan[x_Rule] := Rule[
+      If[StringQ[First[x]], First[x], ToString[First[x], InputForm]],
+      mcpSan[Last[x]]];
+    mcpSan[x : (_String | _Integer | _Real | True | False | Null)] := x;
+    mcpSan[x_] := ToString[x, InputForm];
+    mcpJson = Quiet[Check[ExportString[mcpSan[mcpRes], "JSON", "Compact" -> True], $Failed]]
+  ];
+  If[StringQ[mcpJson], mcpJson, mcpRes]
+]"""
+
+
+async def _run_wl_parsed(
+    code: str,
+    parse_wolfram_association: Callable[[str], dict],
+    timeout: int = 30,
+) -> str:
+    """Evaluate WL ``code`` warm-first (persistent session, cold wolframscript
+    fallback), parse the Association output, and return it as a JSON string with
+    ``execution_method`` attached. Shared by the migrated cold tools so warmth and
+    the cold-execution counter live in one place (session.evaluate_wl).
+
+    The Association is JSON-exported kernel-side (see ``_json_wl``) and parsed
+    with ``json.loads``; the regex Association parser remains only as a fallback
+    for kernels/outputs where the JSON export failed.
+    """
+    from .session import evaluate_wl
+
+    wl = await asyncio.to_thread(evaluate_wl, _json_wl(code), timeout)
+    if not wl.success:
+        return json.dumps(
+            {
+                "success": False,
+                "error": wl.error or "Execution failed",
+                "execution_method": wl.execution_method,
+            },
+            indent=2,
+        )
+    try:
+        parsed = json.loads(wl.text)
+    except (json.JSONDecodeError, ValueError):
+        parsed = parse_wolfram_association(wl.text)
+    if not isinstance(parsed, dict):
+        # A whole-result $Failed sanitizes to the string "$Failed" — that is a
+        # kernel-side failure, not a success carrying data.
+        if parsed == "$Failed":
+            parsed = {"success": False, "error": "kernel returned $Failed", "result": parsed}
+        else:
+            parsed = {"success": True, "result": parsed}
+    parsed.setdefault("execution_method", wl.execution_method)
+    return json.dumps(parsed, indent=2)
 
 
 async def verify_derivation(
@@ -42,14 +134,10 @@ async def verify_derivation(
             indent=2,
         )
 
-    wolframscript = _find_wolframscript()
-    if not wolframscript:
-        return json.dumps({"success": False, "error": "wolframscript not found in PATH"}, indent=2)
-
-    steps_list = ", ".join([f'"{step}"' for step in steps])
+    steps_list = ", ".join(_wl_string(step) for step in steps)
     format_fn = "TeXForm" if format == "latex" else "InputForm" if format == "mathematica" else "ToString"
 
-    verification_code = f"""
+    verification_code = _scratch_block(f"""
 Module[{{steps, results, i, prev, current, isEqual, simplified, formatExpr}},
   steps = {{{steps_list}}};
   formatExpr = {format_fn};
@@ -76,29 +164,34 @@ Module[{{steps, results, i, prev, current, isEqual, simplified, formatExpr}},
   results["all_valid"] = AllTrue[results["steps"], #["valid"] &];
   results["valid_count"] = Count[results["steps"], _?(#["valid"] &)];
   results["total_steps"] = Length[steps] - 1;
-  results
+  ExportString[results, "JSON"]
 ]
-"""
+""")
+
+    from .session import evaluate_wl
 
     try:
-        result = await _run_subprocess(
-            [wolframscript, "-code", verification_code],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
-        if result.returncode != 0:
+        wl = await asyncio.to_thread(evaluate_wl, verification_code, timeout)
+        if not wl.success:
             return json.dumps(
                 {
                     "success": False,
-                    "error": result.stderr or "Verification failed",
-                    "stdout": result.stdout,
+                    "error": wl.error or "Verification failed",
+                    "stdout": wl.text,
+                    "execution_method": wl.execution_method,
                 },
                 indent=2,
             )
 
-        raw_output = result.stdout.strip()
-        parsed = parse_wolfram_association(raw_output)
+        raw_output = wl.text
+        # ponytail: WL now emits ExportString[results, "JSON"], which evaluate_wl
+        # renders verbatim via OutputForm (same proven path as interpret_natural_language),
+        # so json.loads round-trips even for expression-valued fields. The fragile
+        # OutputForm-Association regex stays only as a fallback for non-JSON kernel output.
+        try:
+            parsed = json.loads(raw_output)
+        except json.JSONDecodeError:
+            parsed = parse_wolfram_association(raw_output)
         report_lines = ["## Derivation Verification Report\n"]
         if isinstance(parsed, dict) and "steps" in parsed:
             steps_data = parsed.get("steps", [])
@@ -128,12 +221,8 @@ Module[{{steps, results, i, prev, current, isEqual, simplified, formatExpr}},
                 "report": "\n".join(report_lines),
                 "raw_data": parsed,
                 "format": format,
+                "execution_method": wl.execution_method,
             },
-            indent=2,
-        )
-    except subprocess.TimeoutExpired:
-        return json.dumps(
-            {"success": False, "error": f"Verification timed out after {timeout} seconds"},
             indent=2,
         )
     except Exception as e:
@@ -141,10 +230,6 @@ Module[{{steps, results, i, prev, current, isEqual, simplified, formatExpr}},
 
 
 async def get_kernel_state(*, parse_wolfram_association: Callable[[str], dict]) -> str:
-    wolframscript = _find_wolframscript()
-    if not wolframscript:
-        return json.dumps({"success": False, "error": "wolframscript not found in PATH"}, indent=2)
-
     state_code = """
 <|
   "success" -> True,
@@ -168,30 +253,10 @@ async def get_kernel_state(*, parse_wolfram_association: Callable[[str], dict]) 
   "process_id" -> $ProcessID
 |>
 """
-    try:
-        result = await _run_subprocess(
-            [wolframscript, "-code", state_code],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        if result.returncode != 0:
-            return json.dumps(
-                {"success": False, "error": result.stderr or "State query failed"},
-                indent=2,
-            )
-        raw_output = result.stdout.strip()
-        parsed = parse_wolfram_association(raw_output)
-        return json.dumps(parsed if isinstance(parsed, dict) else {"raw": raw_output}, indent=2)
-    except Exception as e:
-        return json.dumps({"success": False, "error": str(e)}, indent=2)
+    return await _run_wl_parsed(state_code, parse_wolfram_association, timeout=30)
 
 
 async def load_package(package_name: str, *, parse_wolfram_association: Callable[[str], dict]) -> str:
-    wolframscript = _find_wolframscript()
-    if not wolframscript:
-        return json.dumps({"success": False, "error": "wolframscript not found in PATH"}, indent=2)
-
     if not package_name.endswith("`"):
         package_name = package_name + "`"
 
@@ -209,25 +274,10 @@ Module[{{beforeContexts, afterContexts, newSymbols, result}},
   |>
 ]
 """
-    try:
-        result = await _run_subprocess(
-            [wolframscript, "-code", load_code],
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-        raw_output = result.stdout.strip()
-        parsed = parse_wolfram_association(raw_output)
-        return json.dumps(parsed if isinstance(parsed, dict) else {"raw": raw_output}, indent=2)
-    except Exception as e:
-        return json.dumps({"success": False, "error": str(e), "package": package_name}, indent=2)
+    return await _run_wl_parsed(load_code, parse_wolfram_association, timeout=60)
 
 
 async def list_loaded_packages(*, parse_wolfram_association: Callable[[str], dict]) -> str:
-    wolframscript = _find_wolframscript()
-    if not wolframscript:
-        return json.dumps({"success": False, "error": "wolframscript not found in PATH"}, indent=2)
-
     list_code = """
 Module[{pkgs},
   pkgs = Select[
@@ -240,18 +290,7 @@ Module[{pkgs},
   <|"success" -> True, "packages" -> Sort[pkgs], "count" -> Length[pkgs]|>
 ]
 """
-    try:
-        result = await _run_subprocess(
-            [wolframscript, "-code", list_code],
-            capture_output=True,
-            text=True,
-            timeout=15,
-        )
-        raw_output = result.stdout.strip()
-        parsed = parse_wolfram_association(raw_output)
-        return json.dumps(parsed if isinstance(parsed, dict) else {"raw": raw_output}, indent=2)
-    except Exception as e:
-        return json.dumps({"success": False, "error": str(e)}, indent=2)
+    return await _run_wl_parsed(list_code, parse_wolfram_association, timeout=15)
 
 
 async def wolfram_alpha(
@@ -260,64 +299,44 @@ async def wolfram_alpha(
     *,
     parse_wolfram_association: Callable[[str], dict],
 ) -> str:
-    wolframscript = _find_wolframscript()
-    if not wolframscript:
-        return json.dumps({"success": False, "error": "wolframscript not found"}, indent=2)
-
-    safe_query = query.replace('"', '\\"')
+    wl_query = _wl_string(query)
     if return_type == "full":
-        code = f'''
+        code = f"""
 Module[{{result}},
-  result = Quiet[Check[WolframAlpha["{safe_query}", "FullOutput"], $Failed]];
+  result = Quiet[Check[WolframAlpha[{wl_query}, "FullOutput"], $Failed]];
   If[result === $Failed,
     <|"success" -> False, "error" -> "Query failed"|>,
-    <|"success" -> True, "query" -> "{safe_query}", "result" -> ToString[result, InputForm]|>
+    <|"success" -> True, "query" -> {wl_query}, "result" -> ToString[result, InputForm]|>
   ]
 ]
-'''
+"""
     elif return_type == "data":
-        code = f'''
+        code = f"""
 Module[{{result}},
-  result = Quiet[Check[WolframAlpha["{safe_query}", {{"Result", "Input"}}], $Failed]];
+  result = Quiet[Check[WolframAlpha[{wl_query}, {{"Result", "Input"}}], $Failed]];
   If[result === $Failed,
     <|"success" -> False, "error" -> "Query failed"|>,
-    <|"success" -> True, "query" -> "{safe_query}", "result" -> ToString[result, InputForm]|>
+    <|"success" -> True, "query" -> {wl_query}, "result" -> ToString[result, InputForm]|>
   ]
 ]
-'''
+"""
     else:
-        code = f'''
+        code = f"""
 Module[{{result}},
-  result = Quiet[Check[WolframAlpha["{safe_query}", "Result"], $Failed]];
+  result = Quiet[Check[WolframAlpha[{wl_query}, "Result"], $Failed]];
   If[result === $Failed,
     <|"success" -> False, "error" -> "Query failed"|>,
-    <|"success" -> True, "query" -> "{safe_query}", "result" -> ToString[result]|>
+    <|"success" -> True, "query" -> {wl_query}, "result" -> ToString[result]|>
   ]
 ]
-'''
-    try:
-        result = await _run_subprocess(
-            [wolframscript, "-code", code],
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-        return json.dumps(parse_wolfram_association(result.stdout.strip()), indent=2)
-    except subprocess.TimeoutExpired:
-        return json.dumps({"success": False, "error": "Query timed out"}, indent=2)
-    except Exception as e:
-        return json.dumps({"success": False, "error": str(e)}, indent=2)
+"""
+    return await _run_wl_parsed(code, parse_wolfram_association, timeout=60)
 
 
 async def interpret_natural_language(text: str) -> str:
-    wolframscript = _find_wolframscript()
-    if not wolframscript:
-        return json.dumps({"success": False, "error": "wolframscript not found"}, indent=2)
-
-    safe_text = text.replace('"', '\\"')
     code = """
 Module[{query, props, inputSpec, inputExpr, inputForm, resultExpr},
-  query = "__MCP_QUERY__";
+  query = __MCP_QUERY__;
   props = Quiet[Check[WolframAlpha[query, "Properties"], {}]];
   inputSpec = SelectFirst[
     props,
@@ -350,32 +369,42 @@ Module[{query, props, inputSpec, inputExpr, inputForm, resultExpr},
     ]
   ]
 ]
-""".replace("__MCP_QUERY__", safe_text)
-    try:
-        result = await _run_subprocess(
-            [wolframscript, "-code", code],
-            capture_output=True,
-            text=True,
-            timeout=30,
+""".replace("__MCP_QUERY__", _wl_string(text))
+    from .session import evaluate_wl
+
+    wl = await asyncio.to_thread(evaluate_wl, code, 30)
+    if not wl.success:
+        return json.dumps(
+            {"success": False, "error": wl.error or "Query failed", "execution_method": wl.execution_method},
+            indent=2,
         )
-        if result.returncode != 0:
-            return json.dumps({"success": False, "error": result.stderr or "Query failed"}, indent=2)
-        output = result.stdout.strip()
-        if not output:
-            return json.dumps({"success": False, "error": "Empty WolframAlpha response"}, indent=2)
-        try:
-            return json.dumps(json.loads(output), indent=2)
-        except json.JSONDecodeError as e:
-            return json.dumps(
-                {
-                    "success": False,
-                    "error": f"Failed to parse WolframAlpha response: {e}",
-                    "raw": output,
-                },
-                indent=2,
-            )
-    except Exception as e:
-        return json.dumps({"success": False, "error": str(e)}, indent=2)
+    output = wl.text
+    if not output:
+        return json.dumps(
+            {
+                "success": False,
+                "error": "Empty WolframAlpha response",
+                "execution_method": wl.execution_method,
+            },
+            indent=2,
+        )
+    # ponytail: the WL returns ExportString[..., "JSON"], and evaluate_wl renders it
+    # via ToString[jsonString, OutputForm] which emits the raw JSON verbatim (escapes
+    # intact), so json.loads round-trips. Falls back to reporting raw on any mismatch.
+    try:
+        parsed = json.loads(output)
+    except json.JSONDecodeError as e:
+        return json.dumps(
+            {
+                "success": False,
+                "error": f"Failed to parse WolframAlpha response: {e}",
+                "raw": output,
+            },
+            indent=2,
+        )
+    if isinstance(parsed, dict):
+        parsed.setdefault("execution_method", wl.execution_method)
+    return json.dumps(parsed, indent=2)
 
 
 async def entity_lookup(
@@ -385,45 +414,33 @@ async def entity_lookup(
     *,
     parse_wolfram_association: Callable[[str], dict],
 ) -> str:
-    wolframscript = _find_wolframscript()
-    if not wolframscript:
-        return json.dumps({"success": False, "error": "wolframscript not found"}, indent=2)
-
-    safe_name = name.replace('"', '\\"')
+    wl_name = _wl_string(name)
+    wl_type = _wl_string(entity_type)
     if properties:
-        props_str = "{" + ", ".join(f'"{p}"' for p in properties) + "}"
-        code = f'''
+        props_str = "{" + ", ".join(_wl_string(p) for p in properties) + "}"
+        code = f"""
 Module[{{entity, data}},
-  entity = Quiet[Check[Entity["{entity_type}", "{safe_name}"], $Failed]];
+  entity = Quiet[Check[Entity[{wl_type}, {wl_name}], $Failed]];
   If[entity === $Failed || !EntityQ[entity],
     <|"success" -> False, "error" -> "Entity not found"|>,
     data = EntityValue[entity, {props_str}];
-    <|"success" -> True, "entity_type" -> "{entity_type}", "name" -> "{safe_name}", "properties" -> Map[ToString, data]|>
+    <|"success" -> True, "entity_type" -> {wl_type}, "name" -> {wl_name}, "properties" -> Map[ToString, data]|>
   ]
 ]
-'''
+"""
     else:
-        code = f'''
+        code = f"""
 Module[{{entity, props, data}},
-  entity = Quiet[Check[Entity["{entity_type}", "{safe_name}"], $Failed]];
+  entity = Quiet[Check[Entity[{wl_type}, {wl_name}], $Failed]];
   If[entity === $Failed || !EntityQ[entity],
     <|"success" -> False, "error" -> "Entity not found"|>,
     props = Take[EntityProperties[entity], UpTo[10]];
     data = EntityValue[entity, props];
-    <|"success" -> True, "entity_type" -> "{entity_type}", "name" -> EntityValue[entity, "Name"], "properties" -> MapThread[Rule, {{props, Map[ToString, data]}}]|>
+    <|"success" -> True, "entity_type" -> {wl_type}, "name" -> EntityValue[entity, "Name"], "properties" -> MapThread[Rule, {{props, Map[ToString, data]}}]|>
   ]
 ]
-'''
-    try:
-        result = await _run_subprocess(
-            [wolframscript, "-code", code],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        return json.dumps(parse_wolfram_association(result.stdout.strip()), indent=2)
-    except Exception as e:
-        return json.dumps({"success": False, "error": str(e)}, indent=2)
+"""
+    return await _run_wl_parsed(code, parse_wolfram_association, timeout=30)
 
 
 async def convert_units(
@@ -432,70 +449,46 @@ async def convert_units(
     *,
     parse_wolfram_association: Callable[[str], dict],
 ) -> str:
-    wolframscript = _find_wolframscript()
-    if not wolframscript:
-        return json.dumps({"success": False, "error": "wolframscript not found"}, indent=2)
-
-    safe_qty = quantity.replace('"', '\\"')
-    safe_unit = target_unit.replace('"', '\\"')
-    code = f'''
+    wl_qty = _wl_string(quantity)
+    wl_unit = _wl_string(target_unit)
+    code = f"""
 Module[{{input, result}},
-  input = Quiet[Check[Interpreter["Quantity"]["{safe_qty}"], $Failed]];
+  input = Quiet[Check[Interpreter["Quantity"][{wl_qty}], $Failed]];
   If[input === $Failed,
     <|"success" -> False, "error" -> "Could not parse quantity"|>,
-    result = Quiet[Check[UnitConvert[input, "{safe_unit}"], $Failed]];
+    result = Quiet[Check[UnitConvert[input, {wl_unit}], $Failed]];
     If[result === $Failed,
       <|"success" -> False, "error" -> "Conversion failed"|>,
-      <|"success" -> True, "input" -> "{safe_qty}", "target_unit" -> "{safe_unit}", "result" -> ToString[result], "numeric" -> ToString[QuantityMagnitude[result]]|>
+      <|"success" -> True, "input" -> {wl_qty}, "target_unit" -> {wl_unit}, "result" -> ToString[result], "numeric" -> ToString[QuantityMagnitude[result]]|>
     ]
   ]
 ]
-'''
-    try:
-        result = await _run_subprocess(
-            [wolframscript, "-code", code],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        return json.dumps(parse_wolfram_association(result.stdout.strip()), indent=2)
-    except Exception as e:
-        return json.dumps({"success": False, "error": str(e)}, indent=2)
+"""
+    return await _run_wl_parsed(code, parse_wolfram_association, timeout=30)
 
 
 async def get_constant(name: str, *, parse_wolfram_association: Callable[[str], dict]) -> str:
-    wolframscript = _find_wolframscript()
-    if not wolframscript:
-        return json.dumps({"success": False, "error": "wolframscript not found"}, indent=2)
-    code = f'''
+    wl_name = _wl_string(name)
+    code = _scratch_block(f"""
 Module[{{constant, val, numeric}},
-  constant = Quiet[Check[ToExpression["{name}"], $Failed]];
+  constant = Quiet[Check[ToExpression[{wl_name}], $Failed]];
   If[constant === $Failed,
-    constant = Quiet[Check[Quantity["{name}"], $Failed]]
+    constant = Quiet[Check[Quantity[{wl_name}], $Failed]]
   ];
   If[constant === $Failed,
     <|"success" -> False, "error" -> "Constant not found"|>,
-    <|"success" -> True, "name" -> "{name}", "exact" -> ToString[constant, InputForm], "numeric" -> ToString[N[constant, 15]], "tex" -> Quiet[Check[ToString[TeXForm[constant]], ""]]|>
+    <|"success" -> True, "name" -> {wl_name}, "exact" -> ToString[constant, InputForm], "numeric" -> ToString[N[constant, 15]], "tex" -> Quiet[Check[ToString[TeXForm[constant]], ""]]|>
   ]
 ]
-'''
-    try:
-        result = await _run_subprocess(
-            [wolframscript, "-code", code],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        return json.dumps(parse_wolfram_association(result.stdout.strip()), indent=2)
-    except Exception as e:
-        return json.dumps({"success": False, "error": str(e)}, indent=2)
+""")
+    return await _run_wl_parsed(code, parse_wolfram_association, timeout=30)
 
 
 async def trace_evaluation(
     expression: str,
     max_depth: int = 5,
     *,
-    addon_result: Callable[[str, dict | None], dict],
+    addon_result: Callable[[str, dict | None], Awaitable[dict]],
 ) -> str:
     result = await addon_result("trace_evaluation", {"expression": expression, "max_depth": max_depth})
     if result.get("error"):
@@ -503,14 +496,14 @@ async def trace_evaluation(
     return json.dumps(result, indent=2)
 
 
-async def time_expression(expression: str, *, addon_result: Callable[[str, dict | None], dict]) -> str:
+async def time_expression(expression: str, *, addon_result: Callable[[str, dict | None], Awaitable[dict]]) -> str:
     result = await addon_result("time_expression", {"expression": expression})
     if result.get("error"):
         return json.dumps({"success": False, "error": result["error"]}, indent=2)
     return json.dumps(result, indent=2)
 
 
-async def check_syntax(code: str, *, addon_result: Callable[[str, dict | None], dict]) -> str:
+async def check_syntax(code: str, *, addon_result: Callable[[str, dict | None], Awaitable[dict]]) -> str:
     result = await addon_result("check_syntax", {"code": code})
     if result.get("error"):
         return json.dumps({"success": False, "error": result["error"]}, indent=2)
@@ -521,7 +514,7 @@ async def import_data(
     path: str,
     format: str | None = None,
     *,
-    addon_result: Callable[[str, dict | None], dict],
+    addon_result: Callable[[str, dict | None], Awaitable[dict]],
     expand_path: Callable[[str], str],
 ) -> str:
     expanded = expand_path(path) if not path.startswith("http") else path
@@ -536,7 +529,7 @@ async def export_data(
     path: str,
     format: str | None = None,
     *,
-    addon_result: Callable[[str, dict | None], dict],
+    addon_result: Callable[[str, dict | None], Awaitable[dict]],
     expand_path: Callable[[str], str],
 ) -> str:
     expanded = expand_path(path)
@@ -551,14 +544,11 @@ async def export_data(
 
 async def list_supported_formats(
     *,
-    addon_result: Callable[[str, dict | None], dict],
+    addon_result: Callable[[str, dict | None], Awaitable[dict]],
     parse_wolfram_association: Callable[[str], dict],
 ) -> str:
     result = await addon_result("list_import_formats", {})
     if result.get("error"):
-        wolframscript = _find_wolframscript()
-        if not wolframscript:
-            return json.dumps({"success": False, "error": "wolframscript not found"}, indent=2)
         code = """
 <|
   "success" -> True,
@@ -568,26 +558,14 @@ async def list_supported_formats(
   "export_count" -> Length[$ExportFormats]
 |>
 """
-        try:
-            result = await _run_subprocess(
-                [wolframscript, "-code", code],
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-            return json.dumps(parse_wolfram_association(result.stdout.strip()), indent=2)
-        except Exception as e:
-            return json.dumps({"success": False, "error": str(e)}, indent=2)
+        return await _run_wl_parsed(code, parse_wolfram_association, timeout=30)
     return json.dumps(result, indent=2)
 
 
 async def inspect_graphics(expression: str, *, parse_wolfram_association: Callable[[str], dict]) -> str:
-    wolframscript = _find_wolframscript()
-    if not wolframscript:
-        return json.dumps({"success": False, "error": "wolframscript not found"}, indent=2)
-    code = f'''
+    code = _scratch_block(f"""
 Module[{{g, result}},
-  g = Quiet[Check[ToExpression["{expression}"], $Failed]];
+  g = Quiet[Check[ToExpression[{_wl_string(expression)}], $Failed]];
   If[g === $Failed || !MatchQ[Head[g], Graphics|Graphics3D|Graph|GeoGraphics],
     <|"success" -> False, "error" -> "Not a graphics object"|>,
     <|
@@ -600,17 +578,8 @@ Module[{{g, result}},
     |>
   ]
 ]
-'''
-    try:
-        result = await _run_subprocess(
-            [wolframscript, "-code", code],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        return json.dumps(parse_wolfram_association(result.stdout.strip()), indent=2)
-    except Exception as e:
-        return json.dumps({"success": False, "error": str(e)}, indent=2)
+""")
+    return await _run_wl_parsed(code, parse_wolfram_association, timeout=30)
 
 
 async def export_graphics(
@@ -619,7 +588,7 @@ async def export_graphics(
     format: Literal["PNG", "PDF", "SVG", "EPS", "JPEG"] = "PNG",
     size: int = 600,
     *,
-    addon_result: Callable[[str, dict | None], dict],
+    addon_result: Callable[[str, dict | None], Awaitable[dict]],
     expand_path: Callable[[str], str],
 ) -> str:
     expanded = expand_path(path)
@@ -638,12 +607,9 @@ async def compare_plots(
     *,
     parse_wolfram_association: Callable[[str], dict],
 ) -> str:
-    wolframscript = _find_wolframscript()
-    if not wolframscript:
-        return json.dumps({"success": False, "error": "wolframscript not found"}, indent=2)
     plots_list = "{" + ", ".join(expressions) + "}"
-    labels_code = "None" if not labels else "{" + ", ".join(f'"{label}"' for label in labels) + "}"
-    code = f"""
+    labels_code = "None" if not labels else "{" + ", ".join(_wl_string(label) for label in labels) + "}"
+    code = _scratch_block(f"""
 Module[{{plots, labels, grid}},
   plots = {plots_list};
   labels = {labels_code};
@@ -653,17 +619,8 @@ Module[{{plots, labels, grid}},
   ];
   <|"success" -> True, "combined_expression" -> ToString[grid, InputForm], "plot_count" -> Length[plots]|>
 ]
-"""
-    try:
-        result = await _run_subprocess(
-            [wolframscript, "-code", code],
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-        return json.dumps(parse_wolfram_association(result.stdout.strip()), indent=2)
-    except Exception as e:
-        return json.dumps({"success": False, "error": str(e)}, indent=2)
+""")
+    return await _run_wl_parsed(code, parse_wolfram_association, timeout=60)
 
 
 async def create_animation(
@@ -674,10 +631,7 @@ async def create_animation(
     *,
     parse_wolfram_association: Callable[[str], dict],
 ) -> str:
-    wolframscript = _find_wolframscript()
-    if not wolframscript:
-        return json.dumps({"success": False, "error": "wolframscript not found"}, indent=2)
-    code = f'''
+    code = _scratch_block(f"""
 Module[{{expr, param, range, anim}},
   expr = Hold[{expression}];
   range = {{{parameter}, {range_spec}}};
@@ -685,16 +639,7 @@ Module[{{expr, param, range, anim}},
     ReleaseHold[expr /. {parameter} -> val],
     {{val, range[[2]], range[[3]], (range[[3]] - range[[2]])/{frames}}}
   ];
-  <|"success" -> True, "frame_count" -> Length[anim], "parameter" -> "{parameter}", "animation_expression" -> ToString[ListAnimate[anim], InputForm]|>
+  <|"success" -> True, "frame_count" -> Length[anim], "parameter" -> {_wl_string(parameter)}, "animation_expression" -> ToString[ListAnimate[anim], InputForm]|>
 ]
-'''
-    try:
-        result = await _run_subprocess(
-            [wolframscript, "-code", code],
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-        return json.dumps(parse_wolfram_association(result.stdout.strip()), indent=2)
-    except Exception as e:
-        return json.dumps({"success": False, "error": str(e)}, indent=2)
+""")
+    return await _run_wl_parsed(code, parse_wolfram_association, timeout=60)

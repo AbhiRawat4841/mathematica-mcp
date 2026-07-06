@@ -22,7 +22,6 @@ import hashlib
 import json
 import logging
 import os
-import subprocess
 import tempfile
 import threading
 from pathlib import Path
@@ -205,33 +204,26 @@ def clear_disk_cache() -> int:
 
 
 def _build_index_sync() -> bool:
-    """Build the symbol index by querying wolframscript once.
+    """Build the symbol index by querying the kernel once.
 
-    This is the pure build function — no cache logic. It spawns a
-    wolframscript subprocess to retrieve all System` symbol names.
+    This is the pure build function — no cache logic. It evaluates a single WL
+    expression on the persistent (warm) session when available, falling back to a
+    cold ``wolframscript`` subprocess (12-14 s). Warming this turns the one-time
+    index build from a cold subprocess into a sub-second warm evaluation.
     """
     global _system_symbols, _system_symbols_lower, _kernel_version
 
-    from .lazy_wolfram_tools import _find_wolframscript
-
-    wolframscript = _find_wolframscript()
-    if not wolframscript:
-        return False
+    from .session import evaluate_wl
 
     code = 'StringRiffle[Join[{ToString[$VersionNumber]}, Names["System`*"]], "\\n"]'
 
     try:
-        result = subprocess.run(
-            [wolframscript, "-code", code],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        if result.returncode != 0:
-            logger.warning("wolframscript exited with code %d", result.returncode)
+        wl = evaluate_wl(code, timeout=30)
+        if not wl.success:
+            logger.warning("Failed to build symbol index: %s", wl.error)
             return False
 
-        lines = result.stdout.strip().split("\n")
+        lines = wl.text.strip().split("\n")
         if len(lines) < 2:
             return False
 
@@ -243,7 +235,12 @@ def _build_index_sync() -> bool:
             _system_symbols = symbols
             _system_symbols_lower = [(s.lower(), s) for s in symbols]
 
-        logger.info("Symbol index built: %d symbols for version %s", len(symbols), version)
+        logger.info(
+            "Symbol index built (%s): %d symbols for version %s",
+            wl.execution_method,
+            len(symbols),
+            version,
+        )
         return True
     except Exception as e:
         logger.warning("Failed to build symbol index: %s", e)

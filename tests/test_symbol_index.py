@@ -271,13 +271,20 @@ class TestLookupSymbolsFastPath:
 
         assert call_count == 0, "subprocess.run should not be called when index is available"
 
-    def test_fallback_to_subprocess_when_no_index(self):
-        """When index is empty and no wolframscript, returns error."""
-        import mathematica_mcp.symbol_index as idx
+    def test_fallback_errors_when_no_runtime(self):
+        """When index is empty and the warm funnel is unavailable, returns error.
 
+        The fallback now goes through session.evaluate_wl (warm-first), so the
+        unavailability seam is evaluate_wl itself — patching only
+        _find_wolframscript would let the warm kernel answer (and spawn a real
+        kernel during the offline suite)."""
+        import mathematica_mcp.symbol_index as idx
+        from mathematica_mcp.session import WLResult
+
+        unavailable = WLResult(text="", success=False, execution_method="none", error="wolframscript not found")
         with (
             patch.object(idx, "ensure_index", return_value=False),
-            patch("mathematica_mcp.lazy_wolfram_tools._find_wolframscript", return_value=None),
+            patch("mathematica_mcp.session.evaluate_wl", return_value=unavailable),
         ):
             from mathematica_mcp.server import _lookup_symbols_in_kernel
 
@@ -327,12 +334,38 @@ class TestHydrateUsage:
         assert result["Sin"] == "Sin[x] gives the sine of x."
         assert result["Cos"] == "Cos[x] gives the cosine of x."
 
-    def test_hydrate_returns_empty_for_uncached_without_wolframscript(self):
+    def test_hydrate_returns_empty_for_uncached_without_runtime(self):
         from mathematica_mcp.server import _hydrate_usage
+        from mathematica_mcp.session import WLResult
 
-        with patch("mathematica_mcp.lazy_wolfram_tools._find_wolframscript", return_value=None):
+        unavailable = WLResult(text="", success=False, execution_method="none", error="no runtime")
+        with patch("mathematica_mcp.session.evaluate_wl", return_value=unavailable):
             result = _hydrate_usage(["NonExistent"])
             assert result == {}
+
+    def test_hydrate_filters_undefined_usage_and_does_not_cache_it(self):
+        """An undefined symbol's usage echoes back as the literal 'Sym::usage'
+        MessageName text; the WL filter must blank it so fake usage is never
+        cached into the symbol index."""
+        import mathematica_mcp.symbol_index as idx
+        from mathematica_mcp.server import _hydrate_usage
+        from mathematica_mcp.session import WLResult
+
+        captured = {}
+
+        def fake_eval(code, timeout=60):
+            captured["code"] = code
+            # Kernel with the filter applied returns "" for the undefined symbol.
+            return WLResult(text='{"NonExistent": ""}', success=True, execution_method="wolframclient")
+
+        with (
+            patch("mathematica_mcp.session.evaluate_wl", side_effect=fake_eval),
+            patch.object(idx, "cache_metadata") as cache_spy,
+        ):
+            result = _hydrate_usage(["NonExistent"])
+        assert result == {}
+        cache_spy.assert_not_called()
+        assert "_MessageName -> " in captured["code"]  # the filter is in the WL
 
     def test_hydrate_empty_list(self):
         from mathematica_mcp.server import _hydrate_usage

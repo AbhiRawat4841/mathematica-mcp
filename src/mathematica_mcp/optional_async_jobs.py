@@ -15,6 +15,10 @@ _MAX_JOBS = 100
 _MAX_JOB_AGE_SECONDS = 3600
 
 
+# ponytail: cold by design — each background job runs in its own wolframscript
+# subprocess so a runaway or crashing computation cannot block or take down the
+# shared warm kernel. Do NOT migrate these tools to session.evaluate_wl;
+# out-of-process isolation is the whole point.
 def register_async_computation_tools(mcp: FastMCP) -> None:
     @mcp.tool()
     async def submit_computation(
