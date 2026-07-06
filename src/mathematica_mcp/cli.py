@@ -346,6 +346,22 @@ def generate_mcp_config(use_uvx: bool = True, profile: str | None = None) -> dic
     return config
 
 
+# Official Wolfram Local MCP server (WolframLanguageEvaluator, ReadNotebook, etc.).
+# `setup --with-official` writes this alongside ours so they run side by side —
+# this project is a front-end automation layer, not a replacement.
+# NOTE: verify the exact launch command against wolfram.com/artificial-intelligence/mcp/local;
+# it is isolated here so a maintainer can correct it in one place.
+OFFICIAL_WOLFRAM_SERVER_NAME = "wolfram"
+
+
+def generate_official_wolfram_config() -> dict[str, Any]:
+    """Best-effort config entry for the official Wolfram Local MCP server."""
+    return {
+        "command": "wolframscript",
+        "args": ["-code", 'Needs["MCPServer`"]; MCPServer`StartMCPServer[]'],
+    }
+
+
 def install_addon(wolframscript: Path, addon_dir: Path) -> bool:
     """Install the Mathematica addon."""
     install_script = addon_dir / "install.wl"
@@ -397,7 +413,9 @@ args = ["--directory", "{pkg_dir}", "run", "mathematica-mcp-full"]
     return config
 
 
-def update_client_config(client: str, use_uvx: bool = True, profile: str | None = None) -> bool:
+def update_client_config(
+    client: str, use_uvx: bool = True, profile: str | None = None, with_official: bool = False
+) -> bool:
     """Update the client configuration to add mathematica server."""
     config_path = get_config_path(client)
     if not config_path:
@@ -413,10 +431,10 @@ def update_client_config(client: str, use_uvx: bool = True, profile: str | None 
 
     if config_format == "toml":
         # Handle TOML config (Codex CLI)
-        return update_toml_config(config_path, server_name, use_uvx, profile)
+        return update_toml_config(config_path, server_name, use_uvx, profile, with_official)
     else:
         # Handle JSON config
-        return update_json_config(config_path, client_info, use_uvx, profile)
+        return update_json_config(config_path, client_info, use_uvx, profile, with_official)
 
 
 def update_toml_config(
@@ -424,13 +442,15 @@ def update_toml_config(
     server_name: str,
     use_uvx: bool,
     profile: str | None,
+    with_official: bool = False,
 ) -> bool:
     """Update TOML config file for Codex CLI."""
     existing_content = ""
     if config_path.exists():
         existing_content = config_path.read_text()
 
-    # Generate new TOML section
+    # Generate new TOML section (our server only; the official one is handled
+    # separately below so a re-run stays idempotent).
     new_section = generate_toml_config(server_name, use_uvx, profile)
     section_pattern = re.compile(rf"(?ms)^\[mcp_servers\.{re.escape(server_name)}\]\n.*?(?=^\[|\Z)")
 
@@ -441,6 +461,22 @@ def update_toml_config(
         if updated_content and not updated_content.endswith("\n"):
             updated_content += "\n"
         updated_content += new_section
+
+    # Official Wolfram server: strip any existing [mcp_servers.wolfram] table
+    # first, then re-append. Baking it into new_section left the old table in
+    # place on a second run (section_pattern only matched our table), producing
+    # a duplicate TOML table that breaks Codex config parsing.
+    if with_official:
+        wolfram_pattern = re.compile(
+            rf"(?ms)^\[mcp_servers\.{re.escape(OFFICIAL_WOLFRAM_SERVER_NAME)}\]\n.*?(?=^\[|\Z)"
+        )
+        updated_content = wolfram_pattern.sub("", updated_content)
+        official = generate_official_wolfram_config()
+        args_toml = ", ".join(json.dumps(a) for a in official["args"])
+        official_section = (
+            f'[mcp_servers.{OFFICIAL_WOLFRAM_SERVER_NAME}]\ncommand = "{official["command"]}"\nargs = [{args_toml}]\n'
+        )
+        updated_content = updated_content.rstrip() + "\n\n" + official_section
 
     try:
         config_path.write_text(updated_content)
@@ -456,6 +492,7 @@ def update_json_config(
     client_info: dict[str, Any],
     use_uvx: bool,
     profile: str | None,
+    with_official: bool = False,
 ) -> bool:
     """Update JSON config file."""
     key = client_info["key"]
@@ -491,6 +528,10 @@ def update_json_config(
         server_config.update(client_info["extra_fields"])
 
     config[key][server_name] = server_config
+
+    # Optionally add the official Wolfram MCP server so both run side by side.
+    if with_official:
+        config[key][OFFICIAL_WOLFRAM_SERVER_NAME] = generate_official_wolfram_config()
 
     # Write config
     try:
@@ -635,10 +676,17 @@ def cmd_setup(args: argparse.Namespace) -> int:
     # Step 3: Update client config
     info(f"Configuring {client_name}...")
     use_uvx = not args.local
-    if update_client_config(client, use_uvx=use_uvx, profile=args.profile):
+    with_official = getattr(args, "with_official", False)
+    if update_client_config(client, use_uvx=use_uvx, profile=args.profile, with_official=with_official):
         success(f"{client_name} configured")
     else:
         return 1
+
+    if with_official:
+        warn(f"--with-official added the official Wolfram MCP server (name: '{OFFICIAL_WOLFRAM_SERVER_NAME}').")
+        info('It requires the MCPServer paclet: run PacletInstall["MCPServer"] in Wolfram.')
+        info("This launch command is unverified. Confirm it against")
+        info("  https://wolfram.com/artificial-intelligence/mcp/local  before relying on it.")
 
     if client == "claude-code" and args.project_dir:
         project_dir = expand_path(args.project_dir)
@@ -800,6 +848,11 @@ def main_cli() -> int:
     )
     setup_parser.add_argument(
         "--project-dir", default=None, help="Project root for agent guidance installation (CLAUDE.md, AGENTS.md)"
+    )
+    setup_parser.add_argument(
+        "--with-official",
+        action="store_true",
+        help="Also add the official Wolfram Local MCP server to the client config (runs beside this one)",
     )
     setup_parser.set_defaults(func=cmd_setup)
 
