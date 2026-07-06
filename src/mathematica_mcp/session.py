@@ -93,7 +93,12 @@ def _maybe_reap_idle_kernel(now: float | None = None) -> bool:
     if not _session_eval_lock.acquire(blocking=False):
         return False
     try:
-        if _kernel_session is not None and (time.monotonic() - _last_activity) >= timeout:
+        # Re-check under the lock with the SAME clock value: the non-blocking
+        # acquire means negligible time passed, and re-reading time.monotonic()
+        # here made the injectable `now` param a lie — on a freshly-booted host
+        # (CI runners) real monotonic time is smaller than the idle timeout, so
+        # the reap silently refused while long-uptime dev machines passed.
+        if _kernel_session is not None and (now - _last_activity) >= timeout:
             close_kernel_session()
             logger.info("Idle kernel shut down after %.0fs of inactivity", timeout)
             return True
