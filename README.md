@@ -37,69 +37,15 @@ LLMs can write Mathematica code, but they can't run it, control a live notebook,
 
 ---
 
-## The lean default (12 tools)
+## The lean default
 
-v1.0 ships a consolidated **12-tool** surface as the default profile. It exposes ~11.5 KB of tool schema (~2.9k tokens) versus ~61 KB / ~15k tokens for the old 82-tool surface - roughly a 5x cut in the context the agent pays before it does any work.
+v1.0 ships a consolidated **12-tool** surface as the default profile: `status`, `notebooks`, `cells`, `edit_cells`, `evaluate`, `screenshot`, `verify_derivation`, `kernel`, `vars`, `read_notebook_file`, `guide`, and `batch`. It exposes ~11.5 KB of tool schema (~2.9k tokens) versus ~61 KB / ~15k tokens for the old 82-tool surface - roughly a 5x cut in the context the agent pays before it does any work. Each tool is a thin wrapper over the exact internals the classic surface uses.
 
-| Tool | What it does |
-|------|--------------|
-| `status()` | Connection, kernel version, active profile, features, and warm-path health (cold-execution count, kernel liveness, idle timeout). No params. |
-| `notebooks(action, …)` | Manage notebooks: `list \| info \| create \| open \| save \| close \| export`. |
-| `cells(action, …)` | Read notebook cells: `list \| read \| select \| scroll`. |
-| `edit_cells(action, …)` | Edit cells: `write` (content/style/position) `\| delete`. |
-| `evaluate(code, target, …)` | Run code on `kernel \| notebook \| cell \| selection`; `dry_run=True` checks syntax; `file=` runs a `.wl` script; `cursor=` pages long output. |
-| `screenshot(scope, …)` | Capture a PNG of a `notebook \| cell \| expression`. |
-| `verify_derivation(steps, …)` | Check a sequence of expressions step-by-step (runs warm on the persistent session). |
-| `kernel(action, …)` | Kernel admin: `state \| messages \| restart \| load_package \| packages \| inspect`. |
-| `vars(action, …)` | Kernel variables: `list \| get \| set \| clear \| clear_all`. `clear` requires a `name` or `pattern`; wiping everything is the explicit `clear_all`. |
-| `read_notebook_file(path, mode, …)` | Parse a `.nb` / `.wl` file **without a kernel or license**: `markdown \| wolfram \| outline \| json \| plain`. `cursor=` pages long output. |
-| `guide(topic)` | On-demand help: `workflow \| errors \| notebook_hygiene \| screenshots \| v15 \| profiles \| toolsets \| batch`. |
-| `batch(ops)` | Run multiple addon ops in a single round trip. |
+Prefer the old surface? `classic` (alias `full`) keeps all 82 legacy tools byte-identical to pre-1.0, and `MATHEMATICA_TOOLSETS` adds opt-in extras (data I/O, cloud, graphics, ...) to lean without switching profiles.
 
-Each consolidated tool is a thin wrapper over the exact internals the classic surface uses - the same code, just fewer schemas in the agent's context.
-
----
-
-## Tool Profiles
-
-Set the profile with `--profile` at setup time or the `MATHEMATICA_PROFILE` env var.
-
-| Profile                  | Tools | Best for                                                 |
-|:-------------------------|:------|:---------------------------------------------------------|
-| `lean` **(default)**     | 12    | Everyday agent use; extras via `MATHEMATICA_TOOLSETS`.   |
-| `classic` (alias `full`) | 82    | The complete legacy surface, byte-identical to pre-1.0.  |
-| `math`                   | ~28   | Pure computation, no notebook UI.                        |
-| `notebook`               | ~48   | Notebook read/write/screenshot.                          |
-
-### Opt-in extras for `lean`
-
-Add extra tool groups to the lean profile with `MATHEMATICA_TOOLSETS` (comma-separated). They can only enable tools, never remove lean tools:
-
-```bash
-export MATHEMATICA_TOOLSETS=data_io,graphics_plus,cloud,debug
-```
-
-| Name | Adds |
-|------|------|
-| `data_io` | Data import/export tools. |
-| `graphics_plus` | Graphics inspection, export, plot comparison, animation. |
-| `cloud` | Wolfram Alpha, natural-language interpretation, entities, units, constants. |
-| `debug` | Trace / timing / journal tools. |
-| `notebook_files` | Legacy notebook file tools. |
-| `notebook_edit` | Advanced notebook editing tools. |
-| `symbols` | Symbol lookup / documentation tools. |
-| `math_aliases` | `mathematica_integrate`, `mathematica_solve`, etc. |
-| `repository` | Function + data repository search. |
-| `async_jobs` | Async computation submit/poll. |
-| `cache` | Expression cache management tools. |
-
----
-
-## Warm execution, guidance, and V15
-
-- **Warm funnel.** The 12 tools that used to spawn a cold `wolframscript` subprocess (including `verify_derivation`) - plus the symbol-index build - now run on the persistent `WolframLanguageSession`, returning warm in sub-second time; the cold subprocess remains as a flagged fallback. Every response carries an `execution_method`, and `status()` surfaces a **cold-execution counter** (0 on the lean happy path), kernel-session liveness, and the idle-shutdown timeout (env `MATHEMATICA_KERNEL_IDLE_TIMEOUT`, default `1800`s; `0` disables).
-- **Guidance v2.** Failed evaluations carry `error_analysis` with a `suggested_fix`, a `next_step`, and - when a corrected call can actually be derived from context - a concrete `retry_with` you can rerun, on **all** evaluate paths. Oversized output is capped (env `MATHEMATICA_MAX_OUTPUT_CHARS`, default `4000`) and the remainder is stashed behind a continuation `cursor` you pass back to the same tool. Notebook-touching addon responses carry a `state_delta` (`notebook` / `cell_count` / `kernel_busy`; pure-kernel calls skip it for speed), `guide(topic)` gives targeted help on demand, and the server ships profile-aware instructions plus 6 MCP prompts.
-- **Mathematica 15 first-class.** On Mathematica ≥15, agent-created notebooks set `ShowChatbar->False` (pass `show_chatbar=True` to override). 14.x stays supported behind `$VersionNumber >= 15.` guards. The Python client and addon share a `protocol_version` handshake (currently `3`): because the addon lives in `$UserBaseDirectory/Kernel/init.m` and does **not** update with `pip`, a version skew is detected and `status()` tells you to reinstall.
+- Full tool reference with parameters and action enums: **[Technical Reference - Lean Profile Tools](docs/technical-reference.md#complete-tool-reference)**
+- All profiles and opt-in toolsets: **[Technical Reference - Tool Profiles](docs/technical-reference.md#tool-profiles)**
+- How execution stays fast (warm persistent kernel, error guidance, Mathematica 15 notes): **[Technical Reference - Architecture](docs/technical-reference.md#architecture)**
 
 ---
 

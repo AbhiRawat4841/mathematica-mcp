@@ -84,6 +84,28 @@ The setup command resolves `uv` and `uvx` to absolute paths automatically so GUI
 | `math` | core, session, knowledge, debug, moat (`verify_derivation`), kernel_tools + symbol lookup |
 | `notebook` | Everything in math + notebook_primary, data, graphics |
 
+### Lean Opt-in Toolsets
+
+Add extra tool groups to the lean profile with `MATHEMATICA_TOOLSETS` (comma-separated). They can only enable tools, never remove the 12 lean core tools:
+
+```bash
+export MATHEMATICA_TOOLSETS=data_io,graphics_plus,cloud,debug
+```
+
+| Name | Adds |
+|------|------|
+| `data_io` | Data import/export tools. |
+| `graphics_plus` | Graphics inspection, export, plot comparison, animation. |
+| `cloud` | Wolfram Alpha, natural-language interpretation, entities, units, constants. |
+| `debug` | Trace / timing / journal tools. |
+| `notebook_files` | Legacy notebook file tools. |
+| `notebook_edit` | Advanced notebook editing tools. |
+| `symbols` | Symbol lookup / documentation tools. |
+| `math_aliases` | `mathematica_integrate`, `mathematica_solve`, etc. |
+| `repository` | Function + data repository search. |
+| `async_jobs` | Async computation submit/poll. |
+| `cache` | Expression cache management tools. |
+
 Feature flags (environment variables) can further enable or disable individual tool groups regardless of profile. See [Feature Flags](#feature-flags) below.
 
 Use `get_feature_status()` (classic/math/notebook profiles) or `status()` (lean) to inspect the active profile and enabled features at runtime.

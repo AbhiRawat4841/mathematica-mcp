@@ -2,7 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
-## [1.0.0] - 2026-07-04
+## [Unreleased]
+
+### Changed
+
+- Docs: README slimmed to a product introduction (tool tables, profile/toolset details, and architecture notes moved to the [Technical Reference](docs/technical-reference.md)); em-dashes replaced with plain punctuation across all documentation; profile table alignment fixed.
+
+## [1.0.0] - 2026-07-06
 
 ### ⚠ BREAKING
 
@@ -25,6 +31,17 @@ All notable changes to this project will be documented in this file.
 - **Addon protocol handshake**: `protocol_version` (now `3`) added to `ping`/`get_status`; the Python client detects a stale addon and instructs a reinstall.
 - **LLM trace driver**: `benchmarks/llm_driver.py` replays tool-call scenarios against the live server (with an offline `--stub` mode), `benchmarks/scenarios.json` gains lean-profile variants (`lean_preferred_tools`, `lean_forbidden_sequences`), and `benchmarks/score_trace_corpus.py` accepts `--profile lean`.
 - **Docs**: repositioned README as a front-end / notebook automation layer that runs beside the official Wolfram Local MCP (with a comparison table and a `setup --with-official` flag), plus [docs/MIGRATION.md](docs/MIGRATION.md) and [V14_VALIDATION.md](V14_VALIDATION.md).
+
+### Fixed
+
+- **`get_cells` errored with `Command returned unexpected result head: List`** for any client that omitted the pagination params (`offset`/`limit`/`include_content`); it now always returns an Association, and non-integer `offset`/`limit` values are coerced instead of producing degenerate JSON.
+- **WL string injection**: user text containing quotes or backslashes (e.g. `Quantity[100, "Centimeters"]` as a `verify_derivation` step, quoted strings in `get_constant`/`inspect_graphics`/`wolfram_alpha` inputs) broke the generated Wolfram Language and returned parse errors; all interpolation is now escaped.
+- **`verify_derivation` returned "Could not parse verification results"** whenever a step produced an expression-valued result (e.g. `-4 + Pi^2`, whose 2-D OutputForm rendering defeated the old text parser); it now returns the structured step-by-step report.
+- **`get_kernel_state` / `list_loaded_packages` / cloud tools returned `{"raw": ..., "parse_error": true}`** instead of structured fields; results are now JSON-exported kernel-side and parsed reliably.
+- **Undefined symbols' usage was faked and cached**: looking up a nonexistent symbol echoed the literal `Sym::usage` text as real usage and stored it in the symbol index.
+- **Graphics re-rasterization on query-cache hits spawned a ~12.5s cold `wolframscript` subprocess**, making a cache hit slower than a miss; it now renders the cached output expression on the warm session without re-running user code.
+- **`execute_code`'s warm path ignored `timeout`**, so a runaway evaluation could block the kernel session indefinitely; evaluations are now bounded by `TimeConstrained`.
+- **User-expression tools leaked symbol definitions into the shared kernel's `` Global` ``** (e.g. `inspect_graphics`, `get_constant`); user text now evaluates in a throwaway scratch context.
 
 ### Changed
 
