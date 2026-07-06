@@ -2,7 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [1.0.1] - 2026-07-06
+
+### Fixed
+
+- **Addon reinstall was a no-op for existing installs**: `install.wl` skipped any `init.m` that already contained a MathematicaMCP section, so upgrades never re-pointed the loader at the new package copy and `status()` kept reporting protocol skew. The installer now replaces the section idempotently (re-runs are byte-identical).
+- Documentation accuracy: `read_notebook_file` claims corrected (kernel-first when available, Python fallback offline, `.wl` requires the kernel), `session_id` vs `isolate_context` clarified, broken anchors fixed, and the addon protocol docs now cover `protocol_version` and `state_delta`.
 
 ### Changed
 
