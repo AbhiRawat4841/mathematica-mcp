@@ -1,6 +1,8 @@
 # Performance Benchmarks
 
-Benchmark data from two separate measurement runs. All numbers are median unless noted.
+Historical benchmark snapshots, each dated at its source. All numbers are median unless noted.
+
+> **Current architecture (v1.0):** the warm persistent-kernel funnel (`evaluate_wl` routes through a persistent wolframclient session with cold `wolframscript` fallback) and `state_delta` response gating landed **after** all measurements below were taken. The tables reflect the pre-1.0 architecture at their stated dates and have not been re-measured; treat them as historical context, not current numbers.
 
 ---
 
@@ -118,9 +120,10 @@ Responses that previously hard-failed with "Response too large" at 20MB are now 
 
 | Profile | Tool Count | Use Case |
 |---------|-----------|----------|
+| `lean` (default) | 12 | Consolidated v1.0 surface (`evaluate`, `notebooks`, `cells`, ...) |
 | `math` | 28 | Pure computation, no file/notebook ops |
 | `notebook` | 48 | Math + notebook reading + `create_notebook` |
-| `full` | 82 | Complete feature set |
+| `classic` / `full` | 82 | Complete legacy feature set (all pre-1.0 tool names) |
 
 Fewer tools = smaller schema payload during MCP negotiation.
 

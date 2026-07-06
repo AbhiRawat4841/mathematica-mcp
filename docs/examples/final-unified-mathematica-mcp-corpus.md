@@ -2,6 +2,8 @@
 
 > **Note:** This is documentation only. The executable source of truth is `tests/corpus/mathematica_mcp_corpus.json`. See `tests/README.md` for the corpus test architecture.
 
+> **Profile note:** All tool names below are **classic-profile** vocabulary (`MATHEMATICA_PROFILE=classic`), and the profile column gives the minimum classic-family profile (`math`/`notebook`/`full`). The default `lean` profile exposes 12 consolidated tools instead (`evaluate`, `notebooks`, `cells`, `edit_cells`, `screenshot`, `kernel`, `vars`, `read_notebook_file`, `verify_derivation`, `status`, `guide`, `batch`).
+
 A comprehensive test corpus for validating Mathematica MCP server tools and Wolfram Language coverage. Optimized for AI-agent use:
 
 - every test has a stable ID,

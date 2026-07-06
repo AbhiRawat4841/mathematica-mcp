@@ -17,7 +17,15 @@ Core tests that validate individual modules and live Mathematica interactions.
 | `test_notebook_backend.py` | Notebook abstraction layer, cell models, serialization | No |
 | `test_notebook_tools_offline.py` | Offline notebook parsing and conversion | No |
 | `test_notebook_optimizations.py` | Kernel-mode fast path (~152x perf improvement) | Yes (addon) |
-| `test_tool_registration.py` | Profile-based tool sets (math/notebook/full) | No |
+| `test_tool_registration.py` | Profile-based tool sets (lean/classic/math/notebook/full; lean is the default) | No |
+| `test_lean_tools.py` | Lean consolidated-tool dispatch and param guards (mocked) | No |
+| `test_lean_tools_live.py` | Lean tools against a live addon | Yes (addon) |
+| `test_lean_hardening.py` | Lean tool edge cases and error paths | No |
+| `test_profiles_parity.py` | classic == full surface; lean == 12 tools; toolset opt-ins | No |
+| `test_schema_budget.py` | Per-profile schema-size budget (CI gate: lean <= 16 KB / 18 tools) | No |
+| `test_warm_funnel.py` | Warm persistent-kernel funnel vs cold wolframscript fallback | Partial (live parity tests need runtime) |
+| `test_llm_driver_stub.py` | `benchmarks/llm_driver.py --stub` end-to-end + scorer | No |
+| `test_guidance_lean.py` | Lean-profile guidance uses lean vocabulary | No |
 | `test_connection.py` | Socket connection management, backoff/retry | No |
 | `test_cache_epoch.py` | Cache invalidation via kernel epoch | No |
 | `test_execution_style.py` | Execution style parameter resolution | No |
@@ -144,7 +152,7 @@ Two CI workflows:
 When adding new tests:
 
 1. **Unit/integration tests**: Follow existing patterns in the relevant `test_*.py` file
-2. **Corpus test cases**: Add entries to `corpus/mathematica_mcp_corpus.json` with the correct tier, backend, oracle, and required capabilities. For `execute_code` cases, always include `"output_target": "cli"` in params — without it, the server defaults to notebook mode which returns no `output_inputform`. Use camelCase for Wolfram variable names (underscores are reserved for patterns).
+2. **Corpus test cases**: Add entries to `corpus/mathematica_mcp_corpus.json` with the correct tier, backend, oracle, and required capabilities. For `execute_code` cases, always include `"output_target": "cli"` in params — the default output target is profile-dependent (`cli` for lean/math, `notebook` for classic/notebook/full), and notebook mode returns no `output_inputform`. Use camelCase for Wolfram variable names (underscores are reserved for patterns).
 3. **Corpus workflows**: Use self-contained workflow items with per-step assertions and cleanup
 4. **Tool registration**: Update expected tool sets in `test_tool_registration.py`
 5. **Always run meta-tests** after modifying corpus infrastructure: `uv run pytest tests/test_corpus_normalize.py tests/test_corpus_verifiers.py tests/test_corpus_infra.py -v`

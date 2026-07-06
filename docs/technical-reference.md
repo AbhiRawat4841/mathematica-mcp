@@ -21,10 +21,14 @@
 ```
 
 **Two components:**
-1. **Python MCP Server** - Exposes ~82 tools to LLMs via MCP protocol (varies by profile and feature flags)
+1. **Python MCP Server** - Exposes MCP tools to LLMs: 12 consolidated tools in the default `lean` profile, up to ~82 in `classic` (varies by profile and feature flags)
 2. **Mathematica Addon** - Runs inside Mathematica with persistent session state
 
 **Performance:** Notebook execution uses an atomic command that combines notebook lookup, cell creation, and evaluation into a single round-trip (vs. 4 separate calls), reducing latency from multiple socket round-trips to one.
+
+**Warm compute funnel:** When the addon is unavailable, kernel evaluation goes through a persistent `WolframLanguageSession` (`session.py`); a cold `wolframscript` subprocess is only a flagged fallback, counted per process and surfaced in the lean `status()` tool. An idle reaper shuts the kernel down after `MATHEMATICA_KERNEL_IDLE_TIMEOUT` seconds of inactivity (default 1800; `0` disables), and the session is closed via `atexit` on interpreter shutdown.
+
+**Protocol:** The Python client and the addon share a `protocol_version` handshake (currently `3`); a version skew (e.g. addon installed in `init.m` not updated after `pip install --upgrade`) is detected and reported. Success responses of notebook-touching addon commands carry a `state_delta` (focused notebook, cell count, and `kernel_busy` via `CurrentValue[nb, Evaluating]`); pure-kernel commands skip it so trivial `execute_code` responses stay fast.
 
 **Security:** See [SECURITY.md](../SECURITY.md) for the full threat model, permissions matrix, and vulnerability reporting process.
 
@@ -32,13 +36,16 @@
 
 ## Tool Profiles
 
-The server supports three profiles that control which tools are exposed. This lets you tune the tool surface for your use case, reducing noise for LLMs that don't need notebook or legacy features.
+The server supports five profiles that control which tools are exposed. This lets you tune the tool surface for your use case, reducing noise for LLMs that don't need notebook or legacy features.
 
 | Profile | Tools | Use Case |
 |---------|-------|----------|
+| `lean` (default) | 12 | Consolidated tools, ~11.5 KB (~2.9k tokens) of schema; extend with `MATHEMATICA_TOOLSETS` |
+| `classic` | ~82 | The complete pre-1.0 surface (alias: `full`) — legacy, admin, and all optional tools |
 | `math` | ~28 | Pure computation, no notebook tools |
 | `notebook` | ~48 | Computation + notebook reading/management + `create_notebook` |
-| `full` (default) | ~82 | Everything including legacy, admin, and all optional tools |
+
+> **Changed in 1.0:** the default profile is `lean` (was `full`). Set `MATHEMATICA_PROFILE=classic` to keep the pre-1.0 surface. See the [Migration Guide](MIGRATION.md).
 
 ### Selecting a Profile
 
@@ -72,31 +79,43 @@ The setup command resolves `uv` and `uvx` to absolute paths automatically so GUI
 
 | Profile | Tool Groups |
 |---------|-------------|
-| `math` | core, session, knowledge, debug, kernel_tools + symbol lookup |
+| `lean` | 12 tools: 11 consolidated action-enum tools (`@_tool("lean")`) + `verify_derivation` (shared `moat` group); opt-in extras via `MATHEMATICA_TOOLSETS` (data_io, graphics_plus, cloud, debug, notebook_files, notebook_edit, symbols, math_aliases, repository, async_jobs, cache) |
+| `classic` / `full` | Everything: core, session, knowledge, debug, kernel_tools, notebook_primary, notebook_advanced, file_legacy, data, graphics, admin + all optional tool groups (math aliases, repository, async, cache) |
+| `math` | core, session, knowledge, debug, moat (`verify_derivation`), kernel_tools + symbol lookup |
 | `notebook` | Everything in math + notebook_primary, data, graphics |
-| `full` | Everything in notebook + notebook_advanced, file_legacy, admin + all optional tool groups (math aliases, repository, async, cache) |
 
 Feature flags (environment variables) can further enable or disable individual tool groups regardless of profile. See [Feature Flags](#feature-flags) below.
 
-Use `get_feature_status()` to inspect the active profile and enabled features at runtime.
+Use `get_feature_status()` (classic/math/notebook profiles) or `status()` (lean) to inspect the active profile and enabled features at runtime.
 
 ---
 
 ## LLM Guidance System
 
-The server includes a multi-layer guidance system that ensures agents use MCP tools directly instead of falling back to shell commands or manual file operations:
+The server includes a multi-layer guidance system (`src/mathematica_mcp/guidance.py`) that ensures agents use MCP tools directly instead of falling back to shell commands or manual file operations. **All layers are profile-aware**: every guidance surface (server instructions, prompts, project guidance files) is generated from the active profile's `FeatureFlags`, so the default `lean` profile speaks the 12-tool lean vocabulary (`evaluate`, `notebooks`, `cells`, `kernel`, `vars`, `guide`, ...) while the `classic` profile keeps the legacy `execute_code(style=...)` layers.
 
 ### Layer 1: Server Instructions (all clients)
 
 The FastMCP `instructions` field is sent to every connected client. It establishes the core operating model:
 1. **MCP-first**: Always use MCP tools, never `wolframscript`, shell commands, or manual `.nb` file creation.
-2. **Profile-aware notebook model**: Notebook guidance appears only when notebook tools are exposed; in notebook/full profiles, a "notebook" is a live frontend window, not a file on disk.
-3. **Quick defaults**: Prefer the right `style`, keep `sync="none"` unless frontend freshness is required, and consider `response_detail="compact"` (alias: `"short"`) for long multi-step flows.
-4. **Recovery defaults**: Reach for `get_session_brief()`, `get_computation_journal()`, and `get_messages()` before guessing about state or failures.
+2. **Profile-aware notebook model**: Notebook guidance appears only when notebook tools are exposed; a "notebook" is a live frontend window, not a file on disk.
+3. **Quick defaults** (lean): prefer one compound Wolfram expression over several sequential `evaluate` calls; reuse `session_id`; use `batch(ops)` for multi-call round-trips. (classic): prefer the right `style`, keep `sync="none"`, and consider `response_detail="compact"` (alias: `"short"`) for long multi-step flows.
+4. **Recovery defaults** (lean): `status()`, `kernel(action="messages")`, and `guide(topic="errors")`. (classic): `get_session_brief()`, `get_computation_journal()`, and `get_messages()`.
 
-### Layer 2: Execution Style Keywords
+### Layer 2: Intent Keywords
 
-Users can steer routing with natural language keywords, or tool callers can use the `style` parameter directly. The `style` parameter is a high-level preset that bundles `output_target` + `mode`; individual parameters still work and override style.
+Users can steer routing with natural language keywords. What the keywords map to depends on the profile.
+
+**Lean profile (default):**
+
+| Keyword | Tool Call |
+|---------|-----------|
+| "calculate", "compute", "solve", "evaluate" | `evaluate(code)` — kernel, result in chat |
+| "plot", "show", "in notebook" | `evaluate(code, target="notebook")` — in the live notebook |
+| "new notebook" | `notebooks(action="create", title=...)` then `evaluate(code, target="notebook")` |
+| "verify", "check derivation" | `verify_derivation(steps)` |
+
+**Classic profile:** tool callers can use the `style` parameter directly. `style` is a high-level preset that bundles `output_target` + `mode`; individual parameters still work and override style.
 
 | Keyword | Style | Tool Call |
 |---------|-------|-----------|
@@ -105,19 +124,20 @@ Users can steer routing with natural language keywords, or tool callers can use 
 | "new notebook", "fresh notebook", "create notebook" | N/A | `create_notebook()` then `execute_code(style="notebook")` |
 | "interactive", "manipulate", "slider", "dynamic", "animate" | `"interactive"` | `execute_code(style="interactive")` |
 
-> **Note:** There is no `style="new_notebook"`. Creating a fresh notebook is a two-step workflow: `create_notebook(title="...")` then `execute_code(style="notebook")`.
+> **Note:** There is no `style="new_notebook"`. Creating a fresh notebook is a two-step workflow: `create_notebook(title="...")` then `execute_code(style="notebook")` (classic), or `notebooks(action="create")` then `evaluate(..., target="notebook")` (lean).
 
-### Layer 3: Dynamic Tool Docstrings
+### Layer 3: Tool Docstrings
 
-Tool descriptions are rewritten at startup to include `[PRIMARY]`, `[ADVANCED]`, or `[LEGACY]` labels, steering LLMs toward the preferred tool for each task. `create_notebook` is marked as the correct tool when the user explicitly requests a new notebook.
+- **Lean**: the 12 tools ship short (≤200 char) action-enum docstrings that are *not* rewritten at startup; deeper guidance is available on demand via `guide(topic="workflow" | "errors" | "notebook_hygiene" | "screenshots" | "v15" | "profiles" | "toolsets" | "batch")`.
+- **Classic**: tool descriptions are rewritten at startup to include `[PRIMARY]`, `[ADVANCED]`, or `[LEGACY]` labels, steering LLMs toward the preferred tool for each task. `create_notebook` is marked as the correct tool when the user explicitly requests a new notebook.
 
 ### Layer 4: MCP Prompts
 
-Six MCP prompts (`mathematica_expert`, `calculate`, `notebook`, `new_notebook`, `interactive`, `quickstart`) can be surfaced by clients that support MCP prompts.
+Six MCP prompts (`mathematica_expert`, `calculate`, `notebook`, `new_notebook`, `interactive`, `quickstart`) can be surfaced by clients that support MCP prompts. Their text is profile-conditioned: in lean they instruct `evaluate(code)` / `notebooks(action="create")`; in classic they instruct `execute_code(style=...)` / `create_notebook()`.
 
 ### Layer 5: Project Guidance Files
 
-Client-specific project guidance is installed via `--project-dir`:
+Client-specific project guidance is installed via `--project-dir` and rendered for the active profile:
 - **Claude Code**: `.claude/commands/mathematica.md` + `CLAUDE.md` hint block
 - **Codex**: `AGENTS.md` with additive project guidance: MCP-first rules, keyword table, notebook-file routing, and workflow examples
 
@@ -136,12 +156,14 @@ Notebook reading is handled by a capability-based dispatch system (`notebook_bac
 
 | Backend | Name | Requires | Strengths |
 |---------|------|----------|-----------|
-| Kernel Semantic | `kernel_semantic` | `wolframscript` | Accurate code extraction via `NotebookImport` |
+| Kernel Semantic | `kernel_semantic` | `wolframscript` or `wolframclient` | Accurate code extraction via `NotebookImport` |
 | Python Syntax | `python_syntax` | Nothing (offline) | Fast, no dependencies, handles BoxData |
+
+The kernel backend runs through the warm persistent kernel session (`session.py` / `execute_in_kernel`), not a bare `wolframscript` subprocess — a cold `wolframscript` call is only a flagged-and-counted fallback (see `status()`'s cold-execution count in the lean profile).
 
 ### `read_notebook` (Primary Tool)
 
-The consolidated `read_notebook` tool replaces individual notebook reading tools:
+The consolidated `read_notebook` tool (classic/`notebook` profiles) replaces individual notebook reading tools; the lean profile exposes the same dispatch as `read_notebook_file(path, mode=...)`:
 
 ```python
 read_notebook("path/to/notebook.nb", output_format="markdown")
@@ -152,7 +174,7 @@ read_notebook("path/to/notebook.nb", output_format="json")      # structured cel
 
 Parameters include `backend` (force a specific backend), `view` (semantic/display/raw), `cell_types` filter, `include_outputs`, `truncation_threshold`, and `include_alternates`.
 
-The legacy tools (`read_notebook_content`, `convert_notebook`, `get_notebook_outline`, `parse_notebook_python`, `get_notebook_cell`) remain available in the `full` profile but their docstrings steer LLMs toward `read_notebook`.
+The legacy tools (`read_notebook_content`, `convert_notebook`, `get_notebook_outline`, `parse_notebook_python`, `get_notebook_cell`) remain available in the `classic`/`full` profile (or via `MATHEMATICA_TOOLSETS=notebook_files` in lean) but their docstrings steer LLMs toward `read_notebook`.
 
 Results are cached to disk at `~/.cache/mathematica-mcp/notebooks/` and invalidated when the source file changes.
 
@@ -228,6 +250,10 @@ Add the same JSON to your Cursor MCP config (typically `~/.cursor/mcp.json`).
 
 VS Code supports MCP natively via [GitHub Copilot Chat](https://marketplace.visualstudio.com/items?itemName=GitHub.copilot-chat). Add to `~/.vscode/mcp.json` (note: uses `"servers"` not `"mcpServers"`, and requires `"type": "stdio"`).
 
+**Codex / Gemini CLI**
+
+Supported by the automated setup command: `uvx mathematica-mcp-full setup codex` (writes `~/.codex/config.toml`) or `setup gemini` (writes `~/.gemini/settings.json`).
+
 **OpenCode**
 
 OpenCode does not have automated `uvx setup` support. Add the MCP server definition manually in your OpenCode config (project or global). Refer to your OpenCode config location and include `mathematica` under `mcpServers`.
@@ -261,7 +287,7 @@ uvx mathematica-mcp-full setup codex --project-dir .
 - "Use Wolfram Alpha to look up the GDP of Japan and convert to USD."
 - "Check the steps of this derivation for correctness."
 
-**AGENTS.md template** (auto-generated by `setup codex --project-dir .`, or create manually):
+**AGENTS.md template** (auto-generated by `setup codex --project-dir .`; content is profile-aware — this is the `classic`-profile variant, the default `lean` profile generates the `evaluate`/`notebooks` vocabulary instead):
 
 ```md
 ## Mathematica MCP
@@ -291,6 +317,31 @@ Use MCP tools directly. Never use wolframscript CLI or shell commands.
 ---
 
 ## Complete Tool Reference
+
+### Lean Profile Tools (default)
+
+The default `lean` profile exposes exactly 12 tools. Eleven are consolidated action-enum dispatchers over the same internals as the classic tools; the twelfth is `verify_derivation`, shared with all profiles.
+
+| Tool | Actions / Key Params | Description |
+|------|---------------------|-------------|
+| `status()` | — | Connection, kernel version, profile, features, warm-path health (cold-execution count, idle timeout) |
+| `evaluate` | `target=kernel\|notebook\|cell\|selection`, `code`, `file`, `dry_run`, `timeout` | Primary execution tool. `dry_run=True` checks syntax; `file=` runs a `.wl` script |
+| `notebooks` | `action=list\|info\|create\|open\|save\|close\|export` | Notebook lifecycle management |
+| `cells` | `action=list\|read\|select\|scroll` | Read/navigate notebook cells (supports `style`/`offset`/`limit` filters) |
+| `edit_cells` | `action=write\|delete` | Write or delete notebook cells |
+| `screenshot` | `scope=notebook\|cell\|expression` | Capture a PNG |
+| `kernel` | `action=state\|messages\|restart\|load_package\|packages\|inspect` | Kernel admin and message inspection |
+| `vars` | `action=list\|get\|set\|clear\|clear_all` | Kernel variable management (bare `clear` requires `name=` or `pattern=`) |
+| `read_notebook_file` | `mode=markdown\|wolfram\|outline\|json\|plain` | Read a `.nb`/`.wl` file from disk |
+| `guide` | `topic=workflow\|errors\|notebook_hygiene\|screenshots\|v15\|profiles\|toolsets\|batch` | On-demand guidance |
+| `batch` | `ops=[{command, params}, ...]` | Run multiple addon ops in one round-trip |
+| `verify_derivation` | `steps` | Verify mathematical derivation steps |
+
+Long outputs from lean tools are paginated: responses over the output cap (`MATHEMATICA_MAX_OUTPUT_CHARS`, default 4000) return a first page plus a `next_cursor`; pass `cursor=` back to the same tool to fetch the remainder.
+
+### Classic Profile Tools
+
+Everything below this point documents the `classic`/`full` surface (~82 tools). The `math` and `notebook` profiles expose curated subsets, and lean can opt individual groups back in via `MATHEMATICA_TOOLSETS`.
 
 ### Execution Output Fields
 
@@ -809,7 +860,7 @@ create_animation(
 | `get_dataset_info` | Get metadata about a dataset |
 | `load_dataset` | Load a dataset |
 
-#### Admin (full profile only)
+#### Admin (classic/full profile only)
 
 | Tool | Description |
 |------|-------------|
@@ -907,7 +958,7 @@ The Mathematica MCP includes error analysis for notebook execution that pattern-
 
 ### How It Works
 
-When code is executed in notebook mode (`execute_code` with `style="notebook"` or `style="interactive"`):
+When code is executed in notebook mode (`execute_code` with `style="notebook"` or `style="interactive"` in classic; `evaluate(code, target="notebook")` in lean):
 
 1. **Error Capture**: The addon captures messages from `$MessageList` after cell evaluation without discarding valid message-bearing results such as `ComplexInfinity`
 2. **Pattern Matching**: Captured errors are matched against a knowledge base of 10+ common error patterns
@@ -1006,9 +1057,9 @@ python -m pytest tests/test_error_detection.py -v
 
 ## Feature Flags
 
-Control features via environment variables. Defaults shown are for the `full` profile; `math` and `notebook` profiles default most optional features to `false` (only `LOOKUP` and `CACHE` are enabled). Environment variables override profile defaults.
+Control features via environment variables. Defaults shown are for the `classic`/`full` profile. The default `lean` profile turns **all** optional features off except the internal expression cache — extend it with `MATHEMATICA_TOOLSETS` (e.g. `symbols`, `repository`, `async_jobs`, `cache`) rather than these flags; `math` and `notebook` default most optional features to `false` (only `LOOKUP` and `CACHE` are enabled). Environment variables override profile defaults.
 
-| Variable | Default (`full`) | Description |
+| Variable | Default (`classic`) | Description |
 |----------|------------------|-------------|
 | `MATHEMATICA_ENABLE_FUNCTION_REPO` | `true` | Function Repository integration |
 | `MATHEMATICA_ENABLE_DATA_REPO` | `true` | Data Repository integration |
@@ -1030,11 +1081,20 @@ Control features via environment variables. Defaults shown are for the `full` pr
 |----------|---------|-------------|
 | `MATHEMATICA_HOST` | `localhost` | Host the Python client connects to (addon binds via `$MCPHost`) |
 | `MATHEMATICA_PORT` | `9881` | Port the Python client connects to (addon binds via `$MCPPort`) |
-| `MATHEMATICA_PROFILE` | `full` | Tool profile: `math`, `notebook`, or `full` |
+| `MATHEMATICA_PROFILE` | `lean` | Tool profile: `lean`, `classic`, `math`, `notebook`, or `full` |
+| `MATHEMATICA_TOOLSETS` | *(none)* | Comma-separated opt-in extras for the `lean` profile: `data_io`, `graphics_plus`, `cloud`, `debug`, `notebook_files`, `notebook_edit`, `symbols`, `math_aliases`, `repository`, `async_jobs`, `cache` |
+| `MATHEMATICA_KERNEL_IDLE_TIMEOUT` | `1800` | Seconds of kernel inactivity before idle shutdown (`0` disables) |
+| `MATHEMATICA_KERNEL_PATH` | *(auto-detect)* | Explicit path to the Wolfram kernel binary for the fallback session |
+| `MATHEMATICA_MAX_OUTPUT_CHARS` | `4000` | Hard output cap in characters (minimum 500); oversized output is paginated via cursors |
 | `MATHEMATICA_MCP_TOKEN` | *(none)* | Authentication token for secure connections |
 | `MATHEMATICA_MCP_CACHE_DIR` | `~/.cache/mathematica-mcp/notebooks` | Disk cache directory for notebook extraction |
+| `MATHEMATICA_RETRY_BACKOFF` | `2.0` | Seconds between addon connection retry attempts |
 | `MATHEMATICA_ROUTING_MEMORY` | `off` | Routing memory: `off`, `observe`, or `advise` |
 | `MATHEMATICA_ROUTING_ACTION` | `off` | Routing action: `off` or `compute_cli_skip` (requires `advise` mode) |
+| `MATHEMATICA_ROUTING_MEMORY_DIR` | `~/.cache/mathematica-mcp` | Directory for the routing memory JSON file |
+| `MMCP_FORCE_V14` | *(unset)* | Addon-side: set to `1` to force the Mathematica <15 code path (for guard testing) |
+
+Feature-flag environment variables (`MATHEMATICA_ENABLE_FUNCTION_REPO`, `MATHEMATICA_ENABLE_DATA_REPO`, `MATHEMATICA_ENABLE_ASYNC`, `MATHEMATICA_ENABLE_LOOKUP`, `MATHEMATICA_ENABLE_MATH_ALIASES`, `MATHEMATICA_ENABLE_CACHE`, `MATHEMATICA_ENABLE_TELEMETRY`) are documented in [Feature Flags](#feature-flags) above.
 
 ---
 
@@ -1044,12 +1104,12 @@ The server includes a multi-layer intelligence system for routing optimization, 
 
 ### Payload Shaping (`response_detail`)
 
-The `execute_code` tool accepts a `response_detail` parameter to control response size:
+The `execute_code` tool (classic/math/notebook profiles) accepts a `response_detail` parameter to control response size (the lean `evaluate` tool does not expose it; lean relies on output-cap pagination instead):
 
 | Level | Behavior |
 |-------|----------|
 | `"standard"` (default) | Exact backward-compatible response: no fields added or removed |
-| `"compact"` | Essential fields only: `success`, `status`, `message`, `output`, `timing_ms`, notebook IDs, transport fields. Strips verbose analysis/metadata. Auto-summarizes outputs > 4000 chars with balanced-brace list element counting. Swaps graphics placeholders to `output_inputform`. |
+| `"compact"` | Essential fields only: `success`, `status`, `message`, `output`, `timing_ms`, notebook IDs, transport fields (and `error_analysis` guidance is kept). Strips other verbose metadata. Auto-summarizes outputs > 4000 chars with balanced-brace list element counting. Swaps graphics placeholders to `output_inputform`. |
 | `"verbose"` | Full response + `detail_level` marker |
 | `"diagnostic"` | Full response + `detail_level`, `cache_epoch`, and `routing_hints` (if available) |
 
@@ -1164,11 +1224,11 @@ When the breaker skips addon_cli, execution goes directly to kernel with a truth
 
 | Tool | Profile | Description |
 |------|---------|-------------|
-| `get_session_brief()` | all | Compact session state summary |
-| `get_computation_journal()` | all | Recent computation history |
-| `clear_computation_journal()` | all | Reset journal |
-| `get_routing_memory_stats(include_hints=False)` | full (opt-in) | Routing stats + optional hints. Requires `MATHEMATICA_ROUTING_MEMORY=observe` or `advise`. |
-| `clear_routing_memory()` | full (opt-in) | Reset all routing stats and breaker state. Requires `MATHEMATICA_ROUTING_MEMORY=observe` or `advise`. |
+| `get_session_brief()` | classic, math, notebook | Compact session state summary (lean: use `status()`) |
+| `get_computation_journal()` | classic, math, notebook (lean: `MATHEMATICA_TOOLSETS=debug`) | Recent computation history |
+| `clear_computation_journal()` | classic, math, notebook (lean: `MATHEMATICA_TOOLSETS=debug`) | Reset journal |
+| `get_routing_memory_stats(include_hints=False)` | classic/full only (opt-in) | Routing stats + optional hints. Requires `MATHEMATICA_ROUTING_MEMORY=observe` or `advise`. |
+| `clear_routing_memory()` | classic/full only (opt-in) | Reset all routing stats and breaker state. Requires `MATHEMATICA_ROUTING_MEMORY=observe` or `advise`. |
 
 ### Data lifecycle
 
@@ -1244,7 +1304,7 @@ The MCP server uses `ExportString[..., "RawJSON"]` for reliable JSON output from
 
 | Component | Tested Version |
 |-----------|----------------|
-| Mathematica | 14.1 |
+| Mathematica | 14.0+ (15+ first-class; 14.x kept working behind `$VersionNumber >= 15.` guards) |
 | Python | 3.10+ |
 | macOS | ARM64 (Apple Silicon) |
 | Linux | x86_64 (POSIX) |
@@ -1258,16 +1318,23 @@ The MCP server uses `ExportString[..., "RawJSON"]` for reliable JSON output from
 ```
 mathematica-mcp/
 ├── src/mathematica_mcp/
-│   ├── server.py              # 58 core tools (profile-gated)
-│   ├── config.py              # Profiles, feature flags, tool groups
-│   ├── guidance.py            # Shared LLM guidance primitives; feeds server instructions, AGENTS.md, CLAUDE.md, and prompts
+│   ├── server.py              # Profile-gated tools: classic surface + 12-tool lean dispatchers + MCP prompts
+│   ├── config.py              # Profiles, feature flags, tool groups, MATHEMATICA_TOOLSETS
+│   ├── guidance.py            # Profile-aware LLM guidance; feeds server instructions, AGENTS.md, CLAUDE.md, and prompts
 │   ├── notebook_backend.py    # Notebook extraction backend abstraction
 │   ├── notebook_parser.py     # Python-native .nb parser (offline)
-│   ├── connection.py          # Socket connection to addon
-│   ├── session.py             # Kernel fallback (wolframscript)
+│   ├── connection.py          # Socket connection to addon (protocol_version handshake)
+│   ├── session.py             # Warm persistent kernel session + cold wolframscript fallback, idle reaper
 │   ├── cli.py                 # Setup commands for 6 clients + project guidance (CLAUDE.md, AGENTS.md)
-│   ├── cache.py               # In-memory expression caching
+│   ├── cache.py               # In-memory expression caching (epoch-aware)
 │   ├── disk_cache.py          # Persistent notebook extraction cache
+│   ├── cursor_store.py        # Continuation cursors for oversized tool output
+│   ├── response_filter.py     # response_detail payload shaping (pure function)
+│   ├── journal.py             # In-memory computation journal (ring buffer, 10 entries)
+│   ├── routing_memory.py      # Opt-in aggregate routing stats + circuit breaker
+│   ├── transport_classification.py    # Typed transport outcomes (OK/INFRA_ERROR/TIMEOUT/SEMANTIC_ERROR)
+│   ├── wl_scan.py             # Wolfram source scanner (epoch analysis, brace counting)
+│   ├── constants.py           # Shared execution-path / outcome labels
 │   ├── symbol_index.py        # Version-scoped symbol index with disk persistence
 │   ├── lazy_wolfram_tools.py  # Async helpers (verify_derivation etc.)
 │   ├── error_analyzer.py      # Error pattern matching & LLM formatting
@@ -1278,19 +1345,16 @@ mathematica-mcp/
 │   ├── optional_async_jobs.py         # 3 async computation tools
 │   ├── optional_cache_tools.py        # 4 expression cache tools
 │   ├── optional_telemetry_tools.py    # 2 telemetry tools
+│   ├── optional_routing_tools.py      # 2 routing memory tools
 │   └── helpers/
 │       └── notebook_converter.wl      # WL kernel helper for NotebookImport
 ├── addon/
 │   ├── MathematicaMCP.wl   # Main addon (persistent session)
 │   ├── install.wl          # Auto-install script
 │   └── README.md
-└── tests/
-    ├── test_session.py                  # Session, parsing, math operations
-    ├── test_derivation_verification.py  # Algebraic/trig identity verification
-    ├── test_error_detection.py          # Error analysis and LLM formatting
-    ├── test_readme_commands.py          # README examples validation
-    ├── test_notebook_optimizations.py   # Kernel-mode fast path benchmarks
-    └── test_guidance.py                 # Guidance layering, profile conditioning, word budgets
+└── tests/                  # 50+ test modules: sessions, profiles, lean tools,
+                            # guidance, routing memory, notebook backends,
+                            # transport classification, corpus runner, and more
 ```
 
 ---
@@ -1362,4 +1426,4 @@ MIT License
 
 ---
 
-*Last updated: April 2026 (v0.9.4: frontend polling fix, evaluation architecture documentation)*
+*Last updated: July 2026 (v1.0.0: lean profile default, profile-aware guidance, consolidated action-enum tools)*

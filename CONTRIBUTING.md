@@ -22,6 +22,9 @@ uv run pytest tests/test_corpus_normalize.py tests/test_corpus_verifiers.py test
 
 # Corpus smoke tier (needs wolframscript)
 uv run pytest tests/test_corpus_runner.py -m "tier_smoke" -v
+
+# Skip runtime-dependent tests explicitly
+uv run pytest tests/ -m "not wolfram_runtime" -v
 ```
 
 ## Linting
@@ -45,8 +48,9 @@ See [docs/technical-reference.md](docs/technical-reference.md) for the full arch
 2. **Register the tool** — core tools in `server.py` use `@_tool("group_name")`; optional modules use `@mcp.tool()` inside their `register_*` helper functions
 3. **Gate via profile** — ensure the tool group is included in the appropriate profiles in `src/mathematica_mcp/config.py` (`PROFILE_TOOL_GROUPS`)
 4. **Add tests** — prefer offline tests where possible (mock kernel interactions)
-5. **Update registration tests** — add the tool name to the expected sets in `tests/test_tool_registration.py`
+5. **Update registration tests** — add the tool name to the expected sets in `tests/test_tool_registration.py`; profile/group parity is verified by `tests/test_profiles_parity.py`
 6. **Add corpus coverage** — add test cases to `tests/corpus/mathematica_mcp_corpus.json` with the appropriate tier, backend, oracle, and required capabilities (see `tests/README.md` for details)
+7. **Mind the schema budget** — CI gates per-profile tool-schema size via `tests/test_schema_budget.py` (lean profile capped at 16 KB / 18 tools); adding to the lean surface must stay within budget
 
 ### Key Modules
 
@@ -84,4 +88,4 @@ See [docs/technical-reference.md](docs/technical-reference.md) for the full arch
 
 ## Branch Protection
 
-CI workflows enforce lint, test, and packaging checks. For true merge gating, required status checks must also be configured in GitHub repo Settings > Branches > Branch protection rules. After adding new CI jobs (e.g., lint), the branch protection rules should be updated to require those jobs as well.
+CI workflows enforce lint, schema-budget (`tests/test_schema_budget.py`), test, and packaging checks. For true merge gating, required status checks must also be configured in GitHub repo Settings > Branches > Branch protection rules. After adding new CI jobs (e.g., lint), the branch protection rules should be updated to require those jobs as well.

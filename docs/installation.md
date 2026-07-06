@@ -58,8 +58,8 @@ uvx mathematica-mcp-full setup gemini
 # For Claude Code CLI
 uvx mathematica-mcp-full setup claude-code
 
-# Optional: select a tool profile (default is "full")
-uvx mathematica-mcp-full setup claude-desktop --profile notebook
+# Optional: select a tool profile (default is "lean"; use "classic" for the full pre-1.0 surface)
+uvx mathematica-mcp-full setup claude-desktop --profile classic
 ```
 
 Then **restart Mathematica** and **restart your editor**. Done!
@@ -373,9 +373,10 @@ Control which tools are exposed by selecting a profile:
 
 | Profile | Tools | Best For |
 |---------|-------|----------|
+| `lean` (default) | 12 | Consolidated tools, minimal context; extend via `MATHEMATICA_TOOLSETS` |
+| `classic` | ~82 | The complete pre-1.0 surface (alias: `full`) |
 | `math` | ~28 | Pure computation, no notebook features |
 | `notebook` | ~48 | Computation + notebook reading + `create_notebook` |
-| `full` (default) | ~82 | All features including legacy tools |
 
 **During setup** (writes profile to client config):
 ```bash
@@ -389,9 +390,21 @@ export MATHEMATICA_PROFILE=notebook
 
 See the [Technical Reference](technical-reference.md#tool-profiles) for details on what each profile includes.
 
+**Opt-in extras for `lean`** — add tool groups without switching to `classic` (comma-separated; can only add tools, never remove the 12 core ones):
+```bash
+export MATHEMATICA_TOOLSETS=data_io,graphics_plus,cloud,debug,notebook_files,notebook_edit,symbols,math_aliases,repository,async_jobs,cache
+```
+
+### Runtime Tuning
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MATHEMATICA_KERNEL_IDLE_TIMEOUT` | `1800` | Seconds of inactivity before the persistent kernel shuts down (restarts on the next call); `0` disables |
+| `MATHEMATICA_MAX_OUTPUT_CHARS` | `4000` | Output cap per response (minimum 500); the remainder is paged via the returned `cursor` |
+
 ### Routing Memory
 
-Opt-in aggregate routing statistics for `execute_code`. No code or expressions are stored — only transport success rates, latency histograms, and error family frequencies.
+Opt-in aggregate routing statistics for code evaluation (`evaluate` on lean, `execute_code` on classic). No code or expressions are stored — only transport success rates, latency histograms, and error family frequencies.
 
 ```bash
 export MATHEMATICA_ROUTING_MEMORY=observe   # aggregate stats only
@@ -406,22 +419,23 @@ See the [Technical Reference](technical-reference.md#intelligent-routing--observ
 
 | Flag | Description |
 |------|-------------|
-| `--profile {math,notebook,full}` | Set the tool profile in the client config |
+| `--profile {lean,classic,math,notebook,full}` | Set the tool profile in the client config |
 | `--skip-addon` | Skip Mathematica addon installation |
 | `--local` | Use local path instead of `uvx` (for development) |
 | `--project-dir PATH` | Install additive agent guidance files (CLAUDE.md hint for Claude Code, AGENTS.md for Codex) |
+| `--with-official` | Also add the official Wolfram Local MCP server (requires the `MCPServer` paclet) to the client config so it runs beside this one |
 
 ### Session Isolation
 
-For multi-session use (e.g., multiple notebooks), use `session_id` parameter:
+For multi-session use (e.g., multiple notebooks), use the `session_id` parameter:
 ```python
-execute_code(code="x = 5", session_id="notebook1")
-execute_code(code="x = 10", session_id="notebook2")  # Independent variable
+evaluate(code="x = 5", session_id="notebook1")
+evaluate(code="x = 10", session_id="notebook2")  # Independent variable
 ```
 
-### Context Isolation
+### Context Isolation (classic profile)
 
-Use `isolate_context=True` to keep variables separate per session:
+On the `classic` profile, `execute_code` accepts `isolate_context=True` to keep variables separate per session:
 ```python
 execute_code(code="myVar = 42", session_id="session1", isolate_context=True)
 ```
@@ -433,9 +447,9 @@ Set `MATHEMATICA_MCP_TOKEN` environment variable for secure connections:
 export MATHEMATICA_MCP_TOKEN="your-secret-token"
 ```
 
-### Deterministic Execution
+### Deterministic Execution (classic profile)
 
-For reproducible random results:
+On the `classic` profile, `execute_code` accepts a seed for reproducible random results:
 ```python
 execute_code(code="RandomReal[]", deterministic_seed=12345)
 ```

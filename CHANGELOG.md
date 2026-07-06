@@ -2,6 +2,39 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.0] - 2026-07-04
+
+### ⚠ BREAKING
+
+- **Default profile is now `lean` (12 tools), not `full` (82 tools).** If you do nothing, agents see the 12 consolidated lean tools. Set `MATHEMATICA_PROFILE=classic` (alias `full`) to keep the complete pre-1.0 surface. `classic` is byte-identical to the old `full` — same tools, same implementations, no shims. See [docs/MIGRATION.md](docs/MIGRATION.md).
+- **Reinstall the Mathematica addon.** 1.0 adds a Python↔addon `protocol_version` handshake, now at `3`. The addon lives in `$UserBaseDirectory/Kernel/init.m` and does **not** update with `pip`/`uvx`; run `setup` (or `wolframscript -file addon/install.wl`) again. A stale addon is detected and surfaced by `status()`.
+- **`state_delta` is no longer attached to every addon response** (protocol 2→3, a response-contract change). It now appears only on notebook-touching commands (`create_notebook`, `write_cell`, `evaluate_cell`, `get_cells`, ... plus `batch_commands`); pure-kernel responses omit it. `kernel_busy` inside it reports the focused notebook's actual `Evaluating` state.
+- **`vars(action='clear')` requires `name=` or `pattern=`.** A bare `clear` no longer wipes the session — it errors and points at `vars(action='clear_all')`, which is now the explicit way to clear everything. Anyone scripting a bare `clear` must switch to `clear_all`.
+
+### Added
+
+- **Lean default profile**: 12 consolidated tools (`status`, `notebooks`, `cells`, `edit_cells`, `evaluate`, `screenshot`, `verify_derivation`, `kernel`, `vars`, `read_notebook_file`, `guide`, `batch`) tagged `@_tool("lean")`, thin wrappers over the same internals `classic` uses. Tool-schema context drops from 82 tools / ~61 KB (~15k tokens) to 12 tools / ~11.5 KB (~2.9k tokens).
+- **`MATHEMATICA_TOOLSETS`** opt-in extras for lean (comma-separated): `data_io`, `graphics_plus`, `cloud`, `debug`, `notebook_files`, `notebook_edit`, `symbols`, `math_aliases`, `repository`, `async_jobs`, `cache`. Can only add tools to lean, never remove the 12 core tools.
+- **Warm funnel**: the 12 previously-cold `wolframscript` tools (including `verify_derivation`) and the symbol-index build now run on the persistent `WolframLanguageSession` (sub-second warm) with a flagged, counted cold-subprocess fallback. Every response carries `execution_method`, and `status()` surfaces a **cold-execution counter** (0 on the lean happy path), kernel-session liveness, and the idle-shutdown timeout. Remaining cold sites migrated too: function/data repository lookups, symbol usage hydration, graphics re-rasterization on query-cache hits, and notebook→TeX conversion.
+- **JSON-first kernel result parsing**: warm-funnel results are JSON-exported kernel-side, with a sanitizer that stringifies non-JSON-safe leaves and association/rule *keys* (e.g. `EntityProperty[...] -> value`); the regex Association parser remains only as a fallback. An undefined-symbol filter ensures the literal `Sym::usage` text of an unevaluated `MessageName` is never returned or cached as real usage.
+- **Idle kernel shutdown**: the persistent kernel shuts down after `MATHEMATICA_KERNEL_IDLE_TIMEOUT` seconds of inactivity (default `1800`; `0` disables) and restarts on the next call; never reaps mid-evaluation or mid-startup. The kernel is also closed at process exit (threading/atexit hook).
+- **Guidance v2**: failed evaluations carry `error_analysis` with `suggested_fix` and `next_step` on **all** evaluate paths; `retry_with` is a concrete corrected call when derivable from context, otherwise `null`. Oversized output is capped (`MATHEMATICA_MAX_OUTPUT_CHARS`, default `4000`) with a continuation `cursor` you pass back to the same tool; notebook-touching addon responses carry a `state_delta` (`notebook` / `cell_count` / `kernel_busy`); `guide(topic)` gives on-demand help, including a `batch` topic documenting the `batch` command vocabulary.
+- **Profile-aware guidance**: server instructions and the 6 MCP prompts condition on the active profile; the lean profile gets its own instructions and prompt text (the previous text referenced classic-only tools and misdirected lean clients).
+- **Lean input validation**: `evaluate` rejects ambiguous calls (`code=` + `file=`, or `dry_run=True` + `file=`); `notebooks` validates `format` per action (`save`: `Notebook|PDF|HTML|TeX`; `export`: `PDF|HTML|TeX|Markdown`); structured errors carry a `next_step` with the corrected call.
+- **Mathematica 15 first-class**: agent-created notebooks set `ShowChatbar->False` on ≥15 (override with `show_chatbar=True`). 14.x supported behind `$VersionNumber >= 15.` guards, with `MMCP_FORCE_V14=1` to force the `<15` branch for testing. See [V14_VALIDATION.md](V14_VALIDATION.md).
+- **Addon protocol handshake**: `protocol_version` (now `3`) added to `ping`/`get_status`; the Python client detects a stale addon and instructs a reinstall.
+- **LLM trace driver**: `benchmarks/llm_driver.py` replays tool-call scenarios against the live server (with an offline `--stub` mode), `benchmarks/scenarios.json` gains lean-profile variants (`lean_preferred_tools`, `lean_forbidden_sequences`), and `benchmarks/score_trace_corpus.py` accepts `--profile lean`.
+- **Docs**: repositioned README as a front-end / notebook automation layer that runs beside the official Wolfram Local MCP (with a comparison table and a `setup --with-official` flag), plus [docs/MIGRATION.md](docs/MIGRATION.md) and [V14_VALIDATION.md](V14_VALIDATION.md).
+
+### Changed
+
+- `verify_derivation` now runs warm on the persistent session (moat tool, shared by `lean` and `classic`). No API change.
+- `error_analysis` is now attached and preserved in compact responses across every evaluate path, not just the notebook path.
+- Kernel lifecycle hardening: the health-check ping runs under the session lock, and its interval was raised from 5s to 30s.
+- Performance: `mcpStateDelta[]` was ~80% of in-kernel processing time on trivial addon calls — now gated to notebook-touching commands (see BREAKING); cold `wolframscript` spawns (~12.5s each) eliminated from ~14 call paths via the warm funnel.
+- Repo hygiene: draft docs moved out of the repo root to `docs/drafts/` (untracked); removed two tracked test fossils (`tests/TEST_SUMMARY.md`, `tests/demo_error_detection.py`).
+- `__init__.__version__` synced with `pyproject.toml` (0.9.5 → 1.0.0); enforced by a version-sync test.
+
 ## [0.9.4] - 2026-04-09
 
 ### Fixed

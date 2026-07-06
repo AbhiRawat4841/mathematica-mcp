@@ -4,10 +4,9 @@
 
 | Version | Supported          |
 |---------|--------------------|
+| 1.0.x   | :white_check_mark: |
 | 0.9.x   | :white_check_mark: |
-| 0.8.x   | :white_check_mark: |
-| 0.7.x   | :white_check_mark: |
-| < 0.7   | :x:                |
+| < 0.9   | :x:                |
 
 ## Threat Model
 
@@ -56,19 +55,18 @@ These prevent memory exhaustion from oversized payloads.
 
 These prevent hung connections and runaway computations.
 
-## Known Input Handling Gaps
+## Input Handling
 
-The symbol lookup fallback path (`_lookup_symbols_in_kernel` in `server.py`) interpolates query strings directly into Wolfram Language code via Python f-strings when the fast in-memory index is unavailable. The fast path (pure Python symbol index) avoids this entirely.
+User-provided text that the server interpolates into Wolfram Language code (e.g., the symbol lookup query in `_lookup_symbols_in_kernel`) is escaped via `_wl_string` before interpolation, so it is embedded as a WL string literal rather than executable code. This does not apply to tools whose *purpose* is code execution (`evaluate`, `execute_code`, etc.) — those run whatever code they are given, by design (see Dangerous Operations below).
 
-**Primary mitigation**: the server binds to localhost only and is not network-exposed by default, limiting the attack surface to the local machine. However, prompt-injected or copied user text can flow through this path. This is documented here for transparency.
+**Defense in depth**: the server binds to localhost only and is not network-exposed by default, limiting the attack surface to the local machine.
 
 ## Dangerous Operations
 
 The following tools execute arbitrary Wolfram Language code with the **user's full OS privileges**:
 
-- `execute_code` — runs any Wolfram expression
-- `run_script` — runs a `.wl` script file
-- `evaluate_cell` / `evaluate_selection` — evaluates notebook cells
+- `evaluate` (default lean profile) — runs any Wolfram expression, `.wl` script (`file=`), or notebook cell (`target="cell"`/`"selection"`)
+- `execute_code`, `run_script`, `evaluate_cell` / `evaluate_selection` (classic profile) — same capabilities under the legacy names
 
 Wolfram Language has access to:
 
@@ -81,7 +79,8 @@ Wolfram Language has access to:
 
 ## Safe Defaults
 
-- The `math` profile exposes only ~28 computation tools (no file or notebook operations)
+- The default `lean` profile exposes 12 consolidated tools; cloud/network tools (e.g., `wolfram_alpha`) are opt-in via `MATHEMATICA_TOOLSETS=cloud` or `MATHEMATICA_PROFILE=classic`
+- The `math` profile exposes only 28 computation tools (no file or notebook operations)
 - Telemetry is disabled by default
 - Expression cache is memory-only
 - Raster cache: 50 entries max, cleaned on restart
@@ -94,7 +93,7 @@ Please report security issues via [GitHub Security Advisories](https://github.co
 
 ## Recommended Practices
 
-1. Use the `math` profile when notebook/file access is unnecessary
+1. Keep the default `lean` profile (or use `math`) when the full classic tool surface is unnecessary
 2. Enable `MATHEMATICA_MCP_TOKEN` when sharing a machine with other users
 3. Run Mathematica as a non-privileged user
 4. Keep mathematica-mcp and Mathematica up to date

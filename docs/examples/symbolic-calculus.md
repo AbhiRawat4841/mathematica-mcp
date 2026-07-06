@@ -1,5 +1,7 @@
 # Example: Symbolic Calculus
 
+> **Profile note:** This example uses **classic-profile** tool names (`MATHEMATICA_PROFILE=classic`). Under the default `lean` profile, use `evaluate(code)` instead of `execute_code(style="compute")`; `verify_derivation(steps)` is the same in both profiles.
+
 > **Note:** The `raw_data` field shown below is illustrative. The current parser may return `parse_error: true` with raw association text for some results.
 
 ## Scenario
@@ -67,4 +69,4 @@ Result:
 
 ## Profile Required
 
-`math` (or higher)
+Classic names as shown: `math` (or `classic`/`full`). Lean (default): `evaluate` + `verify_derivation` are both core lean tools.

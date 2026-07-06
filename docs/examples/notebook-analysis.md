@@ -1,5 +1,7 @@
 # Example: Notebook Analysis
 
+> **Profile note:** This example uses the **classic-profile** tool name `read_notebook` (`MATHEMATICA_PROFILE=classic`). Under the default `lean` profile the equivalent is `read_notebook_file(path, mode="outline"/"json"/"wolfram")` — same parser, same output formats.
+
 > **Note:** Output below is illustrative. Actual cell counts and content depend on the notebook file and parsing backend used.
 
 ## Scenario
@@ -99,7 +101,7 @@ Plot[Sin[x], {x, 0, 2 Pi}]
 
 ## Profile Required
 
-`notebook` (or `full`)
+Classic name as shown: `notebook` (or `classic`/`full`). Lean (default): `read_notebook_file` is a core lean tool.
 
 ## Notes
 
